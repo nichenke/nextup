@@ -61,8 +61,13 @@ commit whose lockfile held a private registry host.
 
 `scripts/check-identifiers.sh` is an allowlist, not a denylist: a denylist of real hostnames would
 itself be the content it guards. It exists for one job — catching a canonical identifier someone pasted
-into a tracked file — and recognises a scheme URL, an email or scp-form remote, a schemeless host
-followed by a separator, and a cross-repo issue reference. That list is frozen.
+into a tracked file — and recognises a scheme URL, an email or scp-form remote, a *dotted* schemeless
+host followed by a separator, and a cross-repo issue reference. That list is frozen.
+
+The dotted requirement is load-bearing: a single-label host or an IP address in an otherwise canonical
+reference — `registry:5000/team/app`, `10.0.0.1:5000/team/app` — matches nothing, because the final
+label must be letters. That is the same accepted cost as the bare-host gap: relaxing it to catch
+`name:port/path` would flag ordinary code and config.
 
 It does **not** detect tracker keys, obfuscated encodings, or a bare hostname with nothing after it, so
 `check-identifiers: ok` means one narrow class was absent when it ran, not that the diff is clean. It

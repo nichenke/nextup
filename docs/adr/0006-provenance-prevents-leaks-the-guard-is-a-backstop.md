@@ -62,6 +62,13 @@ guard that fires on ADR-0001 gets switched off or rubber-stamped, which costs mo
 catches. Closing this gap has to come from provenance — synthesising tracker references in fixtures
 rather than copying real ones — not from a sharper pattern.
 
+The schemeless shape requires a *dotted* host with a letters-only final label, so a single-label host
+or an IP address in an otherwise canonical reference is missed: `registry:5000/team/app` and
+`10.0.0.1:5000/team/app` both match nothing. These are ordinary container-registry forms, so this is a
+real gap rather than a theoretical one. Relaxing the pattern to `name:port/path` would match ordinary
+code and configuration — the same failure that rules out bare-host matching below — so it is accepted
+on the same cost grounds as the tracker key.
+
 A bare dotted host with no following separator is not matched either, because it is the same shape as
 every `object.property` in the source; matching it flags the codebase rather than a leak. A doubled
 backslash before a slash degenerates into that same gap. Both are recorded as tests naming them as the
