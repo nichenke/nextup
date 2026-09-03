@@ -54,8 +54,17 @@ Note that this repo's own domain vocabulary in `CONTEXT.md` defines **Ticket**, 
 concepts are represented in the tracker; the glossary is what they mean in the code. Keep the two
 readings distinct when writing about either.
 
-## Labels this repo does not have
+## Labels
 
-The tracker carries `bug`, `enhancement`, `wontfix`, `ready-for-agent`, and `spec`. Any other label
-a skill wants must be created before it can be applied — `gh issue edit --add-label` fails on an
-unknown label rather than creating it.
+`gh issue edit --add-label` fails on an unknown label rather than creating it, so a skill reaching for
+a label the tracker lacks stops mid-triage with the state half applied. Check against the tracker
+rather than against a list written here:
+
+```sh
+gh label list --json name --jq '[.[].name] | sort'
+```
+
+An enumeration in this file goes stale the moment a label is added, which is what happened to the
+first version of this section — it named five labels, and three more were created minutes later.
+`triage-labels.md` is the contract for which names the skills use; this command is how you confirm
+they exist.
