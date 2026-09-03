@@ -39,10 +39,24 @@ ALLOWED_KEY_PREFIXES='TEST ABC DEMO FOO XYZ ADR UTF SHA ISO RFC BASE'
 ALLOWED_OWNERS='nichenke example-org'
 OWNER_URL_RE='https?://(github\.com|gitlab\.com|gitlab\.example\.com)/[A-Za-z0-9._-]+'
 
+# Git remotes are frequently SSH rather than HTTP, in both scp form and ssh-scheme form, and
+# neither carries an http scheme for the checks above to anchor on. That matters more here
+# than in most repos: this tool discovers a repository from its git remote, so remotes are
+# exactly what its fixtures will contain. Requiring a trailing owner segment keeps the
+# pattern from swallowing bare email addresses. The shapes are described rather than written
+# out because a literal example would match this pattern and fail on this file.
+SSH_REMOTE_RE='(ssh://)?[A-Za-z0-9._-]+@[A-Za-z0-9.-]+[:/][A-Za-z0-9._-]+/'
+
 failed=0
 
 hosts=$(git ls-files -z | xargs -0 grep -IhoE 'https?://[A-Za-z0-9._:-]+' 2>/dev/null |
 	sed -E 's#^https?://##' | sort -u || true)
+
+ssh_remotes=$(git ls-files -z | xargs -0 grep -IhoE "$SSH_REMOTE_RE" 2>/dev/null | sort -u || true)
+ssh_hosts=$(printf '%s\n' "$ssh_remotes" |
+	sed -E 's#^(ssh://)?[A-Za-z0-9._-]+@##; s#[:/].*$##' | sort -u)
+ssh_owners=$(printf '%s\n' "$ssh_remotes" |
+	sed -E 's#^(ssh://)?[A-Za-z0-9._-]+@[A-Za-z0-9.-]+[:/]##; s#/.*$##' | sort -u)
 
 while IFS= read -r host; do
 	[ -n "$host" ] || continue
@@ -51,7 +65,7 @@ while IFS= read -r host; do
 		printf 'disallowed host: %s\n' "$host" >&2
 		failed=1
 	fi
-done <<<"$hosts"
+done <<<"$(printf '%s\n%s\n' "$hosts" "$ssh_hosts" | sort -u)"
 
 keys=$(git ls-files -z | xargs -0 grep -IhoE '[A-Z]{2,10}-[0-9]+' 2>/dev/null |
 	sort -u || true)
@@ -77,7 +91,7 @@ while IFS= read -r owner; do
 		printf 'disallowed repository owner: %s\n' "$owner" >&2
 		failed=1
 	fi
-done <<<"$(printf '%s\n%s\n' "$url_owners" "$ref_owners" | sort -u)"
+done <<<"$(printf '%s\n%s\n%s\n' "$url_owners" "$ref_owners" "$ssh_owners" | sort -u)"
 
 if [ "$failed" -ne 0 ]; then
 	cat >&2 <<'MSG'

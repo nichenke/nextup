@@ -19,6 +19,8 @@ const disallowedShortKey = "Q" + "Z-9";
 const scheme = "ht" + "tps://";
 const disallowedOwnerUrl = `${scheme}github.com/private-org/repo`;
 const disallowedOwnerRef = "private-org/re" + "po#7";
+const disallowedScpRemote = "git@github.com:" + "private-org/repo.git";
+const disallowedSshUrlRemote = "ssh://git@" + "internal.corp.test/group/repo.git";
 
 function runGuardOn(contents: string) {
 	const dir = mkdtempSync(join(tmpdir(), "nextup-guard-"));
@@ -88,5 +90,32 @@ describe("check-identifiers", () => {
 		const result = runGuardOn(`Tracked in ${disallowedOwnerRef}\n`);
 		expect(result.exitCode).not.toBe(0);
 		expect(result.stderr.toString()).toContain("private-org");
+	});
+
+	// Git remotes are usually SSH, and neither the host nor the owner check above sees them:
+	// there is no http scheme to anchor on. Remotes are what this tool's fixtures will hold,
+	// since it discovers a repository from its remote.
+	test("passes an allowlisted SSH remote in scp form", () => {
+		const result = runGuardOn("origin git@github.com:nichenke/nextup.git\n");
+		expect(result.exitCode).toBe(0);
+	});
+
+	test("fails an SSH remote in scp form whose owner is not allowlisted", () => {
+		const result = runGuardOn(`origin ${disallowedScpRemote}\n`);
+		expect(result.exitCode).not.toBe(0);
+		expect(result.stderr.toString()).toContain("private-org");
+	});
+
+	test("fails an ssh:// remote whose host is not allowlisted", () => {
+		const result = runGuardOn(`origin ${disallowedSshUrlRemote}\n`);
+		expect(result.exitCode).not.toBe(0);
+		expect(result.stderr.toString()).toContain("internal.corp.test");
+	});
+
+	// The SSH pattern is user@host-shaped, so it could have swallowed email addresses. It
+	// requires a trailing owner segment precisely so that it does not.
+	test("passes a bare email address, which is not a remote", () => {
+		const result = runGuardOn("Contact noreply@anthropic.com for details\n");
+		expect(result.exitCode).toBe(0);
 	});
 });
