@@ -1,153 +1,62 @@
 #!/usr/bin/env bash
-# Fails on any URL host or issue-key token that is not on the synthetic allowlist.
+# Fails on any identifier-shaped token in a tracked file that is not allowlisted verbatim.
 #
-# Deliberately an allowlist rather than a denylist: a denylist of real hostnames and
-# project keys would itself be the content it guards, so publishing the guard would
-# leak exactly what it protects.
+# The allowlist holds whole tokens, not hostnames or namespaces. Extracting "just the sensitive
+# part" of a URL meant tracking git's URL grammar, and every version of that had a bypass: a
+# nested GitLab namespace, an omitted SSH user, a port read as an owner, a native git:// remote
+# matched by nothing. Whole-token matching has no grammar to get wrong -- an unrecognised token
+# fails whatever shape it takes. A new legitimate identifier costs one line below, which for a
+# repo with a handful of them is the point rather than the tax.
 #
-# Word boundaries (\b, [[:<:]]) are avoided for portability between BSD and GNU grep, so
-# the key pattern over-matches inside longer tokens. That is the safe direction for a
-# guard, but the prefix is restricted to letters: allowing digits made the pattern match
-# a substring of its own character class, which fired on this file. The cost is that a
-# project key with a digit in its prefix goes unmatched; those are treated as out of
-# contract rather than supported.
+# Deliberately not a denylist: a denylist of real hosts and project keys would itself be the
+# content it guards, so publishing the guard would leak exactly what it protects.
 set -euo pipefail
 
-ALLOWED_HOSTS='
-example.com
-example.org
-example.net
-gitlab.example.com
-example.atlassian.net
-github.com
-api.github.com
-gitlab.com
-registry.npmjs.org
-bun.sh
-code.claude.com
-anthropic.com
-localhost
+ALLOWED='
+https://anthropic.com/claude-code/marketplace.schema.json
+https://github.com/nichenke/nextup
+https://github.com/nichenke/nextup/issues/2
+https://github.com/nichenke/nextup/issues?q=is%3Aissue+label%3Aready-for-agent
+https://registry.npmjs.org
+https://example.com/issues/1
+TEST-42
 '
 
-ALLOWED_KEY_PREFIXES='TEST ABC DEMO FOO XYZ ADR UTF SHA ISO RFC BASE'
+# Anything that can carry an identity: a scheme of any kind, an @ followed by a real host (an
+# email or an scp-form remote), a cross-repo issue reference, or a project-key shape. Broad on
+# purpose -- a false positive costs one allowlist line, a false negative is a leak.
+#
+# The @ form requires a dotted host with a letters-only final label. Without that it matched
+# every `package@version` in the lockfile and every pinned action version, which is noise no
+# reviewer would read.
+PATTERN='([a-z][a-z0-9+.-]*://[^[:space:]]+)|([A-Za-z0-9._%+/-]+@[A-Za-z0-9.-]*\.[A-Za-z]{2,}([:/][^[:space:]]*)?)|([A-Za-z0-9._/-]+#[0-9]+)|([A-Z]{2,10}-[0-9]+)'
 
-# A host allowlist alone passes a code host followed by a private org, since the org lives in
-# the path. So namespaces are checked as well as hosts.
+# Surrounding markup travels with a token: a markdown link wraps it in parentheses, prose ends it
+# with a full stop, and a URL inside a source-code string literal is followed by an escape
+# sequence and a quote. None of that is part of the identifier.
 #
-# GitHub and GitLab need different extraction. A GitHub namespace is exactly the first path
-# segment, and the segments after it are a repo name and route words. A GitLab namespace nests
-# arbitrarily and every segment of it is identity -- a private subgroup beneath an allowlisted
-# top-level group is still a private name -- so the whole namespace is checked as one value.
-#
-# api.github.com is deliberately not namespace-checked: its paths begin with a route segment
-# rather than a namespace, so the host check alone covers it.
-ALLOWED_OWNERS='nichenke example-org'
-GH_URL_RE='https?://github\.com/[A-Za-z0-9._-]+'
-GL_URL_RE='https?://(gitlab\.com|gitlab\.example\.com)/[A-Za-z0-9._/-]+'
-
-# Git remotes are frequently SSH rather than HTTP, in both scp form and ssh-scheme form, and
-# neither carries an http scheme for the checks above to anchor on. That matters more here
-# than in most repos: this tool discovers a repository from its git remote, so remotes are
-# exactly what its fixtures will contain.
-#
-# Two forms, matched separately, because git's URL grammar treats them differently. The scp
-# form has no scheme, so a user component is what distinguishes a remote from arbitrary text
-# containing a colon -- it is required here, and that is also what keeps the pattern off bare
-# email addresses. The ssh-scheme form has a scheme to anchor on, so git makes both the user
-# and the port optional, and both must therefore be optional here too.
-#
-# The shapes are described rather than written out: a literal example would match these
-# patterns and fail on this file.
-SCP_REMOTE_RE='[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*'
-SSH_URL_RE='ssh://([A-Za-z0-9._-]+@)?[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._-]+)+'
+# `]` leads the trailing class because a bracket expression cannot escape it -- written as `\]`
+# further in, it closes the class instead, and trailing punctuation was silently never stripped.
+tokens=$(git ls-files -z | xargs -0 grep -IhoE "$PATTERN" 2>/dev/null |
+	sed -E 's#\\n.*$##; s#^[[({<"'"'"'`]+##; s#[].,;:!?)}>"'"'"'`]+$##' | sort -u || true)
 
 failed=0
-
-# Every tracked text line, gathered once. The scp scan needs a version of this with ssh-scheme
-# URLs stripped out first: the scp pattern otherwise matches the authority inside one of them
-# and reads its port as the namespace, failing an allowlisted remote.
-text=$(git ls-files -z | xargs -0 grep -Ih '' 2>/dev/null || true)
-text_no_ssh_urls=$(printf '%s\n' "$text" | sed -E 's#ssh://[^[:space:]]*##g')
-
-hosts=$(printf '%s\n' "$text" | grep -oE 'https?://[A-Za-z0-9._:-]+' |
-	sed -E 's#^https?://##' | sort -u || true)
-
-scp_remotes=$(printf '%s\n' "$text_no_ssh_urls" | grep -oE "$SCP_REMOTE_RE" | sort -u || true)
-ssh_url_remotes=$(printf '%s\n' "$text" | grep -oE "$SSH_URL_RE" | sort -u || true)
-
-ssh_hosts=$(
-	{
-		printf '%s\n' "$scp_remotes" | sed -E 's#^[^@]+@##; s#:.*$##'
-		printf '%s\n' "$ssh_url_remotes" | sed -E 's#^ssh://([^@/]+@)?##; s#[:/].*$##'
-	} | sort -u
-)
-
-# A remote path is namespace plus repo on either host, so dropping the final segment yields the
-# namespace: one segment on GitHub, however many on GitLab. The port, where present, belongs to
-# the authority and must come off before the first path segment is read -- otherwise it reads as
-# the namespace and an allowlisted remote fails.
-ssh_owners=$(
-	{
-		printf '%s\n' "$scp_remotes" | sed -E 's#^[^@]+@[^:]+:##'
-		printf '%s\n' "$ssh_url_remotes" | sed -E 's#^ssh://([^@/]+@)?[^/]+/##'
-	} | sed -E 's#\.git$##; s#/$##; s#/[^/]+$##' | grep -vE '^$|^[0-9]+$' | sort -u || true
-)
-
-# Composed into a variable rather than inlined into the here-string below. A failure inside a
-# here-string's command substitution is discarded, so an unset variable there made this script
-# check nothing and still print "ok" -- the one outcome a guard must never have. As an
-# assignment, the same failure aborts under `set -e`.
-host_candidates=$(printf '%s\n%s\n' "$hosts" "$ssh_hosts" | sort -u)
-
-while IFS= read -r host; do
-	[ -n "$host" ] || continue
-	bare=${host%%:*}
-	if ! printf '%s\n' "$ALLOWED_HOSTS" | grep -qxF "$bare"; then
-		printf 'disallowed host: %s\n' "$host" >&2
+while IFS= read -r token; do
+	[ -n "$token" ] || continue
+	if ! printf '%s\n' "$ALLOWED" | grep -qxF "$token"; then
+		printf 'unrecognised identifier: %s\n' "$token" >&2
 		failed=1
 	fi
-done <<<"$host_candidates"
-
-keys=$(printf '%s\n' "$text" | grep -oE '[A-Z]{2,10}-[0-9]+' | sort -u || true)
-
-while IFS= read -r key; do
-	[ -n "$key" ] || continue
-	prefix=${key%%-*}
-	if ! printf '%s\n' $ALLOWED_KEY_PREFIXES | grep -qxF "$prefix"; then
-		printf 'disallowed issue-key token: %s\n' "$key" >&2
-		failed=1
-	fi
-done <<<"$keys"
-
-gh_owners=$(printf '%s\n' "$text" | grep -oE "$GH_URL_RE" |
-	sed -E 's#^https?://[^/]+/##' | sort -u || true)
-
-# Everything before the `/-/` route separator, or the whole path where there is none, minus the
-# final project segment.
-gl_owners=$(printf '%s\n' "$text" | grep -oE "$GL_URL_RE" |
-	sed -E 's#^https?://[^/]+/##; s#/-/.*$##; s#/$##; s#/[^/]+$##' | grep -v '^$' | sort -u || true)
-
-ref_owners=$(printf '%s\n' "$text" | grep -oE '[A-Za-z0-9._-]+/[A-Za-z0-9._-]+#[0-9]+' |
-	sed -E 's#/.*##' | sort -u || true)
-
-namespace_candidates=$(printf '%s\n%s\n%s\n%s\n' "$gh_owners" "$gl_owners" "$ref_owners" "$ssh_owners" | sort -u)
-
-while IFS= read -r owner; do
-	[ -n "$owner" ] || continue
-	if ! printf '%s\n' $ALLOWED_OWNERS | grep -qxF "$owner"; then
-		printf 'disallowed repository namespace: %s\n' "$owner" >&2
-		failed=1
-	fi
-done <<<"$namespace_candidates"
+done <<<"$tokens"
 
 if [ "$failed" -ne 0 ]; then
 	cat >&2 <<'MSG'
 
-An identifier outside the synthetic allowlist was found in a tracked file.
+An identifier-shaped token in a tracked file is not on the allowlist.
 
-This repository is public. If the identifier belongs to a private system, remove it
-and use a synthetic one. If it is genuinely public and belongs here, add it to the
-allowlist in this script -- deliberately, as its own reviewable change.
+This repository is public. If it belongs to a private system, remove it and use a
+synthetic one. If it is genuinely public and belongs here, add it verbatim to
+ALLOWED in this script -- deliberately, as its own reviewable change.
 MSG
 	exit 1
 fi

@@ -6,24 +6,17 @@ import { join } from "node:path";
 
 const script = join(import.meta.dir, "check-identifiers.sh");
 
-// The disallowed fixtures below are assembled at runtime rather than written as
-// literals: a literal would sit in a tracked file and the guard would flag its own
-// test, which is the one file that has to contain a failing case.
-const disallowedHostUrl = "https://" + "internal." + "corp" + ".test";
-const disallowedKey = "WOR" + "K-1234";
-const disallowedShortKey = "Q" + "Z-9";
-
-// Splitting mid-URL is not enough for the owner cases: a fragment that ends partway through
-// the hostname still carries a scheme, so the host check flags the truncated host. The scheme
-// is what gets split instead. (Writing that example out literally here also tripped it.)
-const scheme = "ht" + "tps://";
-const disallowedOwnerUrl = `${scheme}github.com/private-org/repo`;
-const disallowedOwnerRef = "private-org/re" + "po#7";
-const disallowedScpRemote = "git@github.com:" + "private-org/repo.git";
-const disallowedSshUrlRemote = "ssh://git@" + "internal.corp.test/group/repo.git";
-const nestedGitlabUrl = `${scheme}gitlab.com/example-org/private-group/repo`;
-const nestedGitlabRemote = "git@gitlab.com:" + "example-org/private-group/repo.git";
-const userlessSshRemote = "ssh://git" + "hub.com/private-org/repo.git";
+// Fixtures the guard must reject are assembled at runtime, because this file is itself tracked
+// and scanned. The split falls immediately after a scheme's colon, or before a host's first dot,
+// so that neither fragment is a token in its own right: a scheme needs `://` to match, and the
+// @ form needs a dotted host.
+const unknownHttpsUrl = "https:" + "//internal.corp.test/x";
+const unknownSshUrl = "ssh:" + "//internal.corp.test/group/repo.git";
+const unknownGitUrl = "git:" + "//internal.corp.test/group/repo.git";
+const unknownScpRemote = "git@internal" + ".corp.test:group/repo.git";
+const unknownEmail = "person@internal" + ".corp.test";
+const unknownKey = "WOR" + "K-1234";
+const unknownRef = "private-org/repo" + "#7";
 
 function runGuardOn(contents: string) {
 	const dir = mkdtempSync(join(tmpdir(), "nextup-guard-"));
@@ -41,123 +34,77 @@ function runGuardOn(contents: string) {
 }
 
 describe("check-identifiers", () => {
-	test("passes a file using only allowlisted identifiers", () => {
-		const result = runGuardOn("See https://example.com/issues/1 and TEST-42.\n");
+	test("passes tokens that are on the allowlist", () => {
+		const result = runGuardOn("See https://example.com/issues/1 and TEST-42\n");
 		expect(result.exitCode).toBe(0);
 	});
 
-	test("passes an allowlisted host carrying a port", () => {
-		const result = runGuardOn("Served at https://localhost:3000/health\n");
-		expect(result.exitCode).toBe(0);
-	});
-
-	test("fails on a host outside the allowlist, naming it", () => {
-		const result = runGuardOn(`Ticket at ${disallowedHostUrl}/issues/7\n`);
+	// One test per scheme would be endless, so these three stand for the class: the guard does
+	// not know or care which schemes exist, it only knows which exact tokens are permitted.
+	test("fails an unrecognised https URL", () => {
+		const result = runGuardOn(`Ticket at ${unknownHttpsUrl}\n`);
 		expect(result.exitCode).not.toBe(0);
 		expect(result.stderr.toString()).toContain("internal.corp.test");
 	});
 
-	test("fails on an issue-key prefix outside the allowlist, naming it", () => {
-		const result = runGuardOn(`Blocked by ${disallowedKey}\n`);
+	test("fails an unrecognised ssh URL that omits the user", () => {
+		const result = runGuardOn(`origin ${unknownSshUrl}\n`);
 		expect(result.exitCode).not.toBe(0);
-		expect(result.stderr.toString()).toContain(disallowedKey);
+		expect(result.stderr.toString()).toContain("internal.corp.test");
 	});
 
-	test("fails on a two-letter prefix, the shortest the pattern accepts", () => {
-		const result = runGuardOn(`Blocked by ${disallowedShortKey}\n`);
+	test("fails an unrecognised git-protocol URL", () => {
+		const result = runGuardOn(`origin ${unknownGitUrl}\n`);
 		expect(result.exitCode).not.toBe(0);
-		expect(result.stderr.toString()).toContain(disallowedShortKey);
+		expect(result.stderr.toString()).toContain("internal.corp.test");
 	});
 
-	// Regression: an earlier key pattern allowed digits in the prefix, which made it match
-	// a substring of a bracket character class and fail on the guard's own source.
+	test("fails an unrecognised scp-form remote", () => {
+		const result = runGuardOn(`origin ${unknownScpRemote}\n`);
+		expect(result.exitCode).not.toBe(0);
+		expect(result.stderr.toString()).toContain("internal.corp.test");
+	});
+
+	test("fails an unrecognised email address", () => {
+		const result = runGuardOn(`Contact ${unknownEmail}\n`);
+		expect(result.exitCode).not.toBe(0);
+		expect(result.stderr.toString()).toContain("internal.corp.test");
+	});
+
+	test("fails an unrecognised project key", () => {
+		const result = runGuardOn(`Blocked by ${unknownKey}\n`);
+		expect(result.exitCode).not.toBe(0);
+		expect(result.stderr.toString()).toContain(unknownKey);
+	});
+
+	test("fails an unrecognised cross-repo issue reference", () => {
+		const result = runGuardOn(`Tracked in ${unknownRef}\n`);
+		expect(result.exitCode).not.toBe(0);
+		expect(result.stderr.toString()).toContain("private-org");
+	});
+
+	// Markup travels with a token when it is grepped out of prose, and is not part of it.
+	test("passes an allowlisted URL ending a sentence", () => {
+		const result = runGuardOn("Filed at https://example.com/issues/1.\n");
+		expect(result.exitCode).toBe(0);
+	});
+
+	test("passes an allowlisted URL inside a markdown link", () => {
+		const result = runGuardOn("See [the ticket](https://example.com/issues/1)\n");
+		expect(result.exitCode).toBe(0);
+	});
+
+	// A dependency specifier is not an identifier. Before the host was required to be dotted
+	// with a letters-only final label, every lockfile entry was flagged.
+	test("passes a package version specifier", () => {
+		const result = runGuardOn('"typescript@5.9.3", "checkout@v4"\n');
+		expect(result.exitCode).toBe(0);
+	});
+
+	// Regression: an earlier key pattern allowed digits in the prefix, which made it match a
+	// substring of a bracket character class and fail on the guard's own source.
 	test("passes a file containing a regex character class", () => {
 		const result = runGuardOn("Pattern: [A-Z][A-Z0-9]{1,9}-[0-9]+\n");
-		expect(result.exitCode).toBe(0);
-	});
-
-	test("passes a code-host URL owned by an allowlisted owner", () => {
-		const result = runGuardOn("See https://github.com/nichenke/nextup\n");
-		expect(result.exitCode).toBe(0);
-	});
-
-	// The host allowlist alone cannot catch these: github.com is allowed, and the owner
-	// that identifies a private organisation lives in the path.
-	test("fails a code-host URL whose owner is not allowlisted", () => {
-		const result = runGuardOn(`Upstream: ${disallowedOwnerUrl}\n`);
-		expect(result.exitCode).not.toBe(0);
-		expect(result.stderr.toString()).toContain("private-org");
-	});
-
-	test("fails a cross-repo issue reference whose owner is not allowlisted", () => {
-		const result = runGuardOn(`Tracked in ${disallowedOwnerRef}\n`);
-		expect(result.exitCode).not.toBe(0);
-		expect(result.stderr.toString()).toContain("private-org");
-	});
-
-	// Git remotes are usually SSH, and neither the host nor the owner check above sees them:
-	// there is no http scheme to anchor on. Remotes are what this tool's fixtures will hold,
-	// since it discovers a repository from its remote.
-	test("passes an allowlisted SSH remote in scp form", () => {
-		const result = runGuardOn("origin git@github.com:nichenke/nextup.git\n");
-		expect(result.exitCode).toBe(0);
-	});
-
-	test("fails an SSH remote in scp form whose owner is not allowlisted", () => {
-		const result = runGuardOn(`origin ${disallowedScpRemote}\n`);
-		expect(result.exitCode).not.toBe(0);
-		expect(result.stderr.toString()).toContain("private-org");
-	});
-
-	test("fails an ssh:// remote whose host is not allowlisted", () => {
-		const result = runGuardOn(`origin ${disallowedSshUrlRemote}\n`);
-		expect(result.exitCode).not.toBe(0);
-		expect(result.stderr.toString()).toContain("internal.corp.test");
-	});
-
-	// The SSH pattern is user@host-shaped, so it could have swallowed email addresses. It
-	// requires two path segments precisely so that it does not.
-	test("passes a bare email address, which is not a remote", () => {
-		const result = runGuardOn("Contact noreply@anthropic.com for details\n");
-		expect(result.exitCode).toBe(0);
-	});
-
-	// GitLab namespaces nest, and checking only the first segment would clear a private
-	// subgroup sitting beneath an allowlisted top-level group.
-	test("passes a flat GitLab namespace that is allowlisted", () => {
-		const result = runGuardOn("Repo at https://gitlab.com/example-org/repo\n");
-		expect(result.exitCode).toBe(0);
-	});
-
-	test("passes a GitLab URL carrying a route separator", () => {
-		const result = runGuardOn("Issue at https://gitlab.com/example-org/proj/-/issues/8\n");
-		expect(result.exitCode).toBe(0);
-	});
-
-	test("fails a nested GitLab namespace even under an allowlisted top-level group", () => {
-		const result = runGuardOn(`Repo at ${nestedGitlabUrl}\n`);
-		expect(result.exitCode).not.toBe(0);
-		expect(result.stderr.toString()).toContain("example-org/private-group");
-	});
-
-	test("fails a nested GitLab namespace in an SSH remote", () => {
-		const result = runGuardOn(`origin ${nestedGitlabRemote}\n`);
-		expect(result.exitCode).not.toBe(0);
-		expect(result.stderr.toString()).toContain("example-org/private-group");
-	});
-
-	// git's URL grammar makes the user optional in the ssh-scheme form, and permits a port
-	// after the host. An earlier pattern required the user and read the port as the namespace.
-	test("fails an ssh:// remote that omits the user", () => {
-		const result = runGuardOn(`origin ${userlessSshRemote}\n`);
-		expect(result.exitCode).not.toBe(0);
-		expect(result.stderr.toString()).toContain("private-org");
-	});
-
-	test("passes an allowlisted ssh:// remote carrying an explicit port", () => {
-		const result = runGuardOn(
-			"origin ssh://git@gitlab.example.com:2222/example-org/repo.git\n",
-		);
 		expect(result.exitCode).toBe(0);
 	});
 });
