@@ -120,14 +120,16 @@ function resolveUrl(url: string, runner: Runner): TicketRef {
 	// "/-/issues/", so the two shapes cannot collide regardless of which is checked first.
 	const gitlab = GITLAB_ISSUE_URL.exec(url);
 	if (gitlab?.[1] && gitlab[2] && gitlab[3]) {
-		const [, host, repo, key] = gitlab;
+		const [, rawHost, repo, key] = gitlab;
+		const host = normalizeHost(rawHost);
 		requireAuthenticatedHost("gitlab", host, runner);
 		return { tracker: "gitlab", repo, host, key };
 	}
 
 	const generic = GENERIC_ISSUES_URL.exec(url);
 	if (generic?.[1] && generic[2] && generic[3]) {
-		const [, host, repo, key] = generic;
+		const [, rawHost, repo, key] = generic;
+		const host = normalizeHost(rawHost);
 		if (repo.split("/").length > 2) {
 			requireAuthenticatedHost("gitlab", host, runner);
 			return { tracker: "gitlab", repo, host, key };
@@ -138,12 +140,20 @@ function resolveUrl(url: string, runner: Runner): TicketRef {
 
 	const jira = JIRA_ISSUE_URL.exec(url);
 	if (jira?.[1] && jira[2]) {
-		const [, host, key] = jira;
+		const [, rawHost, key] = jira;
+		const host = normalizeHost(rawHost);
 		requireJiraAuth(host, runner);
 		return { tracker: "jira", repo: null, host, key };
 	}
 
 	throw new TicketRefError(`${url} does not match a GitHub, GitLab, or Jira issue URL shape`);
+}
+
+// Hostnames are case-insensitive (URL Standard, host parsing), but the CLIs' own --hostname
+// matching and hosts.yml keys are not guaranteed to canonicalize casing themselves — lowercase
+// here once, rather than at every downstream comparison.
+function normalizeHost(host: string): string {
+	return host.toLowerCase();
 }
 
 function disambiguateHost(host: string, runner: Runner): "github" | "gitlab" {

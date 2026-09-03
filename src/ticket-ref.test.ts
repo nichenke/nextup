@@ -118,6 +118,11 @@ describe("resolveTicketRef: pasted URLs", () => {
 		expect(ref).toEqual({ tracker: "jira", repo: null, host: "example.com", key: "TEST-42" });
 	});
 
+	test("an uppercase hostname normalizes to lowercase and still matches lowercase auth state", () => {
+		const ref = resolveTicketRef("https://EXAMPLE.com/group/project/-/issues/1", { runner: routedRunner(GLAB_AUTHED) });
+		expect(ref).toEqual({ tracker: "gitlab", repo: "group/project", host: "example.com", key: "1" });
+	});
+
 	test("a Jira browse URL fails loudly with no authenticated Jira session", () => {
 		expect(() => resolveTicketRef("https://example.com/browse/TEST-42", { runner: routedRunner({}) })).toThrow(
 			TicketRefError,

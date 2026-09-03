@@ -30,6 +30,7 @@ https://example.com/example/repo.git
 https://example.com/example/repo/issues/1
 https://example.com/example/repo/pull/1
 https://example.com/group/project/-/issues/1
+https://EXAMPLE.com/group/project/-/issues/1
 https://example.com/group/subgroup/project.git
 https://example.com/example/repo.git/
 https://example.com/group/-/issues/1
