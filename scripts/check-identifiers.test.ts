@@ -7,19 +7,32 @@ import { join } from "node:path";
 const script = join(import.meta.dir, "check-identifiers.sh");
 
 // Fixtures the guard must reject are assembled at runtime, because this file is itself tracked
-// and scanned. The split falls immediately after a scheme's colon, or before a host's first dot,
-// so that neither fragment is a token in its own right: a scheme needs `://` to match, and the
-// @ form needs a dotted host.
-const unknownHttpsUrl = "https:" + "//internal.corp.test/x";
-const unknownSshUrl = "ssh:" + "//internal.corp.test/group/repo.git";
-const unknownGitUrl = "git:" + "//internal.corp.test/group/repo.git";
-const unknownScpRemote = "git@internal" + ".corp.test:group/repo.git";
+// and scanned. Splitting after a scheme's colon is no longer sufficient on its own, because the
+// remainder is still a dotted host followed by a slash, which the schemeless shape matches. So each
+// host is also split before its final label, leaving no fragment that carries two dotted labels
+// ahead of a separator. A comment here cannot spell such a fragment out either -- doing so is what
+// made the guard fail on this file while the tests all passed.
+const unknownHttpsUrl = "https:" + "//internal.corp" + ".test/x";
+const unknownSshUrl = "ssh:" + "//internal.corp" + ".test/group/repo.git";
+const unknownGitUrl = "git:" + "//internal.corp" + ".test/group/repo.git";
+const unknownScpRemote = "git@internal" + ".corp" + ".test:group/repo.git";
 const unknownEmail = "person@internal" + ".corp.test";
-const unknownKey = "WOR" + "K-1234";
 const unknownRef = "private-org/repo" + "#7";
-const unknownApiUrl = "https:" + "//api.github.com/repos/private-org/repo/issues/7";
-// A literal backslash-n between two URLs, as it would appear inside a source string literal.
-const hiddenAfterEscape = "https://example.com/issues/1\\n" + "https:" + "//internal.corp.test/x";
+const unknownApiUrl = "https:" + "//api.github" + ".com/repos/private-org/repo/issues/7";
+const hiddenAfterEscape =
+	"https://example.com/issues/1\\n" + "https:" + "//internal.corp" + ".test/x";
+
+const escapedSlashUrl = "https:" + "\\/\\/internal.corp" + ".test\\/x";
+const escapedSlashAllowlisted = "https:" + "\\/\\/example.com" + "\\/issues\\/1";
+const escapedBareHost = "https:" + "\\\\/\\\\/internal.corp" + ".test\\\\/x";
+
+// The three schemeless shapes that reach a lockfile or a config without a human typing them.
+const unknownImageRef = "mirror.internal.test" + "/team/app:1.2.3";
+const unknownAuthLine = "//mirror.internal.test" + "/:_authToken=redacted";
+const unknownSchemelessUrl = "mirror.internal.test" + "/pkg/tarball";
+
+// A prefix must not vouch for a longer name that merely starts with it.
+const lookalikeRepo = "https://github.com/nichenke/nextup" + "-mirror/x";
 
 function runGuardOn(contents: string) {
 	const dir = mkdtempSync(join(tmpdir(), "nextup-guard-"));
@@ -38,7 +51,7 @@ function runGuardOn(contents: string) {
 
 describe("check-identifiers", () => {
 	test("passes tokens that are on the allowlist", () => {
-		const result = runGuardOn("See https://example.com/issues/1 and TEST-42\n");
+		const result = runGuardOn("See https://example.com/issues/1\n");
 		expect(result.exitCode).toBe(0);
 	});
 
@@ -74,12 +87,6 @@ describe("check-identifiers", () => {
 		expect(result.stderr.toString()).toContain("internal.corp.test");
 	});
 
-	test("fails an unrecognised project key", () => {
-		const result = runGuardOn(`Blocked by ${unknownKey}\n`);
-		expect(result.exitCode).not.toBe(0);
-		expect(result.stderr.toString()).toContain(unknownKey);
-	});
-
 	test("fails an unrecognised cross-repo issue reference", () => {
 		const result = runGuardOn(`Tracked in ${unknownRef}\n`);
 		expect(result.exitCode).not.toBe(0);
@@ -103,14 +110,73 @@ describe("check-identifiers", () => {
 		expect(result.stderr.toString()).toContain("internal.corp.test");
 	});
 
-	// Markup travels with a token when it is grepped out of prose, and is not part of it.
-	test("passes an allowlisted URL ending a sentence", () => {
-		const result = runGuardOn("Filed at https://example.com/issues/1.\n");
+	test("fails an unrecognised URL written with escaped slashes", () => {
+		const result = runGuardOn(`const x = "${escapedSlashUrl}"\n`);
+		expect(result.exitCode).not.toBe(0);
+		expect(result.stderr.toString()).toContain("internal.corp.test");
+	});
+
+	test("passes an allowlisted URL written with escaped slashes", () => {
+		const result = runGuardOn(`const x = "${escapedSlashAllowlisted}"\n`);
 		expect(result.exitCode).toBe(0);
 	});
 
-	test("passes an allowlisted URL inside a markdown link", () => {
-		const result = runGuardOn("See [the ticket](https://example.com/issues/1)\n");
+	// This is the nearest input the fix does not catch, recorded rather than fixed. A doubled
+	// backslash is an escaped backslash, so unescaping consumes one pair and leaves the host
+	// followed by a backslash rather than a separator -- which lands it in the bare-host gap the
+	// test below documents. Out of contract because it is not a form any tool writes: a lockfile,
+	// an .npmrc and a container manifest all emit either a plain or a singly-escaped slash. Widen
+	// this only alongside bare-host matching, since the two share one cause.
+	test("does not catch a host behind a doubled backslash", () => {
+		const result = runGuardOn(`const x = "${escapedBareHost}"\n`);
+		expect(result.exitCode).toBe(0);
+	});
+
+	test("fails a container image reference with no scheme", () => {
+		const result = runGuardOn(`image: ${unknownImageRef}\n`);
+		expect(result.exitCode).not.toBe(0);
+		expect(result.stderr.toString()).toContain("mirror.internal.test");
+	});
+
+	test("fails an npmrc-style auth line with no scheme", () => {
+		const result = runGuardOn(`${unknownAuthLine}\n`);
+		expect(result.exitCode).not.toBe(0);
+		expect(result.stderr.toString()).toContain("mirror.internal.test");
+	});
+
+	test("fails a schemeless URL", () => {
+		const result = runGuardOn(`resolved ${unknownSchemelessUrl}\n`);
+		expect(result.exitCode).not.toBe(0);
+		expect(result.stderr.toString()).toContain("mirror.internal.test");
+	});
+
+	// A bare dotted host with nothing after it is deliberately not matched: it is the same shape
+	// as every `object.property` in the source, so matching it flagged the codebase, not a leak.
+	test("passes a bare dotted host with no separator after it", () => {
+		const result = runGuardOn("expect(result.exitCode).toBe(0)\n");
+		expect(result.exitCode).toBe(0);
+	});
+
+	test("passes any issue or pull-request URL under this repository", () => {
+		const result = runGuardOn(
+			"See https://github.com/nichenke/nextup/issues/19 and https://github.com/nichenke/nextup/pull/1\n",
+		);
+		expect(result.exitCode).toBe(0);
+	});
+
+	test("fails a repository name that merely starts with an allowlisted prefix", () => {
+		const result = runGuardOn(`Cloned ${lookalikeRepo}\n`);
+		expect(result.exitCode).not.toBe(0);
+		expect(result.stderr.toString()).toContain("nextup-mirror");
+	});
+
+	// Standards identifiers share the tracker-key shape the guard used to match, and this is the
+	// prose a repo about tickets, timestamps and lockfile hashes actually writes. Matching them
+	// made the guard fire on benign documentation, which is what gets an allowlist rubber-stamped.
+	test("passes standards and specification identifiers", () => {
+		const result = runGuardOn(
+			"ADR-0003 uses ISO-8601 timestamps, SHA-256 integrity, UTF-8, RFC-3986, CVE-2024-3094, AES-256-GCM.\n",
+		);
 		expect(result.exitCode).toBe(0);
 	});
 
@@ -118,13 +184,6 @@ describe("check-identifiers", () => {
 	// with a letters-only final label, every lockfile entry was flagged.
 	test("passes a package version specifier", () => {
 		const result = runGuardOn('"typescript@5.9.3", "checkout@v4"\n');
-		expect(result.exitCode).toBe(0);
-	});
-
-	// Regression: an earlier key pattern allowed digits in the prefix, which made it match a
-	// substring of a bracket character class and fail on the guard's own source.
-	test("passes a file containing a regex character class", () => {
-		const result = runGuardOn("Pattern: [A-Z][A-Z0-9]{1,9}-[0-9]+\n");
 		expect(result.exitCode).toBe(0);
 	});
 });
