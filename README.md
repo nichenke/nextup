@@ -11,15 +11,14 @@ git worktree.
 Bootstrapping. Nothing functional yet — the design is settled and written down, but no adapter, selector,
 or launcher exists.
 
-- [`docs/spec.md`](./docs/spec.md) — the specification: problem, solution, user stories, and the phasing
+- [The spec](https://github.com/nichenke/nextup/issues/2) — problem, solution, user stories, and the
+  phased delivery
+- [The ticket set](https://github.com/nichenke/nextup/issues?q=is%3Aissue+label%3Aready-for-agent) — 16
+  tickets, children of the spec, wired with native blocking edges
 - [`docs/adr/`](./docs/adr/) — four architecture decisions, each one a thing a reader would otherwise try
   to "fix"
 - [`CONTEXT.md`](./CONTEXT.md) — the glossary, and the reason it exists: the concepts here already carry
   three different names across the implementations this replaces
-- [`.scratch/nextup/`](./.scratch/nextup/) — the ticket set, as local markdown, with blocking edges
-
-The ticket set is deliberately in the format the markdown adapter will have to read, so it doubles as
-that adapter's first fixture.
 
 ## Design in one screen
 
