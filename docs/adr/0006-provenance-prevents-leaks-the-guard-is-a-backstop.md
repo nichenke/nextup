@@ -80,12 +80,16 @@ sanitizer and publishes code no human reviewed in its published form. A word-lev
 polarity but the wrong growth curve — tractable at 471 unique tokens today, intolerable once a real
 dependency tree lands.
 
-CI asserts the registry pin before any install, and asserts two things rather than one: that the exact
-public line is present, and that it is the file's only registry assignment. A lone comparison for the
-line is not enough, because `grep` is not TOML-aware — the public line can sit in the root table while
-`[install]` names a private mirror, and the check passes while bun reads the mirror. That was live for
-one commit and is now covered. Requiring a single assignment removes the hiding place without parsing
-the file, which matters in this repo because its parsers are where its bugs have been.
+CI asserts the registry pin before any install, and asserts the *table* the key sits under rather than
+the key's text. Two earlier versions of this check matched the line alone and passed on a file that
+pinned nothing at all: the public line in the root table, under `[test]`, or under `[install.scopes]`,
+with `[install]` unpinned or set to a mirror. Both were caught by review, not by the check, and the
+second was written while fixing the first — the same one-more-spelling reflex this ADR rejects for the
+guard, reappearing in the check meant to replace it. What holds is emitting `<table>|<line>` for every
+registry assignment and comparing the whole output literally: missing, misplaced, scoped, duplicated
+and altered keys all fail, and a duplicate emits a second line so the comparison catches it too. That
+is table-aware without being a TOML parser, which matters here because the parsers are where the bugs
+have been.
 
 The pin check is still narrow, and saying so is the point: `BUN_CONFIG_REGISTRY` in the environment, a
 stray `.npmrc`, and a scoped registry under `[install.scopes]` can each redirect a resolution without

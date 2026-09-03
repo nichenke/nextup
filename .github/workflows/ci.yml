@@ -24,14 +24,16 @@ jobs:
       # is the mechanism that actually leaked -- guarding it is worth more than recognising the text
       # it would produce. See ADR-0006.
       #
-      # Two assertions rather than one, because grep is not TOML-aware: the public line can sit in the
-      # root table while `[install]` sets a private mirror, and a lone grep for the line passes while
-      # bun reads the mirror. Requiring it to be the file's *only* registry assignment removes the
-      # place a second value could hide, without parsing the file.
+      # Compares the table each registry key sits under, not just the key's text. Two earlier versions
+      # matched the line alone and passed on a file that pinned nothing: the public line in the root
+      # table, or under `[test]`, or under `[install.scopes]`, with `[install]` left unpinned or set to
+      # a mirror. Emitting `<table>|<line>` for every registry assignment and comparing the whole
+      # output literally makes a missing, misplaced, scoped, duplicated or altered key all fail, with
+      # no TOML parser -- a duplicate emits a second line, so the comparison catches it too.
       - name: Assert the registry pin
         run: |
-          test "$(grep -c '^[[:space:]]*registry[[:space:]]*=' bunfig.toml)" = 1
-          grep -qxF 'registry = "https://registry.npmjs.org"' bunfig.toml
+          test "$(awk '/^[[:space:]]*\[/ { table = $0 } /^[[:space:]]*registry[[:space:]]*=/ { print table "|" $0 }' bunfig.toml)" \
+            = '[install]|registry = "https://registry.npmjs.org"'
 
       - uses: oven-sh/setup-bun@v2
         with:
