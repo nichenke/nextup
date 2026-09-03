@@ -4,7 +4,7 @@ import { routedRunner } from "./test-support";
 import { TicketRefError, resolveTicketRef } from "./ticket-ref";
 
 const GIT_REMOTE = { "git remote get-url origin": { code: 0, stdout: "https://example.com/example/repo.git\n", stderr: "" } };
-const GH_AUTHED = { "gh auth status --hostname example.com": { code: 0, stdout: "", stderr: "" } };
+const GH_AUTHED = { "gh auth status --hostname example.com --active": { code: 0, stdout: "", stderr: "" } };
 const GLAB_AUTHED = { "glab auth status --hostname example.com": { code: 0, stdout: "", stderr: "" } };
 const JIRA_AUTHED = { "jira me": { code: 0, stdout: "octocat\n", stderr: "" } };
 
@@ -112,6 +112,13 @@ describe("resolveTicketRef: pasted URLs", () => {
 	test("a flat-namespace GitLab URL is never misclassified as GitHub, regardless of check order", () => {
 		const ref = resolveTicketRef("https://example.com/group/-/issues/1", { runner: routedRunner(GLAB_AUTHED) });
 		expect(ref).toEqual({ tracker: "gitlab", repo: "group", host: "example.com", key: "1" });
+	});
+
+	test("a legacy (no /-/) GitLab URL with a subgroup resolves as gitlab without needing disambiguation", () => {
+		const ref = resolveTicketRef("https://example.com/group/subgroup/project/issues/1", {
+			runner: routedRunner(GLAB_AUTHED),
+		});
+		expect(ref).toEqual({ tracker: "gitlab", repo: "group/subgroup/project", host: "example.com", key: "1" });
 	});
 
 	describe("the two-segment /issues/ shape, shared by GitHub and older self-hosted GitLab", () => {

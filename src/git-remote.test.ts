@@ -6,6 +6,7 @@ const HTTPS_REMOTE = "https://example.com/example/repo.git";
 const HTTPS_REMOTE_NO_SUFFIX = "https://example.com/example/repo";
 const SSH_REMOTE = "ssh://git@example.com/example/repo.git";
 const SCP_REMOTE = "git@example.com:example/repo.git";
+const SCP_REMOTE_NO_USER = "example.com:example/repo.git";
 const NESTED_REMOTE = "https://example.com/group/subgroup/project.git";
 const TRAILING_SLASH_REMOTE = "https://example.com/example/repo.git/";
 
@@ -24,6 +25,10 @@ describe("parseRepoPath", () => {
 
 	test("parses an scp-form remote", () => {
 		expect(parseRepoPath(SCP_REMOTE)).toBe("example/repo");
+	});
+
+	test("parses an scp-form remote with no explicit user, per git's [user@]host:path grammar", () => {
+		expect(parseRepoPath(SCP_REMOTE_NO_USER)).toBe("example/repo");
 	});
 
 	test("parses a nested namespace path", () => {

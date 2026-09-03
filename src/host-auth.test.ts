@@ -18,9 +18,9 @@ describe("isAuthenticatedHost", () => {
 		expect(isAuthenticatedHost("github", "example.com", runner)).toBe(false);
 	});
 
-	test("queries gh with --hostname rather than text-matching free-form status output", () => {
+	test("queries gh with --hostname and --active rather than text-matching free-form status output", () => {
 		const runner = routedRunner({
-			"gh auth status --hostname example.com": { code: 0, stdout: "", stderr: "" },
+			"gh auth status --hostname example.com --active": { code: 0, stdout: "", stderr: "" },
 		});
 		expect(isAuthenticatedHost("github", "example.com", runner)).toBe(true);
 		expect(isAuthenticatedHost("github", "other-host.test", runner)).toBe(false);
@@ -34,11 +34,23 @@ describe("isAuthenticatedHost", () => {
 		expect(isAuthenticatedHost("gitlab", "other-host.test", runner)).toBe(false);
 	});
 
-	test("strips a port before querying, since the CLIs report and match on bare hostnames", () => {
+	test("tries the host exactly as given first, port included", () => {
 		const runner = routedRunner({
-			"gh auth status --hostname example.com": { code: 0, stdout: "", stderr: "" },
+			"gh auth status --hostname example.com:8443 --active": { code: 0, stdout: "", stderr: "" },
 		});
-		expect(isAuthenticatedHost("github", "example.com:8080", runner)).toBe(true);
+		expect(isAuthenticatedHost("github", "example.com:8443", runner)).toBe(true);
+	});
+
+	test("falls back to the bare host when the port-qualified form isn't recognised", () => {
+		const runner = routedRunner({
+			"gh auth status --hostname example.com --active": { code: 0, stdout: "", stderr: "" },
+		});
+		expect(isAuthenticatedHost("github", "example.com:8443", runner)).toBe(true);
+	});
+
+	test("false when neither the port-qualified nor the bare host is recognised", () => {
+		const runner = routedRunner({});
+		expect(isAuthenticatedHost("github", "example.com:8443", runner)).toBe(false);
 	});
 });
 

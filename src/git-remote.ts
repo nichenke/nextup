@@ -1,7 +1,7 @@
 import type { Runner } from "./runner";
 
 const URL_REMOTE = /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]+@)?[^/]+\/(.+)$/i;
-const SCP_REMOTE = /^[^@\s]+@[^:\s]+:(.+)$/;
+const SCP_REMOTE = /^(?:[^@\s]+@)?[^:\s@]+:(.+)$/;
 
 /** The repository path segment of a git remote URL, minus a trailing `.git` and slash. */
 export function parseRepoPath(remote: string): string | null {

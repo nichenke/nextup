@@ -3,16 +3,24 @@ import type { Runner } from "./runner";
 /**
  * Whether the gh/glab CLI itself reports being authenticated to `host`. Uses each CLI's own
  * `--hostname` flag rather than text-matching free-form status output, so a future CLI output
- * format change can't silently misreport this. A trailing `:port` is stripped first — both
- * CLIs report and match on bare hostnames.
+ * format change can't silently misreport this. `gh auth status --hostname` exits 1 if ANY
+ * account on that host has an auth problem, even an inactive secondary one, so `gh` also passes
+ * `--active` to check only the account that would actually be used (`gh auth status --help`;
+ * `glab` has no equivalent multi-account concept). Tried both with and without a trailing
+ * `:port`, since which form a self-hosted entry is keyed under depends on how the user
+ * originally logged in.
  */
 export function isAuthenticatedHost(tracker: "github" | "gitlab", host: string, runner: Runner): boolean {
-	const hostname = host.replace(/:\d+$/, "");
-	const cmd =
-		tracker === "github"
-			? ["gh", "auth", "status", "--hostname", hostname]
-			: ["glab", "auth", "status", "--hostname", hostname];
-	return runner(cmd).code === 0;
+	const check = (hostname: string): boolean => {
+		const cmd =
+			tracker === "github"
+				? ["gh", "auth", "status", "--hostname", hostname, "--active"]
+				: ["glab", "auth", "status", "--hostname", hostname];
+		return runner(cmd).code === 0;
+	};
+	if (check(host)) return true;
+	const bare = host.replace(/:\d+$/, "");
+	return bare !== host && check(bare);
 }
 
 /**

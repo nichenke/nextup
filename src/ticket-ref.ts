@@ -25,7 +25,11 @@ const JIRA_KEY = /^[A-Za-z][A-Za-z0-9]*-\d+$/;
 const MARKDOWN_KEY = /^\d+$/;
 
 const GITLAB_ISSUE_URL = /^https?:\/\/([^/]+)\/(.+?)\/-\/issues\/(\d+)(?:[/?#].*)?$/i;
-const GITHUB_ISSUE_URL = /^https?:\/\/([^/]+)\/(?!.*\/-\/issues\/)([^/]+\/[^/]+)\/issues\/(\d+)(?:[/?#].*)?$/i;
+// Two or more segments before /issues/, and never a "/-/issues/" path (that's GITLAB_ISSUE_URL's
+// shape). Exactly two segments is genuinely ambiguous between GitHub and a GitLab instance still
+// on the pre-11.0 route with no "/-/" (shape alone can't tell them apart — see disambiguateHost).
+// Three or more can only be GitLab: GitHub has no subgroups, so it never has more than owner/repo.
+const GENERIC_ISSUES_URL = /^https?:\/\/([^/]+)\/(?!.*\/-\/issues\/)([^/]+(?:\/[^/]+)+?)\/issues\/(\d+)(?:[/?#].*)?$/i;
 const JIRA_ISSUE_URL = /^https?:\/\/([^/]+)\/browse\/([A-Za-z][A-Za-z0-9]*-\d+)(?:[/?#].*)?$/i;
 
 export function resolveTicketRef(input: string, deps: ResolveDeps = {}): TicketRef {
@@ -101,7 +105,7 @@ function resolveMarkdownShort(body: string): TicketRef {
 
 function resolveUrl(url: string, runner: Runner): TicketRef {
 	// GitLab's path contains the literal substring "/issues/" too (inside "/-/issues/").
-	// GITHUB_ISSUE_URL's negative lookahead explicitly excludes any path containing
+	// GENERIC_ISSUES_URL's negative lookahead explicitly excludes any path containing
 	// "/-/issues/", so the two shapes cannot collide regardless of which is checked first.
 	const gitlab = GITLAB_ISSUE_URL.exec(url);
 	if (gitlab?.[1] && gitlab[2] && gitlab[3]) {
@@ -110,12 +114,13 @@ function resolveUrl(url: string, runner: Runner): TicketRef {
 		return { tracker: "gitlab", repo, host, key };
 	}
 
-	// A two-segment path directly before /issues/ also matches a GitLab instance with no
-	// /-/ path style (pre-11.0, or any self-hosted tool using the older route) — shape alone
-	// cannot tell the two apart, so the installed CLIs' own authenticated-host state decides.
-	const github = GITHUB_ISSUE_URL.exec(url);
-	if (github?.[1] && github[2] && github[3]) {
-		const [, host, repo, key] = github;
+	const generic = GENERIC_ISSUES_URL.exec(url);
+	if (generic?.[1] && generic[2] && generic[3]) {
+		const [, host, repo, key] = generic;
+		if (repo.split("/").length > 2) {
+			requireAuthenticatedHost("gitlab", host, runner);
+			return { tracker: "gitlab", repo, host, key };
+		}
 		const tracker = disambiguateHost(host, runner);
 		return { tracker, repo, host, key };
 	}
