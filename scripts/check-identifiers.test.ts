@@ -17,6 +17,9 @@ const unknownScpRemote = "git@internal" + ".corp.test:group/repo.git";
 const unknownEmail = "person@internal" + ".corp.test";
 const unknownKey = "WOR" + "K-1234";
 const unknownRef = "private-org/repo" + "#7";
+const unknownApiUrl = "https:" + "//api.github.com/repos/private-org/repo/issues/7";
+// A literal backslash-n between two URLs, as it would appear inside a source string literal.
+const hiddenAfterEscape = "https://example.com/issues/1\\n" + "https:" + "//internal.corp.test/x";
 
 function runGuardOn(contents: string) {
 	const dir = mkdtempSync(join(tmpdir(), "nextup-guard-"));
@@ -81,6 +84,23 @@ describe("check-identifiers", () => {
 		const result = runGuardOn(`Tracked in ${unknownRef}\n`);
 		expect(result.exitCode).not.toBe(0);
 		expect(result.stderr.toString()).toContain("private-org");
+	});
+
+	// An allowlisted host does not vouch for the path under it. The API host is allowlisted, so a
+	// private owner in a `/repos/{owner}/{repo}` route is only caught because the whole URL is
+	// the token.
+	test("fails an API URL whose owner is not allowlisted", () => {
+		const result = runGuardOn(`Fetched ${unknownApiUrl}\n`);
+		expect(result.exitCode).not.toBe(0);
+		expect(result.stderr.toString()).toContain("private-org");
+	});
+
+	// Escape sequences carry no whitespace, so grep returns both URLs as one token. Truncating at
+	// the escape hid the second one behind an allowlisted first.
+	test("fails an unrecognised URL hidden after an escape sequence", () => {
+		const result = runGuardOn(`const x = "${hiddenAfterEscape}"\n`);
+		expect(result.exitCode).not.toBe(0);
+		expect(result.stderr.toString()).toContain("internal.corp.test");
 	});
 
 	// Markup travels with a token when it is grepped out of prose, and is not part of it.

@@ -31,14 +31,21 @@ TEST-42
 # reviewer would read.
 PATTERN='([a-z][a-z0-9+.-]*://[^[:space:]]+)|([A-Za-z0-9._%+/-]+@[A-Za-z0-9.-]*\.[A-Za-z]{2,}([:/][^[:space:]]*)?)|([A-Za-z0-9._/-]+#[0-9]+)|([A-Z]{2,10}-[0-9]+)'
 
+# A source literal can hold several identifiers separated by escape sequences, which give grep no
+# whitespace to break on. Turning those escapes into real newlines splits the tokens apart.
+# Truncating at the first escape instead -- which is what this did originally -- silently
+# discarded everything after it, so a second URL hidden behind a `\n` passed unchecked.
+normalized=$(git ls-files -z | xargs -0 grep -Ih '' 2>/dev/null |
+	awk '{ gsub(/\\[nrt]/, "\n"); print }' || true)
+
 # Surrounding markup travels with a token: a markdown link wraps it in parentheses, prose ends it
-# with a full stop, and a URL inside a source-code string literal is followed by an escape
-# sequence and a quote. None of that is part of the identifier.
+# with a full stop, and a source-code string literal closes with a quote, sometimes escaped. None
+# of that is part of the identifier.
 #
 # `]` leads the trailing class because a bracket expression cannot escape it -- written as `\]`
 # further in, it closes the class instead, and trailing punctuation was silently never stripped.
-tokens=$(git ls-files -z | xargs -0 grep -IhoE "$PATTERN" 2>/dev/null |
-	sed -E 's#\\n.*$##; s#^[[({<"'"'"'`]+##; s#[].,;:!?)}>"'"'"'`]+$##' | sort -u || true)
+tokens=$(printf '%s\n' "$normalized" | grep -oE "$PATTERN" |
+	sed -E 's#^[[({<"'"'"'`]+##; s#[].,;:!?)}>"'"'"'`\\]+$##' | sort -u || true)
 
 failed=0
 while IFS= read -r token; do
