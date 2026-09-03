@@ -6,9 +6,9 @@ export interface CommandResult {
 	stderr: string;
 }
 
-export type Exec = (argv: string[]) => CommandResult;
+export type Runner = (argv: string[]) => CommandResult;
 
-export const defaultExec: Exec = (argv) => {
+export const defaultRunner: Runner = (argv) => {
 	try {
 		const result = spawnSync({ cmd: argv, stdout: "pipe", stderr: "pipe" });
 		return {

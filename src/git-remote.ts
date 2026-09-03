@@ -1,4 +1,4 @@
-import type { Exec } from "./exec";
+import type { Runner } from "./runner";
 
 const URL_REMOTE = /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]+@)?[^/]+\/(.+)$/i;
 const SCP_REMOTE = /^[^@\s]+@[^:\s]+:(.+)$/;
@@ -11,8 +11,8 @@ export function parseRepoPath(remote: string): string | null {
 	return path.replace(/\.git$/, "").replace(/\/+$/, "") || null;
 }
 
-export function resolveRepoFromOrigin(exec: Exec): string | null {
-	const result = exec(["git", "remote", "get-url", "origin"]);
+export function resolveRepoFromOrigin(runner: Runner): string | null {
+	const result = runner(["git", "remote", "get-url", "origin"]);
 	if (result.code !== 0) return null;
 	return parseRepoPath(result.stdout.trim());
 }

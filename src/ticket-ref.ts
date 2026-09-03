@@ -1,4 +1,4 @@
-import { type Exec, defaultExec } from "./exec";
+import { type Runner, defaultRunner } from "./runner";
 import { resolveRepoFromOrigin } from "./git-remote";
 import { hasJiraAuth, isAuthenticatedHost } from "./host-auth";
 
@@ -16,7 +16,7 @@ export interface TicketRef {
 export class TicketRefError extends Error {}
 
 export interface ResolveDeps {
-	exec?: Exec;
+	runner?: Runner;
 }
 
 const SHORT_FORM = /^(gh|glab|jira|md):(.+)$/;
@@ -29,7 +29,7 @@ const GITHUB_ISSUE_URL = /^https?:\/\/([^/]+)\/([^/]+\/[^/]+)\/issues\/(\d+)(?:[
 const JIRA_ISSUE_URL = /^https?:\/\/([^/]+)\/browse\/([A-Za-z][A-Za-z0-9]*-\d+)(?:[/?#].*)?$/;
 
 export function resolveTicketRef(input: string, deps: ResolveDeps = {}): TicketRef {
-	const exec = deps.exec ?? defaultExec;
+	const runner = deps.runner ?? defaultRunner;
 	const trimmed = input.trim();
 
 	const short = SHORT_FORM.exec(trimmed);
@@ -38,9 +38,9 @@ export function resolveTicketRef(input: string, deps: ResolveDeps = {}): TicketR
 		const body = short[2] as string;
 		switch (scheme) {
 			case "gh":
-				return resolveRepoScopedShort("github", "gh", body, exec);
+				return resolveRepoScopedShort("github", "gh", body, runner);
 			case "glab":
-				return resolveRepoScopedShort("gitlab", "glab", body, exec);
+				return resolveRepoScopedShort("gitlab", "glab", body, runner);
 			case "jira":
 				return resolveJiraShort(body);
 			case "md":
@@ -49,7 +49,7 @@ export function resolveTicketRef(input: string, deps: ResolveDeps = {}): TicketR
 	}
 
 	if (SCHEME_URL.test(trimmed)) {
-		return resolveUrl(trimmed, exec);
+		return resolveUrl(trimmed, runner);
 	}
 
 	throw new TicketRefError(
@@ -61,14 +61,14 @@ function resolveRepoScopedShort(
 	tracker: "github" | "gitlab",
 	scheme: "gh" | "glab",
 	body: string,
-	exec: Exec,
+	runner: Runner,
 ): TicketRef {
 	const hashIndex = body.indexOf("#");
 	if (hashIndex === -1) {
 		if (!/^\d+$/.test(body)) {
-			throw new TicketRefError(`${scheme}:${body} is neither an issue number nor a repo#number form`);
+			throw new TicketRefError(`${scheme}:${body} is not a valid short form (expected a bare number or a repo#number form)`);
 		}
-		const repo = resolveRepoFromOrigin(exec);
+		const repo = resolveRepoFromOrigin(runner);
 		if (!repo) {
 			throw new TicketRefError(
 				`${scheme}:${body} has no explicit repository, and the working directory's git remote could not be resolved`,
@@ -87,7 +87,7 @@ function resolveRepoScopedShort(
 
 function resolveJiraShort(body: string): TicketRef {
 	if (!JIRA_KEY.test(body)) {
-		throw new TicketRefError(`jira:${body} is not a valid PROJECT-number key`);
+		throw new TicketRefError(`jira:${body} is not a valid PROJECT-<number> form`);
 	}
 	return { tracker: "jira", repo: null, host: null, key: body };
 }
@@ -99,42 +99,59 @@ function resolveMarkdownShort(body: string): TicketRef {
 	return { tracker: "markdown", repo: null, host: null, key: body };
 }
 
-function resolveUrl(url: string, exec: Exec): TicketRef {
-	// GitLab's `/-/issues/` is checked first because it is a superset of GitHub's `/issues/`
-	// shape — a GitLab URL would otherwise misparse as GitHub with a mangled repo path.
+function resolveUrl(url: string, runner: Runner): TicketRef {
+	// Checked before GitHub: GitLab's path contains the literal substring "/issues/" too
+	// (inside "/-/issues/"), so this order is load-bearing even though the current
+	// GITHUB_ISSUE_URL regex happens not to match a "/-/issues/" path.
 	const gitlab = GITLAB_ISSUE_URL.exec(url);
 	if (gitlab?.[1] && gitlab[2] && gitlab[3]) {
 		const [, host, repo, key] = gitlab;
-		requireAuthenticatedHost("gitlab", host, exec);
+		requireAuthenticatedHost("gitlab", host, runner);
 		return { tracker: "gitlab", repo, host, key };
 	}
 
+	// A two-segment path directly before /issues/ also matches a GitLab instance with no
+	// /-/ path style (pre-11.0, or any self-hosted tool using the older route) — shape alone
+	// cannot tell the two apart, so the installed CLIs' own authenticated-host state decides.
 	const github = GITHUB_ISSUE_URL.exec(url);
 	if (github?.[1] && github[2] && github[3]) {
 		const [, host, repo, key] = github;
-		requireAuthenticatedHost("github", host, exec);
-		return { tracker: "github", repo, host, key };
+		const tracker = disambiguateHost(host, runner);
+		return { tracker, repo, host, key };
 	}
 
 	const jira = JIRA_ISSUE_URL.exec(url);
 	if (jira?.[1] && jira[2]) {
 		const [, host, key] = jira;
-		requireJiraAuth(host, exec);
+		requireJiraAuth(host, runner);
 		return { tracker: "jira", repo: null, host, key };
 	}
 
 	throw new TicketRefError(`${url} does not match a GitHub, GitLab, or Jira issue URL shape`);
 }
 
-function requireAuthenticatedHost(tracker: "github" | "gitlab", host: string, exec: Exec): void {
-	if (!isAuthenticatedHost(tracker, host, exec)) {
+function disambiguateHost(host: string, runner: Runner): "github" | "gitlab" {
+	const githubAuthed = isAuthenticatedHost("github", host, runner);
+	const gitlabAuthed = isAuthenticatedHost("gitlab", host, runner);
+	if (githubAuthed && gitlabAuthed) {
+		throw new TicketRefError(
+			`${host} is authenticated to both the gh and glab CLIs, and the URL shape does not say which tracker it belongs to`,
+		);
+	}
+	if (githubAuthed) return "github";
+	if (gitlabAuthed) return "gitlab";
+	throw new TicketRefError(`${host} does not match any host the gh or glab CLI is authenticated to`);
+}
+
+function requireAuthenticatedHost(tracker: "github" | "gitlab", host: string, runner: Runner): void {
+	if (!isAuthenticatedHost(tracker, host, runner)) {
 		const cli = tracker === "github" ? "gh" : "glab";
 		throw new TicketRefError(`${host} does not match any host the ${cli} CLI is authenticated to`);
 	}
 }
 
-function requireJiraAuth(host: string, exec: Exec): void {
-	if (!hasJiraAuth(exec)) {
+function requireJiraAuth(host: string, runner: Runner): void {
+	if (!hasJiraAuth(runner)) {
 		throw new TicketRefError(`no authenticated Jira session found to resolve ${host}`);
 	}
 }

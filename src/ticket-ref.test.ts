@@ -1,45 +1,46 @@
 import { describe, expect, test } from "bun:test";
-import type { CommandResult, Exec } from "./exec";
+import type { CommandResult } from "./runner";
+import { routedRunner } from "./test-support";
 import { TicketRefError, resolveTicketRef } from "./ticket-ref";
-
-function fakeExec(routes: Record<string, CommandResult>): Exec {
-	return (argv) => routes[argv.join(" ")] ?? { code: 1, stdout: "", stderr: "" };
-}
 
 const GIT_REMOTE = { "git remote get-url origin": { code: 0, stdout: "https://example.com/example/repo.git\n", stderr: "" } };
 const GH_AUTHED = { "gh auth status": { code: 0, stdout: "", stderr: "✓ Logged in to example.com as octocat\n" } };
 const GLAB_AUTHED = { "glab auth status": { code: 0, stdout: "example.com\n  ✓ Logged in as octocat\n", stderr: "" } };
 const JIRA_AUTHED = { "jira me": { code: 0, stdout: "octocat\n", stderr: "" } };
 
+function merge(...routes: Record<string, CommandResult>[]): Record<string, CommandResult> {
+	return Object.assign({}, ...routes);
+}
+
 describe("resolveTicketRef: short forms", () => {
 	test("gh: relative form resolves the repo from the git remote", () => {
-		const ref = resolveTicketRef("gh:1", { exec: fakeExec(GIT_REMOTE) });
+		const ref = resolveTicketRef("gh:1", { runner: routedRunner(GIT_REMOTE) });
 		expect(ref).toEqual({ tracker: "github", repo: "example/repo", host: null, key: "1" });
 	});
 
 	test("gh: absolute form normalizes identically to the relative form", () => {
-		const relative = resolveTicketRef("gh:1", { exec: fakeExec(GIT_REMOTE) });
-		const absolute = resolveTicketRef("gh:example/repo#1", { exec: fakeExec({}) });
+		const relative = resolveTicketRef("gh:1", { runner: routedRunner(GIT_REMOTE) });
+		const absolute = resolveTicketRef("gh:example/repo#1", { runner: routedRunner({}) });
 		expect(absolute).toEqual(relative);
 	});
 
 	test("gh: relative form fails loudly with no git remote", () => {
-		expect(() => resolveTicketRef("gh:1", { exec: fakeExec({}) })).toThrow(TicketRefError);
+		expect(() => resolveTicketRef("gh:1", { runner: routedRunner({}) })).toThrow(TicketRefError);
 	});
 
 	test("glab: relative form resolves the repo from the git remote", () => {
-		const ref = resolveTicketRef("glab:8", { exec: fakeExec(GIT_REMOTE) });
+		const ref = resolveTicketRef("glab:8", { runner: routedRunner(GIT_REMOTE) });
 		expect(ref).toEqual({ tracker: "gitlab", repo: "example/repo", host: null, key: "8" });
 	});
 
 	test("glab: absolute form normalizes identically to the relative form", () => {
-		const relative = resolveTicketRef("glab:8", { exec: fakeExec(GIT_REMOTE) });
-		const absolute = resolveTicketRef("glab:example/repo#8", { exec: fakeExec({}) });
+		const relative = resolveTicketRef("glab:8", { runner: routedRunner(GIT_REMOTE) });
+		const absolute = resolveTicketRef("glab:example/repo#8", { runner: routedRunner({}) });
 		expect(absolute).toEqual(relative);
 	});
 
 	test("glab: absolute form accepts a nested namespace", () => {
-		const ref = resolveTicketRef("glab:group/project#8", { exec: fakeExec({}) });
+		const ref = resolveTicketRef("glab:group/project#8", { runner: routedRunner({}) });
 		expect(ref).toEqual({ tracker: "gitlab", repo: "group/project", host: null, key: "8" });
 	});
 
@@ -67,42 +68,57 @@ describe("resolveTicketRef: short forms", () => {
 });
 
 describe("resolveTicketRef: pasted URLs", () => {
-	test("a GitHub issue URL resolves when the host is authenticated", () => {
-		const ref = resolveTicketRef("https://example.com/example/repo/issues/1", { exec: fakeExec(GH_AUTHED) });
-		expect(ref).toEqual({ tracker: "github", repo: "example/repo", host: "example.com", key: "1" });
-	});
-
-	test("a GitLab issue URL resolves by /-/issues/ shape, not the GitHub /issues/ shape", () => {
-		const ref = resolveTicketRef("https://example.com/group/project/-/issues/1", { exec: fakeExec(GLAB_AUTHED) });
+	test("a GitLab issue URL resolves by /-/issues/ shape when the host is authenticated to glab", () => {
+		const ref = resolveTicketRef("https://example.com/group/project/-/issues/1", { runner: routedRunner(GLAB_AUTHED) });
 		expect(ref).toEqual({ tracker: "gitlab", repo: "group/project", host: "example.com", key: "1" });
-	});
-
-	test("a Jira browse URL resolves when a Jira session exists", () => {
-		const ref = resolveTicketRef("https://example.com/browse/TEST-42", { exec: fakeExec(JIRA_AUTHED) });
-		expect(ref).toEqual({ tracker: "jira", repo: null, host: "example.com", key: "TEST-42" });
-	});
-
-	test("a GitHub issue URL for a host nothing is authenticated to fails loudly", () => {
-		expect(() =>
-			resolveTicketRef("https://example.com/example/repo/issues/1", { exec: fakeExec({}) }),
-		).toThrow(TicketRefError);
 	});
 
 	test("a GitLab issue URL for a host nothing is authenticated to fails loudly", () => {
 		expect(() =>
-			resolveTicketRef("https://example.com/group/project/-/issues/1", { exec: fakeExec({}) }),
+			resolveTicketRef("https://example.com/group/project/-/issues/1", { runner: routedRunner({}) }),
 		).toThrow(TicketRefError);
 	});
 
+	test("a Jira browse URL resolves when a Jira session exists", () => {
+		const ref = resolveTicketRef("https://example.com/browse/TEST-42", { runner: routedRunner(JIRA_AUTHED) });
+		expect(ref).toEqual({ tracker: "jira", repo: null, host: "example.com", key: "TEST-42" });
+	});
+
 	test("a Jira browse URL fails loudly with no authenticated Jira session", () => {
-		expect(() => resolveTicketRef("https://example.com/browse/TEST-42", { exec: fakeExec({}) })).toThrow(
+		expect(() => resolveTicketRef("https://example.com/browse/TEST-42", { runner: routedRunner({}) })).toThrow(
 			TicketRefError,
 		);
 	});
 
 	test("a URL matching none of the three shapes fails loudly", () => {
-		expect(() => resolveTicketRef("https://example.com/example/repo/pull/1", { exec: fakeExec({}) })).toThrow(
+		expect(() => resolveTicketRef("https://example.com/example/repo/pull/1", { runner: routedRunner({}) })).toThrow(
 			TicketRefError,
 		);
+	});
+
+	describe("the two-segment /issues/ shape, shared by GitHub and older self-hosted GitLab", () => {
+		test("resolves as github when only gh is authenticated to the host", () => {
+			const ref = resolveTicketRef("https://example.com/example/repo/issues/1", { runner: routedRunner(GH_AUTHED) });
+			expect(ref).toEqual({ tracker: "github", repo: "example/repo", host: "example.com", key: "1" });
+		});
+
+		test("resolves as gitlab when only glab is authenticated to the host", () => {
+			const ref = resolveTicketRef("https://example.com/example/repo/issues/1", { runner: routedRunner(GLAB_AUTHED) });
+			expect(ref).toEqual({ tracker: "gitlab", repo: "example/repo", host: "example.com", key: "1" });
+		});
+
+		test("fails loudly when the host is authenticated to both gh and glab", () => {
+			expect(() =>
+				resolveTicketRef("https://example.com/example/repo/issues/1", {
+					runner: routedRunner(merge(GH_AUTHED, GLAB_AUTHED)),
+				}),
+			).toThrow(TicketRefError);
+		});
+
+		test("fails loudly when the host is authenticated to neither", () => {
+			expect(() =>
+				resolveTicketRef("https://example.com/example/repo/issues/1", { runner: routedRunner({}) }),
+			).toThrow(TicketRefError);
+		});
 	});
 });
