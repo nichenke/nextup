@@ -31,8 +31,14 @@ const unknownImageRef = "mirror.internal.test" + "/team/app:1.2.3";
 const unknownAuthLine = "//mirror.internal.test" + "/:_authToken=redacted";
 const unknownSchemelessUrl = "mirror.internal.test" + "/pkg/tarball";
 
-// A prefix must not vouch for a longer name that merely starts with it.
+// An allowlisted repo URL must not vouch for a longer name that merely starts with it, nor for a
+// private host smuggled into its query string. The second was live while acceptance was by prefix.
 const lookalikeRepo = "https://github.com/nichenke/nextup" + "-mirror/x";
+const nestedHostInQuery =
+	"https://github.com/nichenke/nextup/issues/2" +
+	"?redirect=https:" +
+	"//internal.corp" +
+	".test/x";
 
 function runGuardOn(contents: string) {
 	const dir = mkdtempSync(join(tmpdir(), "nextup-guard-"));
@@ -157,17 +163,18 @@ describe("check-identifiers", () => {
 		expect(result.exitCode).toBe(0);
 	});
 
-	test("passes any issue or pull-request URL under this repository", () => {
-		const result = runGuardOn(
-			"See https://github.com/nichenke/nextup/issues/19 and https://github.com/nichenke/nextup/pull/1\n",
-		);
-		expect(result.exitCode).toBe(0);
-	});
-
-	test("fails a repository name that merely starts with an allowlisted prefix", () => {
+	test("fails a repository name that merely starts with an allowlisted one", () => {
 		const result = runGuardOn(`Cloned ${lookalikeRepo}\n`);
 		expect(result.exitCode).not.toBe(0);
 		expect(result.stderr.toString()).toContain("nextup-mirror");
+	});
+
+	// The whole URL is one token, so an allowlisted issue URL carrying a second host in its query
+	// must still fail. Accepting by prefix passed this, which is why prefix acceptance was removed.
+	test("fails an allowlisted issue URL with a private host in its query string", () => {
+		const result = runGuardOn(`Filed at ${nestedHostInQuery}\n`);
+		expect(result.exitCode).not.toBe(0);
+		expect(result.stderr.toString()).toContain("internal.corp.test");
 	});
 
 	// Standards identifiers share the tracker-key shape the guard used to match, and this is the

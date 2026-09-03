@@ -20,6 +20,11 @@ jobs:
       # on a commit that had a private registry host in its lockfile.
       - run: bash scripts/check-identifiers.sh
 
+      # Exact whole-line comparison, no regex. The pin is what stops a lockfile recording whatever
+      # mirror a machine resolves through, which is the mechanism that actually leaked -- guarding it
+      # is worth more than recognising the text it would produce. See ADR 0005.
+      - run: grep -qxF 'registry = "https://registry.npmjs.org"' bunfig.toml
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest

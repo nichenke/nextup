@@ -22,10 +22,15 @@ Single-context: one `CONTEXT.md` and one `docs/adr/` at the repo root. See `docs
 allowlisted, and CI runs it first, before any dependency install. Run it with
 `bun run check:identifiers`.
 
-Standards identifiers and this repo's own issue URLs pass without an allowlist entry, so ordinary
-documentation needs no workaround. One constraint does apply when editing tracked files: the guard
-reads its own source, so a comment or test fixture cannot spell out a dotted host followed by `/`
-or `:`, even to explain the guard. Split it across string concatenation the way the test fixtures
-do.
+Standards identifiers pass without an allowlist entry, so ordinary prose needs no workaround. Two
+things do:
+
+- **A URL to a specific issue or pull request** costs one `ALLOWED` line, added deliberately as its
+  own reviewable change. Prefer a bare `nichenke/nextup` and the number in prose. Accepting anything
+  under a prefix instead was tried and reverted — it accepted a private host smuggled into a query
+  string. ADR 0005 has the reasoning and the narrow fix to reach for if this friction bites.
+- **A comment or fixture cannot spell out a dotted host followed by `/` or `:`**, even to explain the
+  guard, because the guard reads its own source. Split it across string concatenation the way the
+  test fixtures do.
 
 Run it with `bun run check:identifiers` before pushing.

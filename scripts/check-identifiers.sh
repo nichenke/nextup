@@ -16,16 +16,11 @@ set -euo pipefail
 
 ALLOWED='
 https://anthropic.com/claude-code/marketplace.schema.json
+https://github.com/nichenke/nextup
+https://github.com/nichenke/nextup/issues/2
+https://github.com/nichenke/nextup/issues?q=is%3Aissue+label%3Aready-for-agent
 https://registry.npmjs.org
 https://example.com/issues/1
-'
-
-# Holding whole URLs meant one allowlist line per issue referenced, and an allowlist that grows
-# during routine work gets appended to by reflex instead of reviewed, which is how a real internal
-# host would get added. The boundary check below is what stops a prefix also vouching for a longer
-# lookalike name.
-ALLOWED_PREFIXES='
-https://github.com/nichenke/nextup
 '
 
 # Anything that can carry an identity: a scheme of any kind, an @ followed by a real host (an
@@ -71,26 +66,14 @@ normalized=$(git ls-files -z | xargs -0 grep -Ih '' 2>/dev/null |
 tokens=$(printf '%s\n' "$normalized" | grep -oE "$PATTERN" |
 	sed -E 's#^[[({<"'"'"'`]+##; s#[].,;:!?)}>"'"'"'`\\]+$##' | sort -u || true)
 
-# Literal comparison only. The prior version of this guard lost two of its twelve review findings
-# to regex written in this position, one of which made it check nothing and report ok.
-is_allowed() {
-	local token=$1 prefix
-	if printf '%s\n' "$ALLOWED" | grep -qxF "$token"; then
-		return 0
-	fi
-	while IFS= read -r prefix; do
-		[ -n "$prefix" ] || continue
-		case $token in
-		"$prefix" | "$prefix"/* | "$prefix"'?'* | "$prefix"'#'*) return 0 ;;
-		esac
-	done <<<"$ALLOWED_PREFIXES"
-	return 1
-}
-
+# Whole tokens, compared literally. Accepting anything *under* an allowed prefix was implemented and
+# removed: grep emits a whole URL as one token, so a copied URL carrying `?redirect=` plus a private
+# host was accepted before the inner host was ever looked at. Repairing that means re-scanning the
+# accepted remainder, which is the parsing this design exists to avoid. See ADR 0005.
 failed=0
 while IFS= read -r token; do
 	[ -n "$token" ] || continue
-	if ! is_allowed "$token"; then
+	if ! printf '%s\n' "$ALLOWED" | grep -qxF "$token"; then
 		printf 'unrecognised identifier: %s\n' "$token" >&2
 		failed=1
 	fi

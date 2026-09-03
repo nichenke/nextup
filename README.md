@@ -45,15 +45,23 @@ a total order:
 ## Development
 
 ```sh
+bash scripts/check-identifiers.sh
 bun install
 bun test
 bunx tsc --noEmit
-bash scripts/check-identifiers.sh
 ```
 
 `bun test` is transpile-only, so the typecheck is a separate gate rather than something the test run
-covers. All three run in CI, and CI needs no credentials — the whole tool is driven through one
+covers. All of these run in CI, and CI needs no credentials — the whole tool is driven through one
 injected process runner, so tests never touch a network or an external binary.
 
-`scripts/check-identifiers.sh` is an allowlist, not a denylist. A denylist of real hostnames and project
-keys would itself be the content it guards, so publishing the guard would leak what it protects.
+The guard runs first, before any install, and CI keeps that order. It needs no dependencies, and
+ordering it after `bun install` once meant a failing install stopped it from running at all — on a
+commit whose lockfile held a private registry host.
+
+`scripts/check-identifiers.sh` is an allowlist, not a denylist: a denylist of real hostnames would
+itself be the content it guards. It recognises canonical machine-written forms only — a scheme URL, an
+email or scp-form remote, a schemeless host followed by a separator, a cross-repo issue reference — and
+that list is deliberately frozen. It does not detect tracker keys, obfuscated encodings, or a bare
+hostname with nothing after it. Prevention lives in `bunfig.toml` pinning the public registry, which
+CI asserts; the guard is the backstop. ADR 0005 records why, and what was rejected.
