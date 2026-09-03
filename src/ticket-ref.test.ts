@@ -108,6 +108,18 @@ describe("resolveTicketRef: pasted URLs", () => {
 		).toThrow(TicketRefError);
 	});
 
+	test("a GitLab issue URL rejects a repo with no namespace segment", () => {
+		expect(() =>
+			resolveTicketRef("https://example.com/project/-/issues/1", { runner: routedRunner(GLAB_AUTHED) }),
+		).toThrow(TicketRefError);
+	});
+
+	test("a GitLab issue URL rejects an empty middle segment", () => {
+		expect(() =>
+			resolveTicketRef("https://example.com/group//project/-/issues/1", { runner: routedRunner(GLAB_AUTHED) }),
+		).toThrow(TicketRefError);
+	});
+
 	test("a Jira browse URL resolves when a Jira session exists", () => {
 		const ref = resolveTicketRef("https://example.com/browse/TEST-42", { runner: routedRunner(JIRA_AUTHED) });
 		expect(ref).toEqual({ tracker: "jira", repo: null, host: "example.com", key: "TEST-42" });
@@ -140,9 +152,12 @@ describe("resolveTicketRef: pasted URLs", () => {
 		expect(ref).toEqual({ tracker: "gitlab", repo: "group/project", host: "example.com", key: "1" });
 	});
 
-	test("a flat-namespace GitLab URL is never misclassified as GitHub, regardless of check order", () => {
-		const ref = resolveTicketRef("https://example.com/group/-/issues/1", { runner: routedRunner(GLAB_AUTHED) });
-		expect(ref).toEqual({ tracker: "gitlab", repo: "group", host: "example.com", key: "1" });
+	test("a single-segment GitLab path is never misclassified as GitHub, and is rejected as an invalid repo shape rather than a host-auth failure", () => {
+		// If GENERIC_ISSUES_URL's negative lookahead ever failed to exclude "/-/issues/", this
+		// would instead resolve as tracker "github" (or throw a host-auth error), not this one.
+		expect(() => resolveTicketRef("https://example.com/group/-/issues/1", { runner: routedRunner(GLAB_AUTHED) })).toThrow(
+			/valid namespace\/project path/,
+		);
 	});
 
 	test("a legacy (no /-/) GitLab URL with a subgroup resolves as gitlab without needing disambiguation", () => {

@@ -34,6 +34,8 @@ https://EXAMPLE.com/group/project/-/issues/1
 https://example.com/group/subgroup/project.git
 https://example.com/example/repo.git/
 https://example.com/group/-/issues/1
+https://example.com/project/-/issues/1
+https://example.com/group//project/-/issues/1
 https://example.com/group/subgroup/project/issues/1
 https://example.com/browse/TEST-42
 https://example.com/jira/browse/TEST-42

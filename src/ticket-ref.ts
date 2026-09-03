@@ -122,6 +122,9 @@ function resolveUrl(url: string, runner: Runner): TicketRef {
 	if (gitlab?.[1] && gitlab[2] && gitlab[3]) {
 		const [, rawHost, repo, key] = gitlab;
 		const host = normalizeHost(rawHost);
+		if (!isValidRepoPath("gitlab", repo)) {
+			throw new TicketRefError(`${url} does not have a valid namespace/project path`);
+		}
 		requireAuthenticatedHost("gitlab", host, runner);
 		return { tracker: "gitlab", repo, host, key };
 	}
