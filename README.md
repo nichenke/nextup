@@ -35,7 +35,8 @@ a total order:
 
 1. Priority signal
 2. How many other tickets this one unblocks
-3. Oldest first
+3. Ascending reference — unique by construction, so the order is total however many projects a query
+   spans
 
 ## Development
 
