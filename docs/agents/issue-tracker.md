@@ -25,7 +25,9 @@ inline.
 When set to `yes`, PRs run through the same labels and states as issues, using the `gh pr` equivalents:
 
 - **Read a PR**: `gh pr view <number> --comments` and `gh pr diff <number>` for the diff.
-- **List external PRs for triage**: `gh api repos/<owner>/<repo>/pulls --paginate --jq '.[] | select(.author_association | IN("CONTRIBUTOR","FIRST_TIME_CONTRIBUTOR","NONE"))'` — keeps external authors only, dropping `OWNER`/`MEMBER`/`COLLABORATOR`. `gh pr list --json` has no `authorAssociation` field on gh 2.98.0 and fails with `Unknown JSON field`, so the association has to come from the REST endpoint, where it is spelled `author_association`.
+- **List external PRs for triage**: `gh api repos/<owner>/<repo>/pulls --paginate --jq '.[] | select(.author_association | IN("OWNER","MEMBER","COLLABORATOR") | not)'`. `gh pr list --json` has no `authorAssociation` field on gh 2.98.0 and fails with `Unknown JSON field`, so the association has to come from the REST endpoint, where it is spelled `author_association`.
+
+  Exclude the three internal associations rather than listing the external ones. The enum has eight members — `gh api graphql -f query='{ __type(name: "CommentAuthorAssociation") { enumValues { name } } }'` — and an earlier version of this line named three of the five external ones, silently dropping a `FIRST_TIMER` (first contribution anywhere on GitHub, distinct from `FIRST_TIME_CONTRIBUTOR`) and a `MANNEQUIN` from the triage queue. The internal set is closed and stable; the external set is the one GitHub extends. Excluding the internal three also fails in the safe direction, since an association nobody anticipated shows up for triage instead of vanishing from it.
 - **Comment / label / close**: `gh pr comment`, `gh pr edit --add-label`/`--remove-label`, `gh pr close`.
 
 GitHub shares one number space across issues and PRs, so a bare `#42` may be either — resolve with `gh pr view 42` and fall back to `gh issue view 42`.
