@@ -25,6 +25,19 @@ https://github.com/nichenke/nextup/issues/2
 https://github.com/nichenke/nextup/issues?q=is%3Aissue+label%3Aready-for-agent
 https://registry.npmjs.org
 https://example.com/issues/1
+https://example.com/example/repo
+https://example.com/example/repo.git
+https://example.com/example/repo/issues/1
+https://example.com/example/repo/pull/1
+https://example.com/group/project/-/issues/1
+https://example.com/group/subgroup/project.git
+https://example.com/browse/TEST-42
+ssh://git@example.com/example/repo.git
+git@example.com:example/repo.git
+example/repo#1
+example/repo#8
+group/project#8
+TEST-42
 '
 
 # Anything that can carry an identity: a scheme of any kind, an @ followed by a real host (an
