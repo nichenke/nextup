@@ -35,6 +35,8 @@ https://example.com/example/repo.git/
 https://example.com/group/-/issues/1
 https://example.com/group/subgroup/project/issues/1
 https://example.com/browse/TEST-42
+https://example.com/jira/browse/TEST-42
+https://example.com/justrepo.git
 ssh://git@example.com/example/repo.git
 git@example.com:example/repo.git
 example.com:example/repo.git
@@ -44,7 +46,10 @@ example/repo#1
 example/repo#8
 group/project#8
 myrepo#1
-TEST-42
+owner/#1
+owner/sub/repo#1
+/repo#1
+group//repo#1
 '
 
 # Anything that can carry an identity: a scheme of any kind, an @ followed by a real host (an

@@ -4,6 +4,7 @@ import { routedRunner } from "./test-support";
 import { TicketRefError, resolveTicketRef } from "./ticket-ref";
 
 const GIT_REMOTE = { "git remote get-url origin": { code: 0, stdout: "https://example.com/example/repo.git\n", stderr: "" } };
+const GIT_REMOTE_NO_OWNER = { "git remote get-url origin": { code: 0, stdout: "https://example.com/justrepo.git\n", stderr: "" } };
 const GH_AUTHED = { "gh auth status --hostname example.com --active": { code: 0, stdout: "", stderr: "" } };
 const GLAB_AUTHED = { "glab auth status --hostname example.com": { code: 0, stdout: "", stderr: "" } };
 const JIRA_AUTHED = { "jira me": { code: 0, stdout: "octocat\n", stderr: "" } };
@@ -52,6 +53,26 @@ describe("resolveTicketRef: short forms", () => {
 		expect(() => resolveTicketRef("glab:myrepo#1", { runner: routedRunner({}) })).toThrow(TicketRefError);
 	});
 
+	test("gh: absolute form rejects an empty leading segment", () => {
+		expect(() => resolveTicketRef("gh:/repo#1", { runner: routedRunner({}) })).toThrow(TicketRefError);
+	});
+
+	test("gh: absolute form rejects an empty trailing segment", () => {
+		expect(() => resolveTicketRef("gh:owner/#1", { runner: routedRunner({}) })).toThrow(TicketRefError);
+	});
+
+	test("gh: absolute form rejects more than two segments, since GitHub has no subgroups", () => {
+		expect(() => resolveTicketRef("gh:owner/sub/repo#1", { runner: routedRunner({}) })).toThrow(TicketRefError);
+	});
+
+	test("glab: absolute form rejects an empty middle segment", () => {
+		expect(() => resolveTicketRef("glab:group//repo#1", { runner: routedRunner({}) })).toThrow(TicketRefError);
+	});
+
+	test("gh: relative form rejects a git remote that doesn't resolve to owner/repo", () => {
+		expect(() => resolveTicketRef("gh:1", { runner: routedRunner(GIT_REMOTE_NO_OWNER) })).toThrow(TicketRefError);
+	});
+
 	test("jira: short form parses the key verbatim", () => {
 		const ref = resolveTicketRef("jira:TEST-42");
 		expect(ref).toEqual({ tracker: "jira", repo: null, host: null, key: "TEST-42" });
@@ -89,6 +110,11 @@ describe("resolveTicketRef: pasted URLs", () => {
 
 	test("a Jira browse URL resolves when a Jira session exists", () => {
 		const ref = resolveTicketRef("https://example.com/browse/TEST-42", { runner: routedRunner(JIRA_AUTHED) });
+		expect(ref).toEqual({ tracker: "jira", repo: null, host: "example.com", key: "TEST-42" });
+	});
+
+	test("a Jira browse URL under a context path resolves the same as one at the root", () => {
+		const ref = resolveTicketRef("https://example.com/jira/browse/TEST-42", { runner: routedRunner(JIRA_AUTHED) });
 		expect(ref).toEqual({ tracker: "jira", repo: null, host: "example.com", key: "TEST-42" });
 	});
 

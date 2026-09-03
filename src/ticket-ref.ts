@@ -30,7 +30,9 @@ const GITLAB_ISSUE_URL = /^https?:\/\/([^/]+)\/(.+?)\/-\/issues\/(\d+)(?:[/?#].*
 // on the pre-11.0 route with no "/-/" (shape alone can't tell them apart — see disambiguateHost).
 // Three or more can only be GitLab: GitHub has no subgroups, so it never has more than owner/repo.
 const GENERIC_ISSUES_URL = /^https?:\/\/([^/]+)\/(?!.*\/-\/issues\/)([^/]+(?:\/[^/]+)+?)\/issues\/(\d+)(?:[/?#].*)?$/i;
-const JIRA_ISSUE_URL = /^https?:\/\/([^/]+)\/browse\/([A-Za-z][A-Za-z0-9]*-\d+)(?:[/?#].*)?$/i;
+// A self-hosted Jira Server/Data Center instance is commonly deployed under a context path
+// (e.g. "/jira"), so any prefix before "browse/" is allowed, not just the bare root.
+const JIRA_ISSUE_URL = /^https?:\/\/([^/]+)\/(?:[^?#]*?\/)?browse\/([A-Za-z][A-Za-z0-9]*-\d+)(?:[/?#].*)?$/i;
 
 export function resolveTicketRef(input: string, deps: ResolveDeps = {}): TicketRef {
 	const runner = deps.runner ?? defaultRunner;
@@ -61,6 +63,15 @@ export function resolveTicketRef(input: string, deps: ResolveDeps = {}): TicketR
 	);
 }
 
+// GitHub is always exactly owner/repo; GitLab allows a nested namespace/subgroup, so two or
+// more. Either way every segment must be non-empty, rejecting shapes like "/repo", "owner/",
+// or "group//repo" that `repo.includes("/")` alone would have let through.
+function isValidRepoPath(tracker: "github" | "gitlab", repo: string): boolean {
+	const segments = repo.split("/");
+	if (segments.some((segment) => segment === "")) return false;
+	return tracker === "github" ? segments.length === 2 : segments.length >= 2;
+}
+
 function resolveRepoScopedShort(
 	tracker: "github" | "gitlab",
 	scheme: "gh" | "glab",
@@ -73,7 +84,7 @@ function resolveRepoScopedShort(
 			throw new TicketRefError(`${scheme}:${body} is not a valid short form (expected a bare number or a repo#number form)`);
 		}
 		const repo = resolveRepoFromOrigin(runner);
-		if (!repo) {
+		if (!repo || !isValidRepoPath(tracker, repo)) {
 			throw new TicketRefError(
 				`${scheme}:${body} has no explicit repository, and the working directory's git remote could not be resolved`,
 			);
@@ -83,7 +94,7 @@ function resolveRepoScopedShort(
 
 	const repo = body.slice(0, hashIndex);
 	const key = body.slice(hashIndex + 1);
-	if (!repo.includes("/") || !/^\d+$/.test(key)) {
+	if (!isValidRepoPath(tracker, repo) || !/^\d+$/.test(key)) {
 		throw new TicketRefError(`${scheme}:${body} is not a valid repo#number form`);
 	}
 	return { tracker, repo, host: null, key };
