@@ -31,12 +31,15 @@ https://example.com/example/repo/issues/1
 https://example.com/example/repo/pull/1
 https://example.com/group/project/-/issues/1
 https://example.com/group/subgroup/project.git
+https://example.com/example/repo.git/
+https://example.com/group/-/issues/1
 https://example.com/browse/TEST-42
 ssh://git@example.com/example/repo.git
 git@example.com:example/repo.git
 example/repo#1
 example/repo#8
 group/project#8
+myrepo#1
 TEST-42
 '
 

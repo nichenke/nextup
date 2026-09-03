@@ -24,9 +24,9 @@ const SCHEME_URL = /^[a-z][a-z0-9+.-]*:\/\//i;
 const JIRA_KEY = /^[A-Za-z][A-Za-z0-9]*-\d+$/;
 const MARKDOWN_KEY = /^\d+$/;
 
-const GITLAB_ISSUE_URL = /^https?:\/\/([^/]+)\/(.+)\/-\/issues\/(\d+)(?:[/?#].*)?$/;
-const GITHUB_ISSUE_URL = /^https?:\/\/([^/]+)\/([^/]+\/[^/]+)\/issues\/(\d+)(?:[/?#].*)?$/;
-const JIRA_ISSUE_URL = /^https?:\/\/([^/]+)\/browse\/([A-Za-z][A-Za-z0-9]*-\d+)(?:[/?#].*)?$/;
+const GITLAB_ISSUE_URL = /^https?:\/\/([^/]+)\/(.+?)\/-\/issues\/(\d+)(?:[/?#].*)?$/i;
+const GITHUB_ISSUE_URL = /^https?:\/\/([^/]+)\/(?!.*\/-\/issues\/)([^/]+\/[^/]+)\/issues\/(\d+)(?:[/?#].*)?$/i;
+const JIRA_ISSUE_URL = /^https?:\/\/([^/]+)\/browse\/([A-Za-z][A-Za-z0-9]*-\d+)(?:[/?#].*)?$/i;
 
 export function resolveTicketRef(input: string, deps: ResolveDeps = {}): TicketRef {
 	const runner = deps.runner ?? defaultRunner;
@@ -79,7 +79,7 @@ function resolveRepoScopedShort(
 
 	const repo = body.slice(0, hashIndex);
 	const key = body.slice(hashIndex + 1);
-	if (!repo || !/^\d+$/.test(key)) {
+	if (!repo.includes("/") || !/^\d+$/.test(key)) {
 		throw new TicketRefError(`${scheme}:${body} is not a valid repo#number form`);
 	}
 	return { tracker, repo, host: null, key };
@@ -100,9 +100,9 @@ function resolveMarkdownShort(body: string): TicketRef {
 }
 
 function resolveUrl(url: string, runner: Runner): TicketRef {
-	// Checked before GitHub: GitLab's path contains the literal substring "/issues/" too
-	// (inside "/-/issues/"), so this order is load-bearing even though the current
-	// GITHUB_ISSUE_URL regex happens not to match a "/-/issues/" path.
+	// GitLab's path contains the literal substring "/issues/" too (inside "/-/issues/").
+	// GITHUB_ISSUE_URL's negative lookahead explicitly excludes any path containing
+	// "/-/issues/", so the two shapes cannot collide regardless of which is checked first.
 	const gitlab = GITLAB_ISSUE_URL.exec(url);
 	if (gitlab?.[1] && gitlab[2] && gitlab[3]) {
 		const [, host, repo, key] = gitlab;

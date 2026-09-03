@@ -7,6 +7,7 @@ const HTTPS_REMOTE_NO_SUFFIX = "https://example.com/example/repo";
 const SSH_REMOTE = "ssh://git@example.com/example/repo.git";
 const SCP_REMOTE = "git@example.com:example/repo.git";
 const NESTED_REMOTE = "https://example.com/group/subgroup/project.git";
+const TRAILING_SLASH_REMOTE = "https://example.com/example/repo.git/";
 
 describe("parseRepoPath", () => {
 	test("parses an https remote", () => {
@@ -27,6 +28,10 @@ describe("parseRepoPath", () => {
 
 	test("parses a nested namespace path", () => {
 		expect(parseRepoPath(NESTED_REMOTE)).toBe("group/subgroup/project");
+	});
+
+	test("strips a trailing slash that follows the .git suffix", () => {
+		expect(parseRepoPath(TRAILING_SLASH_REMOTE)).toBe("example/repo");
 	});
 
 	test("returns null for an unparseable remote", () => {

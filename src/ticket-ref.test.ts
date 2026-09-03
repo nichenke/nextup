@@ -4,8 +4,8 @@ import { routedRunner } from "./test-support";
 import { TicketRefError, resolveTicketRef } from "./ticket-ref";
 
 const GIT_REMOTE = { "git remote get-url origin": { code: 0, stdout: "https://example.com/example/repo.git\n", stderr: "" } };
-const GH_AUTHED = { "gh auth status": { code: 0, stdout: "", stderr: "✓ Logged in to example.com as octocat\n" } };
-const GLAB_AUTHED = { "glab auth status": { code: 0, stdout: "example.com\n  ✓ Logged in as octocat\n", stderr: "" } };
+const GH_AUTHED = { "gh auth status --hostname example.com": { code: 0, stdout: "", stderr: "" } };
+const GLAB_AUTHED = { "glab auth status --hostname example.com": { code: 0, stdout: "", stderr: "" } };
 const JIRA_AUTHED = { "jira me": { code: 0, stdout: "octocat\n", stderr: "" } };
 
 function merge(...routes: Record<string, CommandResult>[]): Record<string, CommandResult> {
@@ -42,6 +42,14 @@ describe("resolveTicketRef: short forms", () => {
 	test("glab: absolute form accepts a nested namespace", () => {
 		const ref = resolveTicketRef("glab:group/project#8", { runner: routedRunner({}) });
 		expect(ref).toEqual({ tracker: "gitlab", repo: "group/project", host: null, key: "8" });
+	});
+
+	test("gh: absolute form rejects a repo with no owner segment", () => {
+		expect(() => resolveTicketRef("gh:myrepo#1", { runner: routedRunner({}) })).toThrow(TicketRefError);
+	});
+
+	test("glab: absolute form rejects a repo with no namespace segment", () => {
+		expect(() => resolveTicketRef("glab:myrepo#1", { runner: routedRunner({}) })).toThrow(TicketRefError);
 	});
 
 	test("jira: short form parses the key verbatim", () => {
@@ -94,6 +102,16 @@ describe("resolveTicketRef: pasted URLs", () => {
 		expect(() => resolveTicketRef("https://example.com/example/repo/pull/1", { runner: routedRunner({}) })).toThrow(
 			TicketRefError,
 		);
+	});
+
+	test("an uppercase scheme resolves the same as lowercase", () => {
+		const ref = resolveTicketRef("HTTPS://example.com/group/project/-/issues/1", { runner: routedRunner(GLAB_AUTHED) });
+		expect(ref).toEqual({ tracker: "gitlab", repo: "group/project", host: "example.com", key: "1" });
+	});
+
+	test("a flat-namespace GitLab URL is never misclassified as GitHub, regardless of check order", () => {
+		const ref = resolveTicketRef("https://example.com/group/-/issues/1", { runner: routedRunner(GLAB_AUTHED) });
+		expect(ref).toEqual({ tracker: "gitlab", repo: "group", host: "example.com", key: "1" });
 	});
 
 	describe("the two-segment /issues/ shape, shared by GitHub and older self-hosted GitLab", () => {

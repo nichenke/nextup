@@ -8,7 +8,7 @@ export function parseRepoPath(remote: string): string | null {
 	const match = URL_REMOTE.exec(remote) ?? SCP_REMOTE.exec(remote);
 	const path = match?.[1];
 	if (!path) return null;
-	return path.replace(/\.git$/, "").replace(/\/+$/, "") || null;
+	return path.replace(/\/+$/, "").replace(/\.git$/, "") || null;
 }
 
 export function resolveRepoFromOrigin(runner: Runner): string | null {
