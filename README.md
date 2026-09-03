@@ -68,4 +68,4 @@ It does **not** detect tracker keys, obfuscated encodings, or a bare hostname wi
 `check-identifiers: ok` means one narrow class was absent when it ran, not that the diff is clean. It
 printed `ok` on the day of the original leak, before `bun.lock` was regenerated. Prevention lives in
 `bunfig.toml` pinning the public registry, which CI asserts by exact comparison before any install.
-ADR-0005 records the scope, the accepted residual risks, and what was rejected.
+ADR-0006 records the scope, the accepted residual risks, and what was rejected.

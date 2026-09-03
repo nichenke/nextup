@@ -12,7 +12,7 @@
 # What this dependably catches is a canonical identifier a person pasted in. The machine-written case
 # -- a lockfile recording a private mirror, which is what actually leaked here -- is closed upstream by
 # the registry pin in bunfig.toml, asserted in CI. So `ok` below means one narrow class was absent from
-# the files as they stood when it ran, and nothing more. ADR-0005 states the scope and what it excludes.
+# the files as they stood when it ran, and nothing more. ADR-0006 states the scope and what it excludes.
 #
 # Deliberately not a denylist: a denylist of real hosts would itself be the content it guards, so
 # publishing the guard would leak exactly what it protects.
@@ -75,7 +75,7 @@ tokens=$(printf '%s\n' "$normalized" | grep -oE "$PATTERN" |
 # Whole tokens, compared literally. Accepting anything *under* an allowed prefix was implemented and
 # removed: grep emits a whole URL as one token, so a copied URL carrying `?redirect=` plus a private
 # host was accepted before the inner host was ever looked at. Repairing that means re-scanning the
-# accepted remainder, which is the parsing this design exists to avoid. See ADR-0005.
+# accepted remainder, which is the parsing this design exists to avoid. See ADR-0006.
 failed=0
 while IFS= read -r token; do
 	[ -n "$token" ] || continue

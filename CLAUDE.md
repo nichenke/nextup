@@ -46,7 +46,7 @@ things do:
 - **A URL to a specific issue or pull request** costs one `ALLOWED` line, added deliberately as its
   own reviewable change. Prefer a bare `nichenke/nextup` and the number in prose. Accepting anything
   under a prefix instead was tried and reverted — it accepted a private host smuggled into a query
-  string. ADR-0005 has the reasoning and the narrow fix to reach for if this friction bites.
+  string. ADR-0006 has the reasoning and the narrow fix to reach for if this friction bites.
 - **A comment or fixture cannot spell out a dotted host followed by `/` or `:`**, even to explain the
   guard, because the guard reads its own source. Split it across string concatenation the way the
   test fixtures do.
