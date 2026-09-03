@@ -21,6 +21,8 @@ const disallowedOwnerUrl = `${scheme}github.com/private-org/repo`;
 const disallowedOwnerRef = "private-org/re" + "po#7";
 const disallowedScpRemote = "git@github.com:" + "private-org/repo.git";
 const disallowedSshUrlRemote = "ssh://git@" + "internal.corp.test/group/repo.git";
+const nestedGitlabUrl = `${scheme}gitlab.com/example-org/private-group/repo`;
+const nestedGitlabRemote = "git@gitlab.com:" + "example-org/private-group/repo.git";
 
 function runGuardOn(contents: string) {
 	const dir = mkdtempSync(join(tmpdir(), "nextup-guard-"));
@@ -113,9 +115,33 @@ describe("check-identifiers", () => {
 	});
 
 	// The SSH pattern is user@host-shaped, so it could have swallowed email addresses. It
-	// requires a trailing owner segment precisely so that it does not.
+	// requires two path segments precisely so that it does not.
 	test("passes a bare email address, which is not a remote", () => {
 		const result = runGuardOn("Contact noreply@anthropic.com for details\n");
 		expect(result.exitCode).toBe(0);
+	});
+
+	// GitLab namespaces nest, and checking only the first segment would clear a private
+	// subgroup sitting beneath an allowlisted top-level group.
+	test("passes a flat GitLab namespace that is allowlisted", () => {
+		const result = runGuardOn("Repo at https://gitlab.com/example-org/repo\n");
+		expect(result.exitCode).toBe(0);
+	});
+
+	test("passes a GitLab URL carrying a route separator", () => {
+		const result = runGuardOn("Issue at https://gitlab.com/example-org/proj/-/issues/8\n");
+		expect(result.exitCode).toBe(0);
+	});
+
+	test("fails a nested GitLab namespace even under an allowlisted top-level group", () => {
+		const result = runGuardOn(`Repo at ${nestedGitlabUrl}\n`);
+		expect(result.exitCode).not.toBe(0);
+		expect(result.stderr.toString()).toContain("example-org/private-group");
+	});
+
+	test("fails a nested GitLab namespace in an SSH remote", () => {
+		const result = runGuardOn(`origin ${nestedGitlabRemote}\n`);
+		expect(result.exitCode).not.toBe(0);
+		expect(result.stderr.toString()).toContain("example-org/private-group");
 	});
 });

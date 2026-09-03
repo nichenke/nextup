@@ -25,8 +25,12 @@ true creation timestamp was considered and rejected: three of the four trackers 
 local markdown cannot, and file modification time does not survive a checkout — a key that works
 everywhere beats one that degrades on the backend shipping first.
 
-A ticket whose blocking state could not be determined sorts last within its rung, so it surfaces only
-when nothing confirmed-unblocked exists.
+Confirmed-unblocked and unknown-blocking are a partition applied *before* the ladder, not a tiebreak
+inside it. Candidates whose blockers are confirmed closed are ranked by the full ladder; the unknown set
+is ranked by the same ladder and consulted only when the confirmed set is empty. An earlier draft said
+unknown "sorts last within its rung", which does not hold: an unknown P0 beats a confirmed-unblocked P1
+on the first rung, so the degraded case could win outright. Partitioning first is what makes "surfaces
+only when nothing confirmed-unblocked exists" true rather than aspirational.
 
 Ranking reads no map artifact of any kind. Sequencing intent must be expressed as blocking edges, where
 it is machine-readable, rather than as a wave table or a longest-chain line in prose.

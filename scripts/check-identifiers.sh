@@ -31,21 +31,28 @@ localhost
 
 ALLOWED_KEY_PREFIXES='TEST ABC DEMO FOO XYZ ADR UTF SHA ISO RFC BASE'
 
-# A host allowlist alone passes github.com/<private-org>/<repo>, since the org lives in
-# the path. So the first path segment of a code-host URL, and the owner half of a
-# cross-repo `owner/repo#n` reference, are checked too. Only the three web hosts below
-# are owner-checked: api.github.com paths begin with a literal route segment rather than
-# an owner, so it is covered by the host check alone.
+# A host allowlist alone passes a code host followed by a private org, since the org lives in
+# the path. So namespaces are checked as well as hosts.
+#
+# GitHub and GitLab need different extraction. A GitHub namespace is exactly the first path
+# segment, and the segments after it are a repo name and route words. A GitLab namespace nests
+# arbitrarily and every segment of it is identity -- a private subgroup beneath an allowlisted
+# top-level group is still a private name -- so the whole namespace is checked as one value.
+#
+# api.github.com is deliberately not namespace-checked: its paths begin with a route segment
+# rather than a namespace, so the host check alone covers it.
 ALLOWED_OWNERS='nichenke example-org'
-OWNER_URL_RE='https?://(github\.com|gitlab\.com|gitlab\.example\.com)/[A-Za-z0-9._-]+'
+GH_URL_RE='https?://github\.com/[A-Za-z0-9._-]+'
+GL_URL_RE='https?://(gitlab\.com|gitlab\.example\.com)/[A-Za-z0-9._/-]+'
 
 # Git remotes are frequently SSH rather than HTTP, in both scp form and ssh-scheme form, and
 # neither carries an http scheme for the checks above to anchor on. That matters more here
 # than in most repos: this tool discovers a repository from its git remote, so remotes are
-# exactly what its fixtures will contain. Requiring a trailing owner segment keeps the
-# pattern from swallowing bare email addresses. The shapes are described rather than written
-# out because a literal example would match this pattern and fail on this file.
-SSH_REMOTE_RE='(ssh://)?[A-Za-z0-9._-]+@[A-Za-z0-9.-]+[:/][A-Za-z0-9._-]+/'
+# exactly what its fixtures will contain. Requiring at least two path segments keeps the
+# pattern from swallowing bare email addresses, which have none, and captures a nested GitLab
+# namespace in full rather than stopping at its first segment. The shapes are described rather
+# than written out because a literal example would match this pattern and fail on this file.
+SSH_REMOTE_RE='(ssh://)?[A-Za-z0-9._-]+@[A-Za-z0-9.-]+[:/][A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)+'
 
 failed=0
 
@@ -55,8 +62,11 @@ hosts=$(git ls-files -z | xargs -0 grep -IhoE 'https?://[A-Za-z0-9._:-]+' 2>/dev
 ssh_remotes=$(git ls-files -z | xargs -0 grep -IhoE "$SSH_REMOTE_RE" 2>/dev/null | sort -u || true)
 ssh_hosts=$(printf '%s\n' "$ssh_remotes" |
 	sed -E 's#^(ssh://)?[A-Za-z0-9._-]+@##; s#[:/].*$##' | sort -u)
+# A remote path is always namespace plus repo, on either host, so dropping the final segment
+# yields the namespace -- one segment on GitHub, however many on GitLab.
 ssh_owners=$(printf '%s\n' "$ssh_remotes" |
-	sed -E 's#^(ssh://)?[A-Za-z0-9._-]+@[A-Za-z0-9.-]+[:/]##; s#/.*$##' | sort -u)
+	sed -E 's#^(ssh://)?[A-Za-z0-9._-]+@[A-Za-z0-9.-]+[:/]##; s#\.git/?$##; s#/$##; s#/[^/]+$##' |
+	grep -v '^$' | sort -u || true)
 
 while IFS= read -r host; do
 	[ -n "$host" ] || continue
@@ -79,8 +89,13 @@ while IFS= read -r key; do
 	fi
 done <<<"$keys"
 
-url_owners=$(git ls-files -z | xargs -0 grep -IhoE "$OWNER_URL_RE" 2>/dev/null |
+gh_owners=$(git ls-files -z | xargs -0 grep -IhoE "$GH_URL_RE" 2>/dev/null |
 	sed -E 's#^https?://[^/]+/##' | sort -u || true)
+
+# Everything before the `/-/` route separator, or the whole path where there is none, minus the
+# final project segment.
+gl_owners=$(git ls-files -z | xargs -0 grep -IhoE "$GL_URL_RE" 2>/dev/null |
+	sed -E 's#^https?://[^/]+/##; s#/-/.*$##; s#/$##; s#/[^/]+$##' | grep -v '^$' | sort -u || true)
 
 ref_owners=$(git ls-files -z | xargs -0 grep -IhoE '[A-Za-z0-9._-]+/[A-Za-z0-9._-]+#[0-9]+' 2>/dev/null |
 	sed -E 's#/.*##' | sort -u || true)
@@ -88,10 +103,10 @@ ref_owners=$(git ls-files -z | xargs -0 grep -IhoE '[A-Za-z0-9._-]+/[A-Za-z0-9._
 while IFS= read -r owner; do
 	[ -n "$owner" ] || continue
 	if ! printf '%s\n' $ALLOWED_OWNERS | grep -qxF "$owner"; then
-		printf 'disallowed repository owner: %s\n' "$owner" >&2
+		printf 'disallowed repository namespace: %s\n' "$owner" >&2
 		failed=1
 	fi
-done <<<"$(printf '%s\n%s\n%s\n' "$url_owners" "$ref_owners" "$ssh_owners" | sort -u)"
+done <<<"$(printf '%s\n%s\n%s\n%s\n' "$gh_owners" "$gl_owners" "$ref_owners" "$ssh_owners" | sort -u)"
 
 if [ "$failed" -ne 0 ]; then
 	cat >&2 <<'MSG'

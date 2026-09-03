@@ -2,9 +2,13 @@
 
 **Unblocked Opportunist** — picks the best unclaimed, unblocked ticket and starts work on it.
 
-`nextup` reads a ticket set from GitHub, GitLab, Jira, or local markdown; filters to open, unclaimed,
-and unblocked; ranks the survivors deterministically; and launches a session on the winner in its own
-git worktree.
+`nextup` reads a ticket set from GitHub, GitLab, Jira, or local markdown; filters to open and unclaimed;
+ranks the survivors deterministically; and launches a session on the winner in its own git worktree.
+
+Blocking is tri-state, so "unblocked" is not a simple filter. Tickets whose blockers are *confirmed*
+closed are ranked first. Tickets whose blocking state the tracker could not report are ranked by the same
+rules but consulted only when nothing confirmed-unblocked is left — surfaced loudly, never silently
+treated as unblocked.
 
 ## Status
 
