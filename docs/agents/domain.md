@@ -46,8 +46,4 @@ the project doesn't use (reconsider) or there's a real gap (note it for `/domain
 
 If your output contradicts an existing ADR, surface it explicitly rather than silently overriding:
 
-> _Contradicts ADR 0003 (ranking ladder fixed in code) — but worth reopening because…_
-
-Cite an ADR as `ADR 0003` or by filename, never as `ADR` immediately followed by a hyphen and its
-number: that form matches the project-key shape in `scripts/check-identifiers.sh` and fails CI until
-someone adds it to the allowlist.
+> _Contradicts ADR-0003 (ranking ladder fixed in code) — but worth reopening because…_

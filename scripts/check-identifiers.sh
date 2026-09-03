@@ -8,7 +8,11 @@
 #
 # It does not follow that an identifier cannot hide from it. The guard sees only what survives the
 # normalization below, so an encoding this does not unescape is a bypass rather than a failure.
-# Issue 19 records which encodings are in scope and which are deliberately not.
+#
+# What this dependably catches is a canonical identifier a person pasted in. The machine-written case
+# -- a lockfile recording a private mirror, which is what actually leaked here -- is closed upstream by
+# the registry pin in bunfig.toml, asserted in CI. So `ok` below means one narrow class was absent from
+# the files as they stood when it ran, and nothing more. ADR-0005 states the scope and what it excludes.
 #
 # Deliberately not a denylist: a denylist of real hosts would itself be the content it guards, so
 # publishing the guard would leak exactly what it protects.
@@ -35,10 +39,12 @@ https://example.com/issues/1
 # an .npmrc auth line and a schemeless URL all have. Matching a bare dotted host instead would
 # flag every `object.property` in the source, because the two shapes are indistinguishable.
 #
-# There is deliberately no tracker-key shape here. Two-to-ten uppercase letters before a hyphen
-# and digits is also how every standards identifier is written -- character encodings, the date
-# format, hash and cipher names, RFC and CVE numbers -- so it flagged thirteen of sixteen sampled
-# tokens of ordinary technical prose while catching a class of leak no lockfile can produce.
+# There is deliberately no tracker-key shape here, on cost grounds rather than threat grounds: a
+# pasted ticket key is in scope and is accepted as residual risk. Two-to-ten uppercase letters before
+# a hyphen and digits is also how every standards identifier is written -- character encodings, the
+# date format, hash and cipher names, RFC and CVE numbers, this repo's own ADR citations -- so it
+# flagged thirteen of sixteen sampled tokens of ordinary prose, and a guard firing on ADR-0001 is one
+# that gets rubber-stamped.
 PATTERN='([a-z][a-z0-9+.-]*://[^[:space:]]+)|([A-Za-z0-9._%+/-]+@[A-Za-z0-9.-]*\.[A-Za-z]{2,}([:/][^[:space:]]*)?)|([A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}[:/][^[:space:]]*)|([A-Za-z0-9._/-]+#[0-9]+)'
 
 # A source literal can hold several identifiers separated by escape sequences, which give grep no
@@ -69,7 +75,7 @@ tokens=$(printf '%s\n' "$normalized" | grep -oE "$PATTERN" |
 # Whole tokens, compared literally. Accepting anything *under* an allowed prefix was implemented and
 # removed: grep emits a whole URL as one token, so a copied URL carrying `?redirect=` plus a private
 # host was accepted before the inner host was ever looked at. Repairing that means re-scanning the
-# accepted remainder, which is the parsing this design exists to avoid. See ADR 0005.
+# accepted remainder, which is the parsing this design exists to avoid. See ADR-0005.
 failed=0
 while IFS= read -r token; do
 	[ -n "$token" ] || continue

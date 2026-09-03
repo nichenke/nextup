@@ -60,8 +60,12 @@ ordering it after `bun install` once meant a failing install stopped it from run
 commit whose lockfile held a private registry host.
 
 `scripts/check-identifiers.sh` is an allowlist, not a denylist: a denylist of real hostnames would
-itself be the content it guards. It recognises canonical machine-written forms only — a scheme URL, an
-email or scp-form remote, a schemeless host followed by a separator, a cross-repo issue reference — and
-that list is deliberately frozen. It does not detect tracker keys, obfuscated encodings, or a bare
-hostname with nothing after it. Prevention lives in `bunfig.toml` pinning the public registry, which
-CI asserts; the guard is the backstop. ADR 0005 records why, and what was rejected.
+itself be the content it guards. It exists for one job — catching a canonical identifier someone pasted
+into a tracked file — and recognises a scheme URL, an email or scp-form remote, a schemeless host
+followed by a separator, and a cross-repo issue reference. That list is frozen.
+
+It does **not** detect tracker keys, obfuscated encodings, or a bare hostname with nothing after it, so
+`check-identifiers: ok` means one narrow class was absent when it ran, not that the diff is clean. It
+printed `ok` on the day of the original leak, before `bun.lock` was regenerated. Prevention lives in
+`bunfig.toml` pinning the public registry, which CI asserts by exact comparison before any install.
+ADR-0005 records the scope, the accepted residual risks, and what was rejected.

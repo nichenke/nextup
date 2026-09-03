@@ -3,10 +3,20 @@
 An internal registry hostname reached this repo while it was public: `bun install` resolved through a
 mirror and wrote that host into `bun.lock`, which was committed and pushed. What fixed the cause was
 `bunfig.toml` pinning the public registry, so a lockfile can no longer record whatever mirror a machine
-happens to resolve through. `scripts/check-identifiers.sh` is a backstop for identifiers that provenance
-does not prevent, and its recognition list is now frozen: it matches canonical, machine-written forms —
-a scheme URL, an email or scp-form remote, a schemeless host followed by a separator, a cross-repo issue
-reference — and nothing else. Findings that ask it to recognise one more spelling get closed.
+happens to resolve through, and CI now asserts that pin by exact comparison before any install.
+
+`scripts/check-identifiers.sh` is kept for one job, stated narrowly because a broader claim is not
+supportable: **it catches a canonical identifier a person pasted into a tracked file** — a scheme URL,
+an email or scp-form remote, a schemeless host followed by a separator, a cross-repo issue reference.
+Its recognition list is frozen, and findings that ask it to recognise one more spelling get closed.
+
+The narrow scope is deliberate rather than modest. An earlier draft of this ADR justified the guard as
+a backstop for machine-written identifiers, which has the value backwards: the machine-written case is
+the one provenance closes, and the pin assertion closes it better than any matcher can. What survives
+that is human paste — someone dropping an internal wiki link into a README — which the guard does catch
+dependably, and which no amount of registry pinning prevents. Determinism is the right property for a
+gate, but it does not make an unreliable check worth gating on; the pin assertion earns its place as a
+gate, and this guard earns its place only for the paste case.
 
 The decisive evidence is that the guard did not catch the leak it exists for. It was written, it had been
 run by hand, and it had passed; `bun install` then generated `bun.lock` after that run, and the commit
@@ -39,13 +49,18 @@ reflexive allowlist appends — the failure this repo should fear most, because 
 is how a real internal host gets added — the narrow fix is to accept a stripped remainder matching only
 `/issues/<digits>` or `/pull/<digits>`, not to restore open prefix acceptance.
 
-There is deliberately no tracker-key shape. Two-to-ten uppercase letters before a hyphen and digits is
-also how every standards identifier is written, and on sampled technical prose for a tool about tickets,
-timestamps and integrity hashes it flagged thirteen of sixteen tokens — date formats, hash and cipher
-names, RFC and CVE numbers, this repo's own ADR citations. Worse, for multi-group tokens the extracted
-fragment is not what the author wrote: `CVE-2024-3094` reported as `CVE-2024`, an allowlist line no
-reviewer can trace back to the file. It caught a leak class no lockfile can produce, at the cost of firing
-on ordinary documentation.
+There is deliberately no tracker-key shape, and the reason is cost, not threat. A pasted internal ticket
+key is the same human-paste class the guard exists for, and `nextup` reads ticket sets from Jira among
+others, so tracker identifiers are first-class domain data that will turn up in fixtures and examples.
+That residual risk is real and is accepted, because detection is unaffordable rather than unnecessary:
+two-to-ten uppercase letters before a hyphen and digits is also how every standards identifier is
+written, and on sampled prose for a tool about tickets, timestamps and integrity hashes it flagged
+thirteen of sixteen tokens — date formats, hash and cipher names, RFC and CVE numbers, this repo's own
+ADR citations. Worse, for multi-group tokens the extracted fragment is not what the author wrote:
+`CVE-2024-3094` reported as `CVE-2024`, an allowlist line no reviewer can trace back to the file. A
+guard that fires on ADR-0001 gets switched off or rubber-stamped, which costs more than the class it
+catches. Closing this gap has to come from provenance — synthesising tracker references in fixtures
+rather than copying real ones — not from a sharper pattern.
 
 A bare dotted host with no following separator is not matched either, because it is the same shape as
 every `object.property` in the source; matching it flags the codebase rather than a leak. A doubled
@@ -69,6 +84,14 @@ CI asserts the registry pin by exact string comparison, before any install. It i
 high-value check in the system, because it guards the mechanism that actually leaked rather than the text
 that resulted. Documentation must not promise more than the guard delivers: a comment or README line
 claiming broader coverage gets cited later to justify what the guard actually allows.
+
+`check-identifiers: ok` is not assurance, and treating it as such is the most likely way this repo leaks
+again. It printed exactly that on the day of the leak — the guard had been written, had been run, and had
+passed, and `bun.lock` was generated afterwards. The line means one narrow class was not found in the
+files as they stood when it ran. It says nothing about tracker keys, obfuscated encodings, bare
+hostnames, or anything written after it. A reviewer who reads it as a clean bill of health has been given
+a worse signal than no signal, which is why the scope above is stated in the negative as well as the
+positive.
 
 Remediation remains the floor and not the plan. It worked once — repo made private, commit rewritten,
 republished — but it is mitigation rather than recovery: push events, forks and caches mean a public
