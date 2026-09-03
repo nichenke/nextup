@@ -80,9 +80,18 @@ sanitizer and publishes code no human reviewed in its published form. A word-lev
 polarity but the wrong growth curve — tractable at 471 unique tokens today, intolerable once a real
 dependency tree lands.
 
-CI asserts the registry pin by exact string comparison, before any install. It is the cheapest
-high-value check in the system, because it guards the mechanism that actually leaked rather than the text
-that resulted. Documentation must not promise more than the guard delivers: a comment or README line
+CI asserts the registry pin before any install, and asserts two things rather than one: that the exact
+public line is present, and that it is the file's only registry assignment. A lone comparison for the
+line is not enough, because `grep` is not TOML-aware — the public line can sit in the root table while
+`[install]` names a private mirror, and the check passes while bun reads the mirror. That was live for
+one commit and is now covered. Requiring a single assignment removes the hiding place without parsing
+the file, which matters in this repo because its parsers are where its bugs have been.
+
+The pin check is still narrow, and saying so is the point: `BUN_CONFIG_REGISTRY` in the environment, a
+stray `.npmrc`, and a scoped registry under `[install.scopes]` can each redirect a resolution without
+touching the key this asserts. It guards the mechanism that actually leaked, not every mechanism that
+could. It is the cheapest high-value check in the system because it guards a cause rather than a
+symptom, not because it is complete. Documentation must not promise more than the guard delivers: a comment or README line
 claiming broader coverage gets cited later to justify what the guard actually allows.
 
 `check-identifiers: ok` is not assurance, and treating it as such is the most likely way this repo leaks

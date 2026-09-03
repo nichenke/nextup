@@ -21,12 +21,13 @@ This repo is single-context:
 /
 ├── CONTEXT.md
 ├── docs/adr/
-│   ├── 0001-scope-binding-in-user-config.md
-│   ├── 0002-pure-selector-separate-launcher.md
-│   ├── 0003-ranking-ladder-fixed-in-code.md
-│   └── 0004-bun-typescript-substrate.md
+│   └── NNNN-<slug>.md    ← one per decision; list them with `ls docs/adr/`
 └── scripts/
 ```
+
+The ADRs are deliberately not enumerated here. An earlier version of this section listed four, and two
+more landed the same day — one from another branch — so an agent reading it would have missed both the
+worktree-cleanup and identifier-guard constraints.
 
 A multi-context layout — a root `CONTEXT-MAP.md` pointing at per-context `CONTEXT.md` files, with
 `src/<context>/docs/adr/` for context-scoped decisions — is what to switch to if this ever becomes a

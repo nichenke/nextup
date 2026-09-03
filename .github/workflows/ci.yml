@@ -20,10 +20,18 @@ jobs:
       # on a commit that had a private registry host in its lockfile.
       - run: bash scripts/check-identifiers.sh
 
-      # Exact whole-line comparison, no regex. The pin is what stops a lockfile recording whatever
-      # mirror a machine resolves through, which is the mechanism that actually leaked -- guarding it
-      # is worth more than recognising the text it would produce. See ADR-0006.
-      - run: grep -qxF 'registry = "https://registry.npmjs.org"' bunfig.toml
+      # The pin is what stops a lockfile recording whatever mirror a machine resolves through, which
+      # is the mechanism that actually leaked -- guarding it is worth more than recognising the text
+      # it would produce. See ADR-0006.
+      #
+      # Two assertions rather than one, because grep is not TOML-aware: the public line can sit in the
+      # root table while `[install]` sets a private mirror, and a lone grep for the line passes while
+      # bun reads the mirror. Requiring it to be the file's *only* registry assignment removes the
+      # place a second value could hide, without parsing the file.
+      - name: Assert the registry pin
+        run: |
+          test "$(grep -c '^[[:space:]]*registry[[:space:]]*=' bunfig.toml)" = 1
+          grep -qxF 'registry = "https://registry.npmjs.org"' bunfig.toml
 
       - uses: oven-sh/setup-bun@v2
         with:
