@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "nextup",
+  "description": "Next-ticket selector and launcher",
+  "owner": {
+    "name": "nichenke"
+  },
+  "plugins": [
+    {
+      "name": "nextup",
+      "description": "Unblocked Opportunist - picks the best unclaimed, unblocked ticket and starts work on it in its own worktree.",
+      "source": "./",
+      "version": "0.1.0"
+    }
+  ]
+}

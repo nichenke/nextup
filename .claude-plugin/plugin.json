@@ -1,0 +1,16 @@
+{
+  "name": "nextup",
+  "version": "0.1.0",
+  "description": "Unblocked Opportunist - picks the best unclaimed, unblocked ticket from a GitHub, GitLab, Jira, or markdown ticket set and starts work on it in its own worktree.",
+  "author": {
+    "name": "nichenke"
+  },
+  "repository": "https://github.com/nichenke/nextup",
+  "keywords": [
+    "tickets",
+    "worktree",
+    "workflow",
+    "automation",
+    "issue-tracker"
+  ]
+}

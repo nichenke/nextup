@@ -1,0 +1,16 @@
+{
+  "name": "nextup",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Unblocked Opportunist - picks the best unclaimed, unblocked ticket and starts work on it",
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "check:identifiers": "bash scripts/check-identifiers.sh"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5"
+  }
+}

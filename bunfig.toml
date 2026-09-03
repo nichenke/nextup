@@ -1,0 +1,6 @@
+# Pins the public registry so the committed lockfile is portable and cannot record
+# whatever registry a contributor's machine happens to resolve through. A lockfile
+# generated against a private mirror pins that mirror's hostname into this repo and
+# then 403s for everyone else, including CI.
+[install]
+registry = "https://registry.npmjs.org"

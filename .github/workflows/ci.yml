@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # First, and before any install: the guard needs no dependencies, and a leaked
+      # identifier must fail the build even when the toolchain is broken. Ordering it
+      # after `bun install` once meant a failing install stopped it from ever running,
+      # on a commit that had a private registry host in its lockfile.
+      - run: bash scripts/check-identifiers.sh
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      - run: bunx tsc --noEmit
+
+      - run: bun test
