@@ -8,9 +8,18 @@ git worktree.
 
 ## Status
 
-Bootstrapping. Nothing functional yet — this repository currently contains its CI gate and the guard
-that keeps private identifiers out of it. The design is settled; see `docs/adr/` once the architecture
-decision records land.
+Bootstrapping. Nothing functional yet — the design is settled and written down, but no adapter, selector,
+or launcher exists.
+
+- [`docs/spec.md`](./docs/spec.md) — the specification: problem, solution, user stories, and the phasing
+- [`docs/adr/`](./docs/adr/) — four architecture decisions, each one a thing a reader would otherwise try
+  to "fix"
+- [`CONTEXT.md`](./CONTEXT.md) — the glossary, and the reason it exists: the concepts here already carry
+  three different names across the implementations this replaces
+- [`.scratch/nextup/`](./.scratch/nextup/) — the ticket set, as local markdown, with blocking edges
+
+The ticket set is deliberately in the format the markdown adapter will have to read, so it doubles as
+that adapter's first fixture.
 
 ## Design in one screen
 
