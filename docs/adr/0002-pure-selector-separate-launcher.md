@@ -14,3 +14,7 @@ side effects, and the launcher's behaviour is fully described by the argv it iss
 produced by typed command builders whose output is the contract, captured in golden files.
 
 A single combined command would have made both halves unsandboxable and neither half assertable.
+
+This split says nothing about removing a worktree once the launcher has created one — confirmed to be
+out of scope here, not merely unaddressed, by
+[docs/adr/0005-worktree-removal-stays-unimplemented.md](./0005-worktree-removal-stays-unimplemented.md).
