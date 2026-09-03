@@ -37,6 +37,9 @@ https://example.com/group/subgroup/project/issues/1
 https://example.com/browse/TEST-42
 ssh://git@example.com/example/repo.git
 git@example.com:example/repo.git
+example.com:example/repo.git
+example.com:8443
+example.com/group/project/-/issues/1
 example/repo#1
 example/repo#8
 group/project#8
