@@ -2,15 +2,27 @@
 
 **Unblocked Opportunist** — picks the best unclaimed, unblocked ticket and starts work on it.
 
-`nextup` reads a ticket set from GitHub, GitLab, Jira, or local markdown; filters to open, unclaimed,
-and unblocked; ranks the survivors deterministically; and launches a session on the winner in its own
-git worktree.
+`nextup` reads a ticket set from GitHub, GitLab, Jira, or local markdown; filters to open and unclaimed;
+ranks the survivors deterministically; and launches a session on the winner in its own git worktree.
+
+Blocking is tri-state, so "unblocked" is not a simple filter. Tickets whose blockers are *confirmed*
+closed are ranked first. Tickets whose blocking state the tracker could not report are ranked by the same
+rules but consulted only when nothing confirmed-unblocked is left — surfaced loudly, never silently
+treated as unblocked.
 
 ## Status
 
-Bootstrapping. Nothing functional yet — this repository currently contains its CI gate and the guard
-that keeps private identifiers out of it. The design is settled; see `docs/adr/` once the architecture
-decision records land.
+Bootstrapping. Nothing functional yet — the design is settled and written down, but no adapter, selector,
+or launcher exists.
+
+- [The spec](https://github.com/nichenke/nextup/issues/2) — problem, solution, user stories, and the
+  phased delivery
+- [The ticket set](https://github.com/nichenke/nextup/issues?q=is%3Aissue+label%3Aready-for-agent) — 16
+  tickets, children of the spec, wired with native blocking edges
+- [`docs/adr/`](./docs/adr/) — four architecture decisions, each one a thing a reader would otherwise try
+  to "fix"
+- [`CONTEXT.md`](./CONTEXT.md) — the glossary, and the reason it exists: the concepts here already carry
+  three different names across the implementations this replaces
 
 ## Design in one screen
 
@@ -27,7 +39,8 @@ a total order:
 
 1. Priority signal
 2. How many other tickets this one unblocks
-3. Oldest first
+3. Ascending reference — unique by construction, so the order is total however many projects a query
+   spans
 
 ## Development
 
