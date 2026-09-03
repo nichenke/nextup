@@ -9,6 +9,12 @@ import type { Runner } from "./runner";
  * `glab` has no equivalent multi-account concept). Tried both with and without a trailing
  * `:port`, since which form a self-hosted entry is keyed under depends on how the user
  * originally logged in.
+ *
+ * Accepted risk: the bare-host fallback means a host authenticated only on its default port
+ * is also treated as authenticated when pasted with an unrelated, unauthenticated port — a
+ * different service on that port would be wrongly trusted. No real-world tracker deployment
+ * splitting tenants by port on the same hostname is documented, so this is left unguarded
+ * rather than adding an exact-host:port-only mode nothing currently needs.
  */
 export function isAuthenticatedHost(tracker: "github" | "gitlab", host: string, runner: Runner): boolean {
 	const check = (hostname: string): boolean => {
