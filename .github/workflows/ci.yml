@@ -20,6 +20,21 @@ jobs:
       # on a commit that had a private registry host in its lockfile.
       - run: bash scripts/check-identifiers.sh
 
+      # The pin is what stops a lockfile recording whatever mirror a machine resolves through, which
+      # is the mechanism that actually leaked -- guarding it is worth more than recognising the text
+      # it would produce. See ADR-0006.
+      #
+      # Compares the table each registry key sits under, not just the key's text. Two earlier versions
+      # matched the line alone and passed on a file that pinned nothing: the public line in the root
+      # table, or under `[test]`, or under `[install.scopes]`, with `[install]` left unpinned or set to
+      # a mirror. Emitting `<table>|<line>` for every registry assignment and comparing the whole
+      # output literally makes a missing, misplaced, scoped, duplicated or altered key all fail, with
+      # no TOML parser -- a duplicate emits a second line, so the comparison catches it too.
+      - name: Assert the registry pin
+        run: |
+          test "$(awk '/^[[:space:]]*\[/ { table = $0 } /^[[:space:]]*registry[[:space:]]*=/ { print table "|" $0 }' bunfig.toml)" \
+            = '[install]|registry = "https://registry.npmjs.org"'
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest

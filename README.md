@@ -45,15 +45,32 @@ a total order:
 ## Development
 
 ```sh
+bash scripts/check-identifiers.sh
 bun install
 bun test
 bunx tsc --noEmit
-bash scripts/check-identifiers.sh
 ```
 
 `bun test` is transpile-only, so the typecheck is a separate gate rather than something the test run
-covers. All three run in CI, and CI needs no credentials — the whole tool is driven through one
+covers. All of these run in CI, and CI needs no credentials — the whole tool is driven through one
 injected process runner, so tests never touch a network or an external binary.
 
-`scripts/check-identifiers.sh` is an allowlist, not a denylist. A denylist of real hostnames and project
-keys would itself be the content it guards, so publishing the guard would leak what it protects.
+The guard runs first, before any install, and CI keeps that order. It needs no dependencies, and
+ordering it after `bun install` once meant a failing install stopped it from running at all — on a
+commit whose lockfile held a private registry host.
+
+`scripts/check-identifiers.sh` is an allowlist, not a denylist: a denylist of real hostnames would
+itself be the content it guards. It exists for one job — catching a canonical identifier someone pasted
+into a tracked file — and recognises a scheme URL, an email or scp-form remote, a *dotted* schemeless
+host followed by a separator, and a cross-repo issue reference. That list is frozen.
+
+The dotted requirement is load-bearing: a single-label host or an IP address in an otherwise canonical
+reference — `registry:5000/team/app`, `10.0.0.1:5000/team/app` — matches nothing, because the final
+label must be letters. That is the same accepted cost as the bare-host gap: relaxing it to catch
+`name:port/path` would flag ordinary code and config.
+
+It does **not** detect tracker keys, obfuscated encodings, or a bare hostname with nothing after it, so
+`check-identifiers: ok` means one narrow class was absent when it ran, not that the diff is clean. It
+printed `ok` on the day of the original leak, before `bun.lock` was regenerated. Prevention lives in
+`bunfig.toml` pinning the public registry, which CI asserts by exact comparison before any install.
+ADR-0006 records the scope, the accepted residual risks, and what was rejected.
