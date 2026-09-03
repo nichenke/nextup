@@ -120,6 +120,12 @@ describe("resolveTicketRef: pasted URLs", () => {
 		).toThrow(TicketRefError);
 	});
 
+	test("a redirect-style query string is never read as part of the repo path", () => {
+		expect(() =>
+			resolveTicketRef("https://example.com/?next=/group/project/-/issues/1", { runner: routedRunner(GLAB_AUTHED) }),
+		).toThrow(TicketRefError);
+	});
+
 	test("a Jira browse URL resolves when a Jira session exists", () => {
 		const ref = resolveTicketRef("https://example.com/browse/TEST-42", { runner: routedRunner(JIRA_AUTHED) });
 		expect(ref).toEqual({ tracker: "jira", repo: null, host: "example.com", key: "TEST-42" });

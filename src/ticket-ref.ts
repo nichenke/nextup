@@ -24,15 +24,19 @@ const SCHEME_URL = /^[a-z][a-z0-9+.-]*:\/\//i;
 const JIRA_KEY = /^[A-Za-z][A-Za-z0-9]*-\d+$/;
 const MARKDOWN_KEY = /^\d+$/;
 
-const GITLAB_ISSUE_URL = /^https?:\/\/([^/]+)\/(.+?)\/-\/issues\/(\d+)(?:[/?#].*)?$/i;
+// Every capture below excludes "?" and "#" so a query string or fragment can never be read as
+// part of the host or repository path — without that, a redirect-style URL like
+// "https://example.com/?next=/group/project/-/issues/1" would capture "?next=/group/project" as the
+// repo, since the URL's actual path is just "/".
+const GITLAB_ISSUE_URL = /^https?:\/\/([^/?#]+)\/([^?#]+?)\/-\/issues\/(\d+)(?:[/?#].*)?$/i;
 // Two or more segments before /issues/, and never a "/-/issues/" path (that's GITLAB_ISSUE_URL's
 // shape). Exactly two segments is genuinely ambiguous between GitHub and a GitLab instance still
 // on the pre-11.0 route with no "/-/" (shape alone can't tell them apart — see disambiguateHost).
 // Three or more can only be GitLab: GitHub has no subgroups, so it never has more than owner/repo.
-const GENERIC_ISSUES_URL = /^https?:\/\/([^/]+)\/(?!.*\/-\/issues\/)([^/]+(?:\/[^/]+)+?)\/issues\/(\d+)(?:[/?#].*)?$/i;
+const GENERIC_ISSUES_URL = /^https?:\/\/([^/?#]+)\/(?!.*\/-\/issues\/)([^/?#]+(?:\/[^/?#]+)+?)\/issues\/(\d+)(?:[/?#].*)?$/i;
 // A self-hosted Jira Server/Data Center instance is commonly deployed under a context path
 // (e.g. "/jira"), so any prefix before "browse/" is allowed, not just the bare root.
-const JIRA_ISSUE_URL = /^https?:\/\/([^/]+)\/(?:[^?#]*?\/)?browse\/([A-Za-z][A-Za-z0-9]*-\d+)(?:[/?#].*)?$/i;
+const JIRA_ISSUE_URL = /^https?:\/\/([^/?#]+)\/(?:[^?#]*?\/)?browse\/([A-Za-z][A-Za-z0-9]*-\d+)(?:[/?#].*)?$/i;
 
 export function resolveTicketRef(input: string, deps: ResolveDeps = {}): TicketRef {
 	const runner = deps.runner ?? defaultRunner;
