@@ -23,6 +23,7 @@ const disallowedScpRemote = "git@github.com:" + "private-org/repo.git";
 const disallowedSshUrlRemote = "ssh://git@" + "internal.corp.test/group/repo.git";
 const nestedGitlabUrl = `${scheme}gitlab.com/example-org/private-group/repo`;
 const nestedGitlabRemote = "git@gitlab.com:" + "example-org/private-group/repo.git";
+const userlessSshRemote = "ssh://git" + "hub.com/private-org/repo.git";
 
 function runGuardOn(contents: string) {
 	const dir = mkdtempSync(join(tmpdir(), "nextup-guard-"));
@@ -143,5 +144,20 @@ describe("check-identifiers", () => {
 		const result = runGuardOn(`origin ${nestedGitlabRemote}\n`);
 		expect(result.exitCode).not.toBe(0);
 		expect(result.stderr.toString()).toContain("example-org/private-group");
+	});
+
+	// git's URL grammar makes the user optional in the ssh-scheme form, and permits a port
+	// after the host. An earlier pattern required the user and read the port as the namespace.
+	test("fails an ssh:// remote that omits the user", () => {
+		const result = runGuardOn(`origin ${userlessSshRemote}\n`);
+		expect(result.exitCode).not.toBe(0);
+		expect(result.stderr.toString()).toContain("private-org");
+	});
+
+	test("passes an allowlisted ssh:// remote carrying an explicit port", () => {
+		const result = runGuardOn(
+			"origin ssh://git@gitlab.example.com:2222/example-org/repo.git\n",
+		);
+		expect(result.exitCode).toBe(0);
 	});
 });

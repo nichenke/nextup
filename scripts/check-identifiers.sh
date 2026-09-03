@@ -48,25 +48,56 @@ GL_URL_RE='https?://(gitlab\.com|gitlab\.example\.com)/[A-Za-z0-9._/-]+'
 # Git remotes are frequently SSH rather than HTTP, in both scp form and ssh-scheme form, and
 # neither carries an http scheme for the checks above to anchor on. That matters more here
 # than in most repos: this tool discovers a repository from its git remote, so remotes are
-# exactly what its fixtures will contain. Requiring at least two path segments keeps the
-# pattern from swallowing bare email addresses, which have none, and captures a nested GitLab
-# namespace in full rather than stopping at its first segment. The shapes are described rather
-# than written out because a literal example would match this pattern and fail on this file.
-SSH_REMOTE_RE='(ssh://)?[A-Za-z0-9._-]+@[A-Za-z0-9.-]+[:/][A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)+'
+# exactly what its fixtures will contain.
+#
+# Two forms, matched separately, because git's URL grammar treats them differently. The scp
+# form has no scheme, so a user component is what distinguishes a remote from arbitrary text
+# containing a colon -- it is required here, and that is also what keeps the pattern off bare
+# email addresses. The ssh-scheme form has a scheme to anchor on, so git makes both the user
+# and the port optional, and both must therefore be optional here too.
+#
+# The shapes are described rather than written out: a literal example would match these
+# patterns and fail on this file.
+SCP_REMOTE_RE='[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*'
+SSH_URL_RE='ssh://([A-Za-z0-9._-]+@)?[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._-]+)+'
 
 failed=0
 
-hosts=$(git ls-files -z | xargs -0 grep -IhoE 'https?://[A-Za-z0-9._:-]+' 2>/dev/null |
+# Every tracked text line, gathered once. The scp scan needs a version of this with ssh-scheme
+# URLs stripped out first: the scp pattern otherwise matches the authority inside one of them
+# and reads its port as the namespace, failing an allowlisted remote.
+text=$(git ls-files -z | xargs -0 grep -Ih '' 2>/dev/null || true)
+text_no_ssh_urls=$(printf '%s\n' "$text" | sed -E 's#ssh://[^[:space:]]*##g')
+
+hosts=$(printf '%s\n' "$text" | grep -oE 'https?://[A-Za-z0-9._:-]+' |
 	sed -E 's#^https?://##' | sort -u || true)
 
-ssh_remotes=$(git ls-files -z | xargs -0 grep -IhoE "$SSH_REMOTE_RE" 2>/dev/null | sort -u || true)
-ssh_hosts=$(printf '%s\n' "$ssh_remotes" |
-	sed -E 's#^(ssh://)?[A-Za-z0-9._-]+@##; s#[:/].*$##' | sort -u)
-# A remote path is always namespace plus repo, on either host, so dropping the final segment
-# yields the namespace -- one segment on GitHub, however many on GitLab.
-ssh_owners=$(printf '%s\n' "$ssh_remotes" |
-	sed -E 's#^(ssh://)?[A-Za-z0-9._-]+@[A-Za-z0-9.-]+[:/]##; s#\.git/?$##; s#/$##; s#/[^/]+$##' |
-	grep -v '^$' | sort -u || true)
+scp_remotes=$(printf '%s\n' "$text_no_ssh_urls" | grep -oE "$SCP_REMOTE_RE" | sort -u || true)
+ssh_url_remotes=$(printf '%s\n' "$text" | grep -oE "$SSH_URL_RE" | sort -u || true)
+
+ssh_hosts=$(
+	{
+		printf '%s\n' "$scp_remotes" | sed -E 's#^[^@]+@##; s#:.*$##'
+		printf '%s\n' "$ssh_url_remotes" | sed -E 's#^ssh://([^@/]+@)?##; s#[:/].*$##'
+	} | sort -u
+)
+
+# A remote path is namespace plus repo on either host, so dropping the final segment yields the
+# namespace: one segment on GitHub, however many on GitLab. The port, where present, belongs to
+# the authority and must come off before the first path segment is read -- otherwise it reads as
+# the namespace and an allowlisted remote fails.
+ssh_owners=$(
+	{
+		printf '%s\n' "$scp_remotes" | sed -E 's#^[^@]+@[^:]+:##'
+		printf '%s\n' "$ssh_url_remotes" | sed -E 's#^ssh://([^@/]+@)?[^/]+/##'
+	} | sed -E 's#\.git$##; s#/$##; s#/[^/]+$##' | grep -vE '^$|^[0-9]+$' | sort -u || true
+)
+
+# Composed into a variable rather than inlined into the here-string below. A failure inside a
+# here-string's command substitution is discarded, so an unset variable there made this script
+# check nothing and still print "ok" -- the one outcome a guard must never have. As an
+# assignment, the same failure aborts under `set -e`.
+host_candidates=$(printf '%s\n%s\n' "$hosts" "$ssh_hosts" | sort -u)
 
 while IFS= read -r host; do
 	[ -n "$host" ] || continue
@@ -75,10 +106,9 @@ while IFS= read -r host; do
 		printf 'disallowed host: %s\n' "$host" >&2
 		failed=1
 	fi
-done <<<"$(printf '%s\n%s\n' "$hosts" "$ssh_hosts" | sort -u)"
+done <<<"$host_candidates"
 
-keys=$(git ls-files -z | xargs -0 grep -IhoE '[A-Z]{2,10}-[0-9]+' 2>/dev/null |
-	sort -u || true)
+keys=$(printf '%s\n' "$text" | grep -oE '[A-Z]{2,10}-[0-9]+' | sort -u || true)
 
 while IFS= read -r key; do
 	[ -n "$key" ] || continue
@@ -89,16 +119,18 @@ while IFS= read -r key; do
 	fi
 done <<<"$keys"
 
-gh_owners=$(git ls-files -z | xargs -0 grep -IhoE "$GH_URL_RE" 2>/dev/null |
+gh_owners=$(printf '%s\n' "$text" | grep -oE "$GH_URL_RE" |
 	sed -E 's#^https?://[^/]+/##' | sort -u || true)
 
 # Everything before the `/-/` route separator, or the whole path where there is none, minus the
 # final project segment.
-gl_owners=$(git ls-files -z | xargs -0 grep -IhoE "$GL_URL_RE" 2>/dev/null |
+gl_owners=$(printf '%s\n' "$text" | grep -oE "$GL_URL_RE" |
 	sed -E 's#^https?://[^/]+/##; s#/-/.*$##; s#/$##; s#/[^/]+$##' | grep -v '^$' | sort -u || true)
 
-ref_owners=$(git ls-files -z | xargs -0 grep -IhoE '[A-Za-z0-9._-]+/[A-Za-z0-9._-]+#[0-9]+' 2>/dev/null |
+ref_owners=$(printf '%s\n' "$text" | grep -oE '[A-Za-z0-9._-]+/[A-Za-z0-9._-]+#[0-9]+' |
 	sed -E 's#/.*##' | sort -u || true)
+
+namespace_candidates=$(printf '%s\n%s\n%s\n%s\n' "$gh_owners" "$gl_owners" "$ref_owners" "$ssh_owners" | sort -u)
 
 while IFS= read -r owner; do
 	[ -n "$owner" ] || continue
@@ -106,7 +138,7 @@ while IFS= read -r owner; do
 		printf 'disallowed repository namespace: %s\n' "$owner" >&2
 		failed=1
 	fi
-done <<<"$(printf '%s\n%s\n%s\n%s\n' "$gh_owners" "$gl_owners" "$ref_owners" "$ssh_owners" | sort -u)"
+done <<<"$namespace_candidates"
 
 if [ "$failed" -ne 0 ]; then
 	cat >&2 <<'MSG'
