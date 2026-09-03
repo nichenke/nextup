@@ -13,6 +13,13 @@ const disallowedHostUrl = "https://" + "internal." + "corp" + ".test";
 const disallowedKey = "WOR" + "K-1234";
 const disallowedShortKey = "Q" + "Z-9";
 
+// Splitting mid-URL is not enough for the owner cases: a fragment that ends partway through
+// the hostname still carries a scheme, so the host check flags the truncated host. The scheme
+// is what gets split instead. (Writing that example out literally here also tripped it.)
+const scheme = "ht" + "tps://";
+const disallowedOwnerUrl = `${scheme}github.com/private-org/repo`;
+const disallowedOwnerRef = "private-org/re" + "po#7";
+
 function runGuardOn(contents: string) {
 	const dir = mkdtempSync(join(tmpdir(), "nextup-guard-"));
 	writeFileSync(join(dir, "fixture.md"), contents);
@@ -62,5 +69,24 @@ describe("check-identifiers", () => {
 	test("passes a file containing a regex character class", () => {
 		const result = runGuardOn("Pattern: [A-Z][A-Z0-9]{1,9}-[0-9]+\n");
 		expect(result.exitCode).toBe(0);
+	});
+
+	test("passes a code-host URL owned by an allowlisted owner", () => {
+		const result = runGuardOn("See https://github.com/nichenke/nextup\n");
+		expect(result.exitCode).toBe(0);
+	});
+
+	// The host allowlist alone cannot catch these: github.com is allowed, and the owner
+	// that identifies a private organisation lives in the path.
+	test("fails a code-host URL whose owner is not allowlisted", () => {
+		const result = runGuardOn(`Upstream: ${disallowedOwnerUrl}\n`);
+		expect(result.exitCode).not.toBe(0);
+		expect(result.stderr.toString()).toContain("private-org");
+	});
+
+	test("fails a cross-repo issue reference whose owner is not allowlisted", () => {
+		const result = runGuardOn(`Tracked in ${disallowedOwnerRef}\n`);
+		expect(result.exitCode).not.toBe(0);
+		expect(result.stderr.toString()).toContain("private-org");
 	});
 });

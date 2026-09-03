@@ -31,6 +31,14 @@ localhost
 
 ALLOWED_KEY_PREFIXES='TEST ABC DEMO FOO XYZ ADR UTF SHA ISO RFC BASE'
 
+# A host allowlist alone passes github.com/<private-org>/<repo>, since the org lives in
+# the path. So the first path segment of a code-host URL, and the owner half of a
+# cross-repo `owner/repo#n` reference, are checked too. Only the three web hosts below
+# are owner-checked: api.github.com paths begin with a literal route segment rather than
+# an owner, so it is covered by the host check alone.
+ALLOWED_OWNERS='nichenke example-org'
+OWNER_URL_RE='https?://(github\.com|gitlab\.com|gitlab\.example\.com)/[A-Za-z0-9._-]+'
+
 failed=0
 
 hosts=$(git ls-files -z | xargs -0 grep -IhoE 'https?://[A-Za-z0-9._:-]+' 2>/dev/null |
@@ -56,6 +64,20 @@ while IFS= read -r key; do
 		failed=1
 	fi
 done <<<"$keys"
+
+url_owners=$(git ls-files -z | xargs -0 grep -IhoE "$OWNER_URL_RE" 2>/dev/null |
+	sed -E 's#^https?://[^/]+/##' | sort -u || true)
+
+ref_owners=$(git ls-files -z | xargs -0 grep -IhoE '[A-Za-z0-9._-]+/[A-Za-z0-9._-]+#[0-9]+' 2>/dev/null |
+	sed -E 's#/.*##' | sort -u || true)
+
+while IFS= read -r owner; do
+	[ -n "$owner" ] || continue
+	if ! printf '%s\n' $ALLOWED_OWNERS | grep -qxF "$owner"; then
+		printf 'disallowed repository owner: %s\n' "$owner" >&2
+		failed=1
+	fi
+done <<<"$(printf '%s\n%s\n' "$url_owners" "$ref_owners" | sort -u)"
 
 if [ "$failed" -ne 0 ]; then
 	cat >&2 <<'MSG'
