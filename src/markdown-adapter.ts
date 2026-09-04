@@ -405,6 +405,10 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 		// A code block does not end the header region: `to-tickets` inlines a snippet where one encodes
 		// a decision more precisely than prose, and fields written after it are still the ticket's own.
 		if (token.type === "code") continue;
+		// There is no header region to end until the title is found, so anything above it is skipped
+		// rather than treated as a boundary. Breaking here instead reported "no H1 title" for a file
+		// carrying YAML front matter or a leading HTML comment, taking the whole effort down with it.
+		if (title === null) continue;
 		break;
 	}
 
@@ -586,7 +590,10 @@ function parseBlockers(value: string | undefined, path: string): TicketRef[] {
 		);
 	}
 	if (NO_BLOCKERS.test(value)) return [];
-	return value.split(",").map((entry) => {
+	// Empty entries are dropped, so a trailing or doubled comma is a typo rather than a refusal that
+	// takes the whole effort down. The numbers either side of it are not ambiguous.
+	const entries = value.split(",").filter((entry) => entry.trim() !== "");
+	return entries.map((entry) => {
 		const token = entry.trim();
 		// `#6` is how the tickets this project writes name a blocker — issue 7's own body says
 		// `**Blocked by:** #6` — so the prefix is accepted per ADR-0008's clause for a shape an authored

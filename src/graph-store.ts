@@ -21,7 +21,10 @@ function buildGraph(store: GraphStore): DependencyGraph {
 			return store.parents.has(id) ? store.parents.get(id)! : "unknown";
 		},
 		blockers(id: IssueId): IssueId[] | "unknown" {
-			return store.blockers.has(id) ? store.blockers.get(id)! : "unknown";
+			// Copied on the way out as well as in. Handing back the stored array let a consumer empty it
+			// and turn a confirmed list of blockers into a confirmed absence of them, which re-derives as
+			// `unblocked` — the seam exists to make that unreachable, and a shared reference reopened it.
+			return store.blockers.has(id) ? [...store.blockers.get(id)!] : "unknown";
 		},
 		isOpen(id: IssueId): boolean | "unknown" {
 			return store.openness.has(id) ? store.openness.get(id)! : "unknown";

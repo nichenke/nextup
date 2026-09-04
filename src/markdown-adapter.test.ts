@@ -241,6 +241,27 @@ describe("readEffort: the bold-field format the to-tickets skill emits", () => {
 	// Two trailing spaces are a hard line break, which the lexer reports as its own inline token. Losing
 	// it joined two field lines into one, so a real blocker disappeared into the value above it — and
 	// the source looks identical to the soft-break form, because trailing whitespace is invisible.
+	// Nothing above the title can be a boundary, because there is no header region to end yet. YAML
+	// front matter is deliberately not in this list: CommonMark reads `key: value` under `---` as a
+	// setext heading, which is what it is, so no lexer can tell the two apart — and neither producer
+	// writes front matter, so it stays out of grammar rather than being special-cased.
+	test("a leading comment or divider above the title does not lose the file", () => {
+		const repo = tempRepo();
+		for (const preamble of ["<!-- generated -->", "***", "---"]) {
+			const ticket = oneTicket(repo, "02-b.md", `${preamble}\n\n# 02 — B\n\nStatus: resolved\n`);
+			expect(ticket.title).toBe("B");
+			expect(ticket.state).toBe("closed");
+		}
+	});
+
+	test("a trailing or doubled comma in Blocked by is a typo, not a refusal", () => {
+		const repo = tempRepo();
+		for (const value of ["1,", "1,,2", ", 1"]) {
+			const ticket = oneTicket(repo, "03-c.md", `# 03 — C\n\nStatus: open\nBlocked by: ${value}\n`);
+			expect(ticket.blockers.length).toBeGreaterThan(0);
+		}
+	});
+
 	test("a hard line break separates fields, like a soft one", () => {
 		const ticket = oneTicket(
 			tempRepo(),

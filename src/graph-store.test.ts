@@ -43,4 +43,14 @@ describe("seedGraph", () => {
 		blockers.push("99");
 		expect(graph.blockers("2")).toEqual(["1"]);
 	});
+
+	// Copying in is only half of it: handing back the stored array let a consumer empty it, turning a
+	// confirmed list of blockers into a confirmed absence of them, which re-derives as `unblocked`.
+	test("a read blocker list is copied too, so a consumer cannot empty the graph", () => {
+		const graph = seedGraph([{ id: "2", parent: null, blockers: ["1"], open: true }]);
+		const read = graph.blockers("2") as string[];
+		read.length = 0;
+		read.push("99");
+		expect(graph.blockers("2")).toEqual(["1"]);
+	});
 });
