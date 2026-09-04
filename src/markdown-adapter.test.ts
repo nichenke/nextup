@@ -74,6 +74,15 @@ describe("discoverEfforts", () => {
 		expect(discoverEfforts(repo)).toEqual([]);
 	});
 
+	// One junk entry used to abort discovery for every effort; see `entryIs` for which errnos and why.
+	test("junk beside the efforts does not abort discovery, whatever the entry is", () => {
+		const repo = tempRepo();
+		const effort = writeEffort(repo, "real", { "01-a.md": "# 01 — A\n\nStatus: open\n" });
+		writeFileSync(join(repo, ".scratch", "README.md"), "notes about these efforts\n");
+		symlinkSync(join(repo, ".scratch", "loop"), join(repo, ".scratch", "loop"));
+		expect(discoverEfforts(repo)).toEqual([effort]);
+	});
+
 	test("returns nothing when the repo has no scratch directory at all", () => {
 		expect(discoverEfforts(tempRepo())).toEqual([]);
 	});
@@ -490,6 +499,50 @@ describe("readEffort: content outside the grammar is body", () => {
 			expect(ticket.state).toBe("open");
 		});
 	}
+
+	test("a field wearing an inline form no producer emits is not a field", () => {
+		const repo = tempRepo();
+		const ticket = oneTicket(repo, "01-a.md", "# 01 — A\n\n_Status_: resolved\n");
+		expect(ticket.state).toBe("open");
+	});
+
+	test("a link whose text ends in a field name is not a field", () => {
+		const ticket = oneTicket(
+			tempRepo(),
+			"01-a.md",
+			"# 01 — A\n\n[Status](https://example.com/issues/1): resolved\n",
+		);
+		expect(ticket.state).toBe("open");
+	});
+
+	test("an escaped colon does not reassemble into a field", () => {
+		const repo = tempRepo();
+		expect(oneTicket(repo, "01-a.md", "# 01 — A\n\nStatus\\: resolved\n").state).toBe("open");
+		expect(oneTicket(repo, "01-a.md", "# 01 — A\n\nStatus: open\nBlocked by\\: 1\n").blockers).toEqual([]);
+	});
+
+	// Cleaning the markers off instead would accept a shape the rule excludes, and `Type` is the one field
+	// with no validation to notice that it had.
+	test("a field whose value wears markup is not a field", () => {
+		const repo = tempRepo();
+		expect(oneTicket(repo, "01-a.md", "# 01 — A\n\nStatus: open\nType: *decision*\n").type).toBeNull();
+		expect(oneTicket(repo, "01-a.md", "# 01 — A\n\nStatus: open\nType: decision\n").type).toBe("decision");
+	});
+
+	// Both fixtures refused before per-line tracking, by different mechanisms: without a real Status the
+	// stray closing marker made a garbage value, and with one it made a second Status field.
+	test("emphasis spanning a hard break does not refuse the effort", () => {
+		const repo = tempRepo();
+		expect(oneTicket(repo, "01-a.md", "# 01 — A\n\n_see also  \nStatus: resolved_\n").state).toBe("open");
+		const withField = oneTicket(repo, "01-a.md", "# 01 — A\n\nStatus: open\n\n_see also  \nStatus: resolved_\n");
+		expect(withField.state).toBe("open");
+	});
+
+	test("plain and bold are both still read", () => {
+		const repo = tempRepo();
+		expect(oneTicket(repo, "01-a.md", "# 01 — A\n\nStatus: resolved\n").state).toBe("closed");
+		expect(oneTicket(repo, "01-a.md", "# 01 — A\n\n**Status:** resolved\n").state).toBe("closed");
+	});
 
 	test("the grammar itself is still read, and still validated", () => {
 		const repo = tempRepo();

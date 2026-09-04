@@ -121,18 +121,32 @@ interface StatusReading {
 /**
  * What makes a directory an effort, defined once: `discoverEfforts` skips anything this rejects and
  * `readEffort` refuses it, so the two cannot come to disagree about what they are looking at.
+ *
+ * The entry types matter, not just existence: a `map.md` that is a directory passed an existence check
+ * and then read as a valid effort holding no tickets, which a caller cannot tell apart from a real
+ * effort with nothing takeable.
  */
 function isEffortRoot(root: string): boolean {
-	// The entry types matter, not just existence: a `map.md` that is a directory passed an existence
-	// check and then read as a valid effort holding no tickets, which a caller cannot tell apart from a
-	// real effort with nothing takeable.
 	return entryIs(join(root, MAP_FILE), "file") && entryIs(join(root, ISSUES_DIR), "directory");
 }
 
+/**
+ * Whether an entry exists and is of that kind. Any failure to find out answers "no" — the whole errno
+ * class that `onFilesystem` below enumerates, rather than the one instance of it that a junk entry in
+ * `.scratch` happened to raise while aborting discovery for every effort.
+ *
+ * Deliberately more forgiving than `isReadableFile`, which is inside an effort we have already committed
+ * to reading and where an unreadable ticket file is a real failure. Here the question is only whether a
+ * candidate is an effort at all, and "cannot tell" and "no" have the same consequence.
+ */
 function entryIs(path: string, kind: "file" | "directory"): boolean {
-	const entry = onFilesystem(path, "inspected", () => statSync(path, { throwIfNoEntry: false }));
-	if (entry === undefined) return false;
-	return kind === "file" ? entry.isFile() : entry.isDirectory();
+	try {
+		const entry = statSync(path, { throwIfNoEntry: false });
+		if (entry === undefined) return false;
+		return kind === "file" ? entry.isFile() : entry.isDirectory();
+	} catch {
+		return false;
+	}
 }
 
 /** Effort directories under `<repoRoot>/.scratch`. */
@@ -327,7 +341,8 @@ function resolveMarkdownRef(token: string, describeRefusal: () => string): Ticke
 /**
  * The fields in the header region: the run of paragraphs after the H1, up to the first block that is
  * anything else. Block and inline structure both come from a CommonMark lexer rather than from patterns
- * here — ADR-0009 records why, and ADR-0008 records what the accepted grammar is.
+ * here — ADR-0009 records why for block structure and ADR-0010 for inline, and ADR-0008 records what
+ * the accepted grammar is.
  *
  * Nothing outside that region is looked at. This adapter reads the one existing pack of `.scratch`
  * tickets and whatever this project writes itself, so it reads the grammar and does not try to infer
@@ -367,12 +382,13 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 	return { title, fields };
 }
 
-function addFields(lines: readonly string[], fields: Map<string, string>, path: string): void {
+function addFields(lines: readonly BlockLine[], fields: Map<string, string>, path: string): void {
 	// A paragraph holds every field written on consecutive lines, since a soft break does not start a
 	// new block — which is exactly how the wayfinder convention writes Type, Status and Blocked by. A
 	// line that is not a field is prose, and is left alone.
-	for (const raw of lines) {
-		const field = FIELD_LINE.exec(raw.trim());
+	for (const line of lines) {
+		if (!line.plain) continue;
+		const field = FIELD_LINE.exec(line.text.trim());
 		if (field?.[1] === undefined) continue;
 		const key = field[1].toLowerCase();
 		if (fields.has(key)) {
@@ -389,19 +405,76 @@ function addFields(lines: readonly string[], fields: Map<string, string>, path: 
 	}
 }
 
-/** A block's own lines as rendered text, with soft line breaks kept so a run of fields stays separable. */
-function blockLines(token: Token): string[] {
+/**
+ * One line of a block: its text, and whether every inline token that contributed to it was one a field
+ * may be written with — plain text or bold. A line only some other inline form touched is prose.
+ *
+ * Tracked per line rather than reconstructed from source, because an inline span can cross a line break:
+ * an emphasis opened on one line and closed on the next put a stray marker on the second, which then
+ * matched the grammar with a garbage value and refused the whole effort. Whether a token spans a break is
+ * something only the walk knows, and nothing a rendered string retains.
+ */
+interface BlockLine {
+	readonly text: string;
+	readonly plain: boolean;
+}
+
+function blockLines(token: Token): BlockLine[] {
 	const inline = (token as { tokens?: Token[] }).tokens;
-	if (inline !== undefined && inline.length > 0) return renderedText(inline).split("\n");
-	if ("text" in token && typeof token.text === "string") return token.text.split("\n");
-	return [];
+	if (inline === undefined || inline.length === 0) {
+		const raw = "text" in token && typeof token.text === "string" ? token.text.split("\n") : [];
+		return raw.map((line) => ({ text: line, plain: true }));
+	}
+	const lines: Array<{ text: string; plain: boolean }> = [{ text: "", plain: true }];
+	appendInline(inline, lines);
+	return lines;
 }
 
 /**
- * Inline tokens flattened to the text a reader sees. The lexer has already removed the emphasis, code
- * spans and link syntax, which is the point: stripping `**` by hand left `_Blocked by_: 2` matching
- * neither the field grammar nor the refusal, so it was silently dropped — the same mistake as
- * hand-written block detection, one level down.
+ * Walks inline tokens onto lines, marking a line impure the moment a form other than plain text or bold
+ * contributes to it. That is the field grammar's inline half, which ADR-0008 states. A hard break is
+ * neither of those two and deliberately does not taint anything: it starts a fresh line, which is what
+ * keeps a run of fields written across breaks separable.
+ *
+ * Bold is whatever the lexer calls `strong`, which is wider than the `**Status:**` the producers write —
+ * `__Status__:` is accepted too. Narrowing that would mean inspecting marker characters, which is the
+ * enumeration ADR-0010 moved to the lexer to escape, so the rule is stated as what the code does rather
+ * than as something stricter.
+ */
+function appendInline(tokens: readonly Token[], lines: Array<{ text: string; plain: boolean }>): void {
+	const last = (): { text: string; plain: boolean } => lines[lines.length - 1]!;
+	for (const token of tokens) {
+		if (token.type === "br") {
+			lines.push({ text: "", plain: true });
+			continue;
+		}
+		const nested = (token as { tokens?: Token[] }).tokens;
+		if (token.type === "text" || token.type === "strong") {
+			if (nested !== undefined && nested.length > 0) {
+				appendInline(nested, lines);
+				continue;
+			}
+			const text = "text" in token && typeof token.text === "string" ? token.text : "";
+			const parts = text.split("\n");
+			last().text += parts[0] ?? "";
+			for (const part of parts.slice(1)) lines.push({ text: part, plain: true });
+			continue;
+		}
+		// The rendered text still belongs to the line — a value may legitimately contain one — but every
+		// line this form touches stops being a candidate field.
+		const rendered = nested !== undefined && nested.length > 0 ? renderedText(nested) : renderedText([token]);
+		const parts = rendered.split("\n");
+		last().text += parts[0] ?? "";
+		last().plain = false;
+		for (const part of parts.slice(1)) lines.push({ text: part, plain: false });
+	}
+}
+
+/**
+ * Inline tokens flattened to the text a reader sees, with emphasis, code spans and link syntax removed
+ * by the lexer. Used for a ticket's title, which is descriptive, and for the text a non-plain inline form
+ * contributes to a line — never to decide whether a line is a field. That decision is `appendInline`'s,
+ * and it turns on which forms touched the line rather than on what they rendered to.
  */
 function renderedText(tokens: readonly Token[]): string {
 	return tokens
