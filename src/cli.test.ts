@@ -190,6 +190,20 @@ describe("bin/nextup.ts", () => {
 		expect(JSON.parse(piped.stdout.toString()).counts.tickets).toBe(400);
 	});
 
+	// The sibling of the case above: a reader that closes early rather than one that reads slowly. An
+	// unhandled EPIPE exits 1, which this command defines as "nothing to recommend", so `| head` on a
+	// real pick reads as an empty ticket set.
+	test("exits on a pick as a pick when the reader closes early", () => {
+		const effort = largeEffort(tempRepo());
+		const piped = Bun.spawnSync([
+			"bash",
+			"-c",
+			`bun ${BIN} --json --effort ${effort} | head -c 200 > /dev/null; echo \${PIPESTATUS[0]}`,
+		]);
+		expect(piped.stdout.toString().trim()).toBe("0");
+		expect(piped.stderr.toString()).not.toContain("EPIPE");
+	});
+
 	test("exits 0 on a pick, 1 with nothing to recommend, and 2 on a bad invocation", () => {
 		const repo = tempRepo();
 		const effort = chainedEffort(repo);

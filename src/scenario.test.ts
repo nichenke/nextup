@@ -10,8 +10,13 @@ const SCENARIOS = join(dirname(import.meta.dir), "fixtures", "scenarios");
 const INPUT = ".input.json";
 const EXPECTED = ".expected.json";
 
-/** Rewrites every expected file from what the selector currently answers; see README's "Fixing a bad pick". */
-const UPDATING = process.env.UPDATE_SCENARIOS === "1";
+/**
+ * Rewrites every expected file from what the selector currently answers; see README's "Fixing a bad
+ * pick". Ignored under `CI`, where a rewrite would make the suite assert whatever the code does and
+ * report that as a pass — the one failure mode a golden suite exists to prevent. Left exported in a
+ * shell it does the same thing locally, which is why the guard is here rather than in the README.
+ */
+const UPDATING = process.env.UPDATE_SCENARIOS === "1" && process.env.CI === undefined;
 
 function scenarioNames(): string[] {
 	return readdirSync(SCENARIOS)
@@ -25,6 +30,16 @@ describe("the golden-file scenario suite", () => {
 
 	test("holds at least one scenario", () => {
 		expect(names.length).toBeGreaterThan(0);
+	});
+
+	// Only inputs are enumerated, so a renamed or deleted one leaves its expected file behind and drops
+	// that scenario from the suite with nothing failing.
+	test("pairs every expected file with an input", () => {
+		const expected = readdirSync(SCENARIOS)
+			.filter((name) => name.endsWith(EXPECTED))
+			.map((name) => name.slice(0, -EXPECTED.length))
+			.sort();
+		expect(expected).toEqual(names);
 	});
 
 	for (const name of names) {

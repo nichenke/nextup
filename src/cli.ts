@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { MarkdownEffortError, discoverEfforts, readEffort } from "./markdown-adapter";
 import { DEFAULT_LABEL_FILTER, LabelFilterError, type LabelFilterSpec, compileLabelFilter } from "./label-filter";
 import { renderSelection, selectionJson } from "./selection-output";
@@ -59,7 +60,9 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 
 	let effort;
 	try {
-		effort = readEffort(options.effort ?? soleEffort(deps.cwd));
+		// Resolved against the same root discovery uses, so a relative `--effort` cannot mean one
+		// directory here and another in `soleEffort`.
+		effort = readEffort(options.effort === null ? soleEffort(deps.cwd) : resolve(deps.cwd, options.effort));
 	} catch (cause) {
 		if (cause instanceof MarkdownEffortError || cause instanceof CliError) {
 			return { code: 2, stdout: "", stderr: `${message(cause)}\n` };

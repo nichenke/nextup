@@ -8,15 +8,20 @@ reading that looks obvious and is wrong.
 number is more urgent. A `priority:` label carrying a name — `priority:high`, `priority:urgent` — is
 *not* read, because ordering names needs a vocabulary no tracker supplies. Jira ships one and GitHub
 and GitLab do not, so a vocabulary written here would be this tool's opinion applied to somebody else's
-labels, and a wrong guess reorders a ticket set silently. Those labels are reported instead — against the
-candidate that carried one, and as a set-wide summary — so a pick somebody disagrees with can be traced
-to a label the ladder never read rather than looking like a label it read and overruled. A candidate
-whose only priority label went unread is therefore distinguishable from one carrying no priority label
-at all, which the ladder treats identically but a reader should not.
+labels, and a wrong guess reorders a ticket set silently. Each is reported instead, on the candidate
+that carried it, so a candidate whose only priority label went unread stays distinguishable from one
+carrying no priority label at all — the ladder treats those two identically and a reader should not.
 
-Only the candidates that reached the ladder are read for one. A ticket that was closed, claimed,
-filtered out or confirmed blocked could not have won whatever its priority, and the selection's counts
-already say why it did not.
+Two limits on that, both deliberate. Only the candidates that reached the ladder are read for one: a
+ticket that was closed, claimed, filtered out or confirmed blocked could not have won whatever its
+priority, and the selection's counts already say why it did not. And only the two spellings above are
+priority-shaped at all — a `priority/important-soon` or a `P1: must` is not a priority signal to this
+tool and is not reported as an unread one, because recognising it means deciding what counts as a
+priority namespace, which is the guess this rung exists to refuse.
+
+The whole ranked set carries these labels in the selection's JSON, one list per candidate. The human
+rendering shows only the pick's, so tracing why a *losing* ticket was not ranked on its label is a
+`--json` question.
 
 A candidate carrying no priority at all sorts after every candidate that carries one. "Each rung is
 skipped when its signal is absent" means skipped when *neither* candidate carries it, which is the
