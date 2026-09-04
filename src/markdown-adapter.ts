@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { type BlockedState, type DependencyGraph, deriveEffectiveBlockedness } from "./effective-blockedness";
-import { buildGraph, emptyGraphStore } from "./graph-store";
+import { seedGraph } from "./graph-store";
 import { type Claim, type Ticket, ticketId } from "./ticket";
 import { type TicketRef, TicketRefError, resolveTicketRef } from "./ticket-ref";
 
@@ -19,6 +19,11 @@ export interface MarkdownTicket extends Ticket {
 	readonly path: string;
 	/** The `Type:` field — the wayfinder ticket kind. Absent from `to-tickets` output. */
 	readonly type: string | null;
+	/**
+	 * Derived against this effort's graph and valid only alongside it, for the same reason a markdown
+	 * `ticketId` is effort-local. A consumer holding tickets from two efforts must re-derive from a
+	 * merged graph rather than trust this — `MarkdownEffort.graph` is returned so it can.
+	 */
 	readonly blocked: BlockedState;
 }
 
@@ -32,14 +37,13 @@ export interface MarkdownEffort {
 type UnresolvedTicket = Omit<MarkdownTicket, "blocked">;
 
 /**
- * One parsed file: the ticket, and what its `Status:` says about its openness *to a dependent*.
- * `openness` is `null` where the status confirms neither — the value is deliberately kept off the
- * ticket surface, because it answers "was this dependency met?" rather than anything a consumer of
- * the ticket asks.
+ * One parsed file: the ticket, and what its `Status:` says about its openness *to a dependent*. That
+ * second value is deliberately kept off the ticket surface, because it answers "was this dependency
+ * met?" rather than anything a consumer of the ticket asks.
  */
 interface ParsedFile {
 	readonly ticket: UnresolvedTicket;
-	readonly openness: boolean | null;
+	readonly openness: boolean | "unknown";
 }
 
 const SCRATCH_DIR = ".scratch";
@@ -157,23 +161,21 @@ export function readEffort(effortRoot: string): MarkdownEffort {
 	const parsed = readTicketFiles(join(effortRoot, ISSUES_DIR));
 	parsed.sort((a, b) => Number(a.ticket.ref.key) - Number(b.ticket.ref.key));
 
-	requireNoBlockingCycle(parsed, effortRoot);
-
 	const identified = parsed.map((file) => ({ ...file, id: ticketId(file.ticket.ref) }));
 
-	const store = emptyGraphStore();
-	for (const { ticket, openness, id } of identified) {
-		// Markdown has no containment relation, so every ticket is a confirmed root. Leaving the key
-		// absent instead would read as "unknown", and no ticket here could then ever read
-		// "unblocked" — a confirmed open blocker would still win, so the damage is silent.
-		store.parents.set(id, null);
-		if (openness !== null) store.openness.set(id, openness);
-		store.blockers.set(id, ticket.blockers.map(ticketId));
-	}
-	// Two things deliberately seed no openness and so read "unknown": a `Blocked by:` reference to a
-	// number no file in this effort carries, and a ticket closed without its dependency being met.
+	// Two things here deliberately report no openness and so read "unknown": a `Blocked by:` reference
+	// to a number no file in this effort carries, and a ticket closed without its dependency being met.
 	// Both degrade their dependents to unknown rather than to unblocked.
-	const graph = buildGraph(store);
+	const graph = seedGraph(
+		identified.map(({ ticket, openness, id }) => ({
+			id,
+			// Markdown has no containment relation, so every ticket is a confirmed root rather than an
+			// unread one.
+			parent: null,
+			blockers: ticket.blockers.map(ticketId),
+			open: openness,
+		})),
+	);
 
 	return {
 		root: effortRoot,
@@ -183,34 +185,6 @@ export function readEffort(effortRoot: string): MarkdownEffort {
 			blocked: deriveEffectiveBlockedness(id, graph),
 		})),
 	};
-}
-
-/**
- * A blocking cycle can never resolve, so every ticket in it reads `blocked` forever. The traversal
- * handles that safely — it errs toward blocked, not toward unblocked — but nothing downstream can
- * tell a deadlock apart from a backlog that is merely all blocked, so it surfaces as "no work
- * available" with no explanation. Naming it here is the only place the whole effort is in view.
- */
-function requireNoBlockingCycle(parsed: readonly ParsedFile[], effortRoot: string): void {
-	const edges = new Map(parsed.map(({ ticket }) => [ticket.ref.key, ticket.blockers.map((b) => b.key)]));
-	const settled = new Set<string>();
-	const onPath = new Set<string>();
-
-	const walk = (key: string, path: readonly string[]): void => {
-		if (settled.has(key)) return;
-		if (onPath.has(key)) {
-			const cycle = [...path.slice(path.indexOf(key)), key].join(" -> ");
-			throw new MarkdownEffortError(`${effortRoot} has a blocking cycle that can never resolve: ${cycle}`);
-		}
-		onPath.add(key);
-		// A reference to a number no file carries is a dangling edge, not a cycle; it is left to
-		// resolve as unknown in the graph.
-		for (const blocker of edges.get(key) ?? []) walk(blocker, [...path, key]);
-		onPath.delete(key);
-		settled.add(key);
-	};
-
-	for (const key of edges.keys()) walk(key, []);
 }
 
 function readTicketFiles(issuesDir: string): ParsedFile[] {
@@ -285,10 +259,13 @@ function parseTicketFile(text: string, path: string, number: string): ParsedFile
 
 	const status = readStatus(fields.get("status"), path);
 	const ref = requireTicketNumber(number, path);
+	// A ticket blocking itself, and a cycle between several, are deliberately not refused here. The
+	// shared traversal tolerates both by design — its visited set guards them — so refusing them in
+	// one adapter would make markdown disagree with the other three about which graphs are legal, and
+	// would take a whole effort down over one file. Both read `blocked`, which is the safe direction;
+	// telling a deadlock apart from a backlog that is merely all blocked belongs to the selector,
+	// where the whole graph is in view.
 	const blockers = parseBlockers(fields.get("blocked by"), path);
-	if (blockers.some((blocker) => blocker.key === ref.key)) {
-		throw new MarkdownEffortError(`${path} lists itself as its own blocker, which can never resolve`);
-	}
 
 	const type = fields.get("type");
 	return {
@@ -425,9 +402,9 @@ function readStatus(value: string | undefined, path: string): StatusReading {
  * What to seed as this ticket's openness *to a dependent*, or `null` to leave it unconfirmed so the
  * traversal reads `"unknown"`. See `StatusReading.met` for why closed is not the same as satisfied.
  */
-function opennessOf(status: StatusReading): boolean | null {
+function opennessOf(status: StatusReading): boolean | "unknown" {
 	if (status.state === "open") return true;
-	return status.met ? false : null;
+	return status.met ? false : "unknown";
 }
 
 // What counts as a markdown ticket number is `resolveTicketRef`'s to define, so a blocker token is

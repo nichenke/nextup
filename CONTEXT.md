@@ -35,9 +35,11 @@ is required.
 _Avoid_: backlog, queue, ticket map
 
 **Effort**:
-Local markdown's on-disk unit: one directory holding a map file and a numbered ticket file per ticket.
-The markdown equivalent of a scoped query — it declares its own membership, which no other tracker's
-ticket set does.
+Local markdown's on-disk unit: `.scratch/<effort>/map.md` alongside `.scratch/<effort>/issues/<NN>-<slug>.md`,
+one file per ticket. The markdown equivalent of a scoped query — it declares its own membership, which
+no other tracker's ticket set does. The `issues/` segment is that directory's real name in the
+local-markdown convention, not this project's vocabulary: "issue" stays on **Ticket**'s avoid-list, and
+a path literal is the one place it appears.
 _Avoid_: feature, project, epic
 
 **Candidate set**:

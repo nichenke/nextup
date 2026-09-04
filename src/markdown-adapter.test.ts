@@ -483,24 +483,6 @@ describe("readEffort: malformed input fails loudly", () => {
 		expectRejected("# 01 — A\n\nStatus: open\n\nExample:\n\n    Blocked by: 2\n", /blocker/i);
 	});
 
-	test("a mutual blocking cycle is named, not left as an unexplained absence of work", () => {
-		const effort = writeEffort(tempRepo(), "effort", {
-			"01-a.md": "# 01 — A\n\nStatus: open\nBlocked by: 2\n",
-			"02-b.md": "# 02 — B\n\nStatus: open\nBlocked by: 1\n",
-		});
-		expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
-		expect(() => readEffort(effort)).toThrow(/cycle/i);
-	});
-
-	test("a longer blocking cycle is named too", () => {
-		const effort = writeEffort(tempRepo(), "effort", {
-			"01-a.md": "# 01 — A\n\nStatus: open\nBlocked by: 3\n",
-			"02-b.md": "# 02 — B\n\nStatus: open\nBlocked by: 1\n",
-			"03-c.md": "# 03 — C\n\nStatus: open\nBlocked by: 2\n",
-		});
-		expect(() => readEffort(effort)).toThrow(/cycle/i);
-	});
-
 	test("a diamond is not a cycle", () => {
 		const effort = writeEffort(tempRepo(), "effort", {
 			"01-root.md": "# 01 — Root\n\nStatus: open\n",
@@ -523,10 +505,6 @@ describe("readEffort: malformed input fails loudly", () => {
 	test("a ticket file numbered zero fails as a domain error, not a reference error", () => {
 		const effort = writeEffort(tempRepo(), "effort", { "0-a.md": "# 0 — A\n" });
 		expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
-	});
-
-	test("a ticket listing itself as its own blocker, which is always an authoring error", () => {
-		expectRejected("# 01 — A\n\nStatus: open\nBlocked by: 1\n", /itself/);
 	});
 
 	test("a Blocked by entry that is not a ticket number", () => {
@@ -668,6 +646,24 @@ describe("readEffort: blockedness", () => {
 			"02-dependent.md": "# 02 — Dependent\n\nStatus: open\nBlocked by: 1\n",
 		});
 		expect(byKey(readEffort(effort).tickets).get("2")!.blocked).toBe("unblocked");
+	});
+
+	// The shared traversal tolerates cycles by design, so the adapter does not refuse them — doing so
+	// would make markdown disagree with the other trackers about which graphs are legal. Both err
+	// toward blocked, which is the safe direction.
+	test("a ticket blocking itself reads blocked rather than refusing the effort", () => {
+		const ticket = oneTicket(tempRepo(), "01-a.md", "# 01 — A\n\nStatus: open\nBlocked by: 1\n");
+		expect(ticket.blocked).toBe("blocked");
+	});
+
+	test("a mutual blocking cycle terminates and reads blocked on both sides", () => {
+		const effort = writeEffort(tempRepo(), "effort", {
+			"01-a.md": "# 01 — A\n\nStatus: open\nBlocked by: 2\n",
+			"02-b.md": "# 02 — B\n\nStatus: open\nBlocked by: 1\n",
+		});
+		const tickets = byKey(readEffort(effort).tickets);
+		expect(tickets.get("1")!.blocked).toBe("blocked");
+		expect(tickets.get("2")!.blocked).toBe("blocked");
 	});
 
 	test("a Blocked by reference to a ticket absent from the effort is unknown, never unblocked", () => {
