@@ -16,6 +16,12 @@ export interface LaunchPlan {
 
 export interface LaunchInput extends LaunchPlanInput {
 	readonly claimer: Claimer;
+	/**
+	 * Answered with the finished plan, before the claim and so before anything is written. Returning
+	 * `false` stops the launch having changed nothing at all — which is the point of asking here rather
+	 * than anywhere earlier, where the answer would be given without the command it approves.
+	 */
+	readonly confirm: (plan: LaunchPlan) => boolean;
 }
 
 export interface Launch extends LaunchPlan {
@@ -32,12 +38,13 @@ export function planLaunch(input: LaunchPlanInput): LaunchPlan {
 }
 
 /**
- * The plan, and a claim on the ticket it is for. The claim is the last thing that happens, and the
- * first thing that writes: everything before it is pure, so an input that was already wrong costs no
- * tracker write to find out.
+ * The plan, and a claim on the ticket it is for, or `null` where the plan was not approved. The claim
+ * is the last thing that happens and the first thing that writes: everything before it is pure, so
+ * both a wrong input and a declined plan cost no tracker write to find out.
  */
-export function prepareLaunch(input: LaunchInput): Launch {
+export function prepareLaunch(input: LaunchInput): Launch | null {
 	const plan = planLaunch(input);
+	if (!input.confirm(plan)) return null;
 	return { ...plan, hold: input.claimer.claim() };
 }
 

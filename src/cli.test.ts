@@ -15,8 +15,23 @@ const refuseToRun: Runner = (argv) => {
 	throw new Error(`nothing may run an external process here: ${argv.join(" ")}`);
 };
 
-function deps(cwd: string): CliDeps {
-	return { cwd, runner: refuseToRun };
+/**
+ * A terminal that answers the gate, and a record of what it was shown. Approving by default keeps the
+ * tests below about what they are named for; the gate has its own describe block.
+ */
+function terminal(answer = true): { confirm: CliDeps["confirm"]; questions: string[] } {
+	const questions: string[] = [];
+	return {
+		questions,
+		confirm: (question) => {
+			questions.push(question);
+			return answer;
+		},
+	};
+}
+
+function deps(cwd: string, confirm: CliDeps["confirm"] = terminal().confirm): CliDeps {
+	return { cwd, runner: refuseToRun, confirm };
 }
 
 const roots: string[] = [];
@@ -53,7 +68,7 @@ describe("run", () => {
 	test("names the ticket to start next, and why, from the one effort it finds", () => {
 		const repo = tempRepo();
 		chainedEffort(repo);
-		const result = run([], deps(repo));
+		const result = run(["--yes"], deps(repo));
 		expect(result.code).toBe(0);
 		expect(result.stdout).toContain("md:1 — Settle the format");
 		expect(result.stdout).toContain("unblocks 1");
@@ -72,7 +87,7 @@ describe("run", () => {
 		const repo = tempRepo();
 		chainedEffort(repo, "one");
 		const other = writeEffort(repo, "two", { "05-only.md": "# 05 — Something else\n\nStatus: open\n" });
-		const result = run(["--effort", other], deps(repo));
+		const result = run(["--yes", "--effort", other], deps(repo));
 		expect(result.code).toBe(0);
 		expect(result.stdout).toContain("md:5 — Something else");
 	});
@@ -120,7 +135,7 @@ describe("run", () => {
 		const effort = writeEffort(repo, "partial", { "09-chore.md": "# 09 — Low priority chore\n\nStatus: open\n" });
 		symlinkSync("/nonexistent/gone.md", join(effort, "issues", "01-critical.md"));
 
-		const result = run([], deps(repo));
+		const result = run(["--yes"], deps(repo));
 		expect(result.code).toBe(0);
 		expect(result.stdout.split("\n").some((line) => line.startsWith(DEGRADED_PREFIX))).toBe(true);
 		expect(JSON.parse(run(["--json", "--print-command"], deps(repo)).stdout).degraded).toEqual(["truncated"]);
@@ -141,7 +156,7 @@ describe("run", () => {
 			"01-first.md": "# 01 — Support the legacy format\n\nStatus: wontfix\n",
 			"02-second.md": "# 02 — Read a legacy archive\n\nStatus: open\nBlocked by: 01\n",
 		});
-		const result = run([], deps(repo));
+		const result = run(["--yes"], deps(repo));
 		expect(result.code).toBe(0);
 		expect(result.stdout.split("\n").some((line) => line.startsWith(DEGRADED_PREFIX))).toBe(true);
 	});
@@ -234,14 +249,22 @@ describe("bin/nextup.ts", () => {
 	test("exits 0 on a pick, 1 with nothing to recommend, and 2 on a bad invocation", () => {
 		const repo = tempRepo();
 		const effort = chainedEffort(repo);
-		expect(Bun.spawnSync(["bun", BIN, "--effort", effort]).exitCode).toBe(0);
+		expect(Bun.spawnSync(["bun", BIN, "--yes", "--effort", effort]).exitCode).toBe(0);
 
 		const stuck = writeEffort(repo, "stuck", {
 			"01-a.md": "# 01 — Migrate the store\n\nStatus: open\nBlocked by: 02\n",
 			"02-b.md": "# 02 — Cut over the reads\n\nStatus: open\nBlocked by: 01\n",
 		});
-		expect(Bun.spawnSync(["bun", BIN, "--effort", stuck]).exitCode).toBe(1);
+		expect(Bun.spawnSync(["bun", BIN, "--yes", "--effort", stuck]).exitCode).toBe(1);
 		expect(Bun.spawnSync(["bun", BIN, "--rank-by", "size"]).exitCode).toBe(2);
+	});
+
+	// Bun.spawnSync gives the child no controlling terminal, which is the unattended case itself: the
+	// gate has nobody to ask and the run is refused rather than answered for.
+	test("refuses to claim with no terminal to ask on, and claims under --yes", () => {
+		const effort = chainedEffort(tempRepo());
+		expect(Bun.spawnSync(["bun", BIN, "--effort", effort]).exitCode).toBe(2);
+		expect(Bun.spawnSync(["bun", BIN, "--yes", "--effort", effort]).exitCode).toBe(0);
 	});
 });
 
@@ -280,7 +303,7 @@ describe("claiming the pick", () => {
 	test("claims the winner in the tracker, and says what it would run on it", () => {
 		const repo = tempRepo();
 		const effort = chainedEffort(repo);
-		const result = run([], deps(repo));
+		const result = run(["--yes"], deps(repo));
 
 		expect(result.code).toBe(0);
 		expect(readFileSync(ticketPath(effort, "01-first.md"), "utf8")).toContain("Status: claimed");
@@ -366,5 +389,78 @@ describe("--print-command", () => {
 		expect(document.claimed).toBe(false);
 		expect(document.command).toEqual(["claude", "/implement md:1"]);
 		expect(readFileSync(join(effort, "issues", "01-first.md"), "utf8")).not.toContain("claimed");
+	});
+});
+
+describe("the confirmation gate", () => {
+	test("shows the pick and what approving it runs, then claims only once approved", () => {
+		const repo = tempRepo();
+		const effort = chainedEffort(repo);
+		const asked = terminal();
+
+		const result = run([], deps(repo, asked.confirm));
+
+		expect(asked.questions).toHaveLength(1);
+		expect(asked.questions[0]).toContain("md:1 — Settle the format");
+		expect(asked.questions[0]).toContain("would run: claude '/implement md:1'");
+		expect(asked.questions[0]).toContain("[y/N]");
+		expect(result.code).toBe(0);
+		expect(readFileSync(join(effort, "issues", "01-first.md"), "utf8")).toContain("Status: claimed");
+	});
+
+	test("claims nothing when the pick is declined, and says so", () => {
+		const repo = tempRepo();
+		const effort = chainedEffort(repo);
+
+		const result = run([], deps(repo, terminal(false).confirm));
+
+		expect(result.code).toBe(1);
+		expect(result.stdout).toContain("md:1 not claimed");
+		expect(readFileSync(join(effort, "issues", "01-first.md"), "utf8")).not.toContain("claimed");
+	});
+
+	test("a declined pick is a quiet day to a caller reading JSON, not a claim", () => {
+		const repo = tempRepo();
+		chainedEffort(repo);
+		const document = JSON.parse(run(["--json"], deps(repo, terminal(false).confirm)).stdout);
+
+		expect(document.claimed).toBe(false);
+		expect(document.command).toBeNull();
+	});
+
+	test("--yes claims without asking, which is what an unattended run needs", () => {
+		const repo = tempRepo();
+		const effort = chainedEffort(repo);
+		const asked = terminal();
+
+		const result = run(["--yes"], deps(repo, asked.confirm));
+
+		expect(asked.questions).toEqual([]);
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain("claimed md:1");
+		expect(readFileSync(join(effort, "issues", "01-first.md"), "utf8")).toContain("Status: claimed");
+	});
+
+	// Answering on the user's behalf is the one thing a gate must not do, in either direction: a silent
+	// yes claims unasked, and a silent no looks exactly like an empty backlog.
+	test("refuses with nothing to ask on, naming the flag that means yes", () => {
+		const repo = tempRepo();
+		const effort = chainedEffort(repo);
+
+		const result = run([], deps(repo, null));
+
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("--yes");
+		expect(readFileSync(join(effort, "issues", "01-first.md"), "utf8")).not.toContain("claimed");
+	});
+
+	test("never asks about a run that claims nothing", () => {
+		const repo = tempRepo();
+		chainedEffort(repo);
+		const asked = terminal();
+
+		expect(run(["--print-command"], deps(repo, asked.confirm)).code).toBe(0);
+		expect(run(["--print-command"], deps(repo, null)).code).toBe(0);
+		expect(asked.questions).toEqual([]);
 	});
 });

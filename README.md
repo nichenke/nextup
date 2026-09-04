@@ -13,13 +13,14 @@ treated as unblocked.
 ## Status
 
 The selector works on local markdown ticket sets, and the launcher claims. A run reads an effort, ranks
-what is startable, claims the winner in the tracker, and prints the command that would start work on it.
+what is startable, shows the pick and what starting it would run, and claims the winner once you say so.
 Nothing local is created yet — no worktree and no session — and the GitHub, GitLab and Jira adapters are
 not built.
 
 ```sh
-bun bin/nextup.ts                   # claim the ticket to start next, and print how to start it
-bun bin/nextup.ts --print-command   # the same answer, claiming nothing
+bun bin/nextup.ts                   # show the pick, ask, and claim it if you agree
+bun bin/nextup.ts --yes             # claim without asking, for an unattended run
+bun bin/nextup.ts --print-command   # the same answer, claiming nothing and asking nothing
 bun bin/nextup.ts --json            # the selection, the claim, and the command, as JSON
 bun bin/nextup.ts --help            # every flag
 ```
@@ -29,10 +30,11 @@ label-filter semantics and the exit codes. A degraded answer — a truncated fet
 blockers nothing could confirm — carries one `degraded: ` line per reason, which is the sentinel to
 grep for.
 
-**The confirmation gate is not built yet.** A plain run claims as soon as it has picked, so
-`--print-command` is the way to look without writing: it prints the command on stdout and the reasoning
-on stderr, and `--json --print-command` is the whole answer with nothing claimed. The gate, `--yes`, and
-the launch itself arrive with the launcher.
+Nothing is claimed without an answer. The gate asks on the controlling terminal rather than through
+stdin and stdout, so it still works when either is redirected, and a run with no terminal and no `--yes`
+is refused rather than answered on your behalf. `--print-command` neither claims nor asks: it prints the
+command on stdout and the reasoning on stderr, and `--json --print-command` is the whole answer with
+nothing claimed.
 
 - [The spec](https://github.com/nichenke/nextup/issues/2) — problem, solution, user stories, and the
   phased delivery
@@ -54,8 +56,10 @@ Two layers, deliberately separate:
   session. It is the only part that writes anything, and the only part that cannot be sandboxed.
 
 The claim comes first, before anything exists locally, so a failure leaves a visible wrong state in the
-tracker rather than an orphan on a disk nobody is looking at. A claim that cannot land aborts having
-changed nothing; a failure after the claim but before a worktree exists gives the claim back. Once a
+tracker rather than an orphan on a disk nobody is looking at. Everything before it — the ranking, the
+plan, the gate — is pure, so a declined pick and a wrong input both cost no tracker write to find out.
+A claim that cannot land aborts having changed nothing; a failure after the claim but before a worktree
+exists gives the claim back. Once a
 worktree exists the claim is kept, so a ticket carrying a half-finished branch is never advertised as
 available. A claim is advisory — `CONTEXT.md` says what that means — and for markdown it overwrites the
 `Status:` line, which ADR-0012 explains.

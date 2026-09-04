@@ -2,10 +2,12 @@ import { describe, expect, test } from "bun:test";
 import type { ClaimHold, Claimer, ReleaseOutcome } from "./claim";
 import { ClaimError } from "./claim";
 import { DEFAULT_SLASH_COMMAND } from "./command-builders";
-import { LaunchError, beforeWorktreeExists, planLaunch, prepareLaunch } from "./launcher";
+import { type LaunchPlan, LaunchError, beforeWorktreeExists, planLaunch, prepareLaunch } from "./launcher";
 import type { TicketRef } from "./ticket-ref";
 
 const REF: TicketRef = { tracker: "markdown", repo: null, host: null, key: "1" };
+
+const approve = (): boolean => true;
 
 /** A claimer that records what it was asked to do, since the order is the thing under test. */
 function recordingClaimer(options: { claim?: () => ClaimHold; release?: () => ReleaseOutcome } = {}): {
@@ -31,11 +33,32 @@ function recordingClaimer(options: { claim?: () => ClaimHold; release?: () => Re
 describe("prepareLaunch", () => {
 	test("claims the ticket, and carries the command that would start work on it", () => {
 		const { claimer, calls } = recordingClaimer();
-		const launch = prepareLaunch({ ref: REF, claimer, slashCommand: DEFAULT_SLASH_COMMAND });
+		const launch = prepareLaunch({ ref: REF, claimer, slashCommand: DEFAULT_SLASH_COMMAND, confirm: approve });
 
 		expect(calls).toEqual(["claim"]);
-		expect(launch.hold).toEqual({ ref: REF, claimant: { by: null } });
-		expect(launch.command).toEqual(["claude", "/implement md:1"]);
+		expect(launch?.hold).toEqual({ ref: REF, claimant: { by: null } });
+		expect(launch?.command).toEqual(["claude", "/implement md:1"]);
+	});
+
+	// The gate is asked with the finished plan and answered before the only write, so declining costs
+	// the tracker nothing and there is no claim to give back.
+	test("writes nothing when the plan is declined, and shows the plan being declined", () => {
+		const { claimer, calls } = recordingClaimer();
+		const asked: LaunchPlan[] = [];
+
+		const launch = prepareLaunch({
+			ref: REF,
+			claimer,
+			slashCommand: DEFAULT_SLASH_COMMAND,
+			confirm: (plan) => {
+				asked.push(plan);
+				return false;
+			},
+		});
+
+		expect(launch).toBeNull();
+		expect(calls).toEqual([]);
+		expect(asked).toEqual([{ command: ["claude", "/implement md:1"] }]);
 	});
 
 	test("a claim that cannot land aborts, with nothing released and no command produced", () => {
@@ -45,7 +68,9 @@ describe("prepareLaunch", () => {
 			},
 		});
 
-		expect(() => prepareLaunch({ ref: REF, claimer, slashCommand: DEFAULT_SLASH_COMMAND })).toThrow(ClaimError);
+		expect(() =>
+			prepareLaunch({ ref: REF, claimer, slashCommand: DEFAULT_SLASH_COMMAND, confirm: approve }),
+		).toThrow(ClaimError);
 		expect(calls).toEqual(["claim"]);
 	});
 
@@ -54,7 +79,9 @@ describe("prepareLaunch", () => {
 	test("writes nothing when the input was wrong before anything was touched", () => {
 		const { claimer, calls } = recordingClaimer();
 
-		expect(() => prepareLaunch({ ref: REF, claimer, slashCommand: "not-a-slash-command" })).toThrow();
+		expect(() =>
+			prepareLaunch({ ref: REF, claimer, slashCommand: "not-a-slash-command", confirm: approve }),
+		).toThrow();
 		expect(calls).toEqual([]);
 	});
 });

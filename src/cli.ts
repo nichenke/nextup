@@ -10,6 +10,13 @@ import { type Candidate, type Selection, SelectionError, select } from "./select
 import { ticketId } from "./ticket";
 import { formatTicketRef } from "./ticket-ref";
 
+/**
+ * Puts the pick to the person running this and reports what they said. It prints `question` itself,
+ * because `run` returns its output rather than writing it and an answer given before the pick had been
+ * shown would be an answer to nothing.
+ */
+export type Confirm = (question: string) => boolean;
+
 export interface CliDeps {
 	readonly cwd: string;
 	/**
@@ -18,17 +25,25 @@ export interface CliDeps {
 	 * default the caller never handed over.
 	 */
 	readonly runner: Runner;
+	/**
+	 * `null` where there is nobody to ask — a pipe, a cron entry, a sandbox with no terminal. Not an
+	 * automatic yes: an unattended run that meant to claim says so with `--yes`, and one that did not
+	 * is refused rather than answered on its behalf.
+	 */
+	readonly confirm: Confirm | null;
 }
 
 /**
  * What the command wrote and what it exited with, rather than the writing itself, so that the whole
  * command is assertable without capturing a process's streams.
  *
- * `1` separates "nothing to recommend" from `2`, "this invocation or this ticket set is wrong". A
- * caller polling for work needs to tell an empty ticket set from a broken one, and folding both into a
- * single non-zero code makes a misspelled flag look like a quiet day. `3` is the same argument again:
- * a pick somebody else took is a different answer from a ticket set that will not read, and only one
- * of the two is worth coming back to.
+ * `1` separates "nothing was started" from `2`, "this invocation or this ticket set is wrong". A
+ * caller polling for work needs to tell a quiet day from a broken one, and folding both into a single
+ * non-zero code makes a misspelled flag look like an empty backlog. Nothing to recommend and a pick
+ * declined at the gate are both `1`: to a caller they are the same answer, that there is no session to
+ * go to, and the rendering says which. `3` is the same argument again: a pick somebody else took is a
+ * different answer from a ticket set that will not read, and only one of the two is worth coming back
+ * to.
  */
 export interface CliResult {
 	readonly code: 0 | 1 | 2 | 3;
@@ -38,11 +53,13 @@ export interface CliResult {
 
 const USAGE = `nextup — picks the ticket to start next, claims it, and says how to start work on it
 
-usage: nextup [--effort <path>] [--include <label>]... [--exclude <label>]... [--json] [--print-command]
+usage: nextup [--effort <path>] [--include <label>]... [--exclude <label>]... [--yes] [--json]
+              [--print-command]
 
   --effort <path>    the effort to read; defaults to the single effort under <cwd>/.scratch
   --include <label>  consider only tickets carrying one of these labels; repeatable
   --exclude <label>  never consider a ticket carrying one of these labels; repeatable
+  --yes              claim the pick without asking first
   --print-command    print the launch command and claim nothing
   --json             emit the selection as JSON rather than the human rendering
   --help             print this
@@ -53,12 +70,13 @@ to it, so the two tracks cannot compete for one ticket on a flag that never ment
 The filter narrows only what may be recommended: the blocking graph still reads every ticket, so an
 excluded ticket still blocks.
 
-Without --print-command the pick is claimed in the tracker before anything else happens, so a failure
-leaves a visible wrong state rather than an invisible one. Nothing local is created yet: the worktree
-and the session are still to come, and so is the confirmation gate that will stand in front of them.
+The pick is shown and confirmed before it is claimed. --yes answers in advance, which is what an
+unattended run needs; with neither a terminal nor --yes the run is refused rather than answered on
+your behalf. --print-command claims nothing and never asks. Claiming comes before anything local is
+created, so a failure leaves a visible wrong state rather than an invisible one.
 
-Exit status: 0 a ticket to start, 1 nothing to recommend, 2 a bad invocation or a ticket set that
-could not be read, 3 a pick that could not be claimed.
+Exit status: 0 a ticket claimed, 1 nothing started — nothing to recommend, or the pick declined,
+2 a bad invocation or a ticket set that could not be read, 3 a pick that could not be claimed.
 `;
 
 export function run(argv: readonly string[], deps: CliDeps): CliResult {
@@ -147,12 +165,21 @@ function startWork(
 		return { code: 2, stdout: "", stderr: `${formatTicketRef(pick.ref)} is not in the effort it was picked from\n` };
 	}
 
+	// Refused rather than treated as a no: an unattended run that meant to claim is one flag away, and
+	// silently declining every one of them would look exactly like an empty backlog.
+	const ask = deps.confirm;
+	if (!options.yes && ask === null) {
+		return { code: 2, stdout: "", stderr: "there is no terminal to confirm on; pass --yes to claim without asking\n" };
+	}
+
 	let launch;
 	try {
 		launch = prepareLaunch({
 			ref: pick.ref,
 			slashCommand: DEFAULT_SLASH_COMMAND,
 			claimer: markdownClaimer(ticket, { runner: deps.runner }),
+			// `ask` is null here only when --yes was given, which the guard above is what guarantees.
+			confirm: options.yes || ask === null ? () => true : (plan) => ask(gate(selection, plan)),
 		});
 	} catch (cause) {
 		// A ticket this tool cannot write is a ticket set to fix rather than a claim to retry, and the
@@ -167,9 +194,27 @@ function startWork(
 		throw cause;
 	}
 
+	if (launch === null) {
+		// The gate printed the pick on its way to asking, so repeating it here would show it twice.
+		const declined = `${formatTicketRef(pick.ref)} not claimed\n`;
+		return options.json ? { code: 1, stdout: json(selection, null), stderr: "" } : { code: 1, stdout: declined, stderr: "" };
+	}
+
 	if (options.json) return { code: 0, stdout: json(selection, launch), stderr: "" };
-	const claimed = `claimed ${formatTicketRef(launch.hold.ref)}`;
-	return { code: 0, stdout: `${renderSelection(selection)}${claimed}\nwould run: ${formatCommand(launch.command)}\n`, stderr: "" };
+	const claimed = `claimed ${formatTicketRef(launch.hold.ref)}\n`;
+	// The gate printed the pick and the command on its way to asking, so an approved run reports only
+	// what has changed since. --yes was never shown either, and gets the whole answer here.
+	if (!options.yes) return { code: 0, stdout: claimed, stderr: "" };
+	return {
+		code: 0,
+		stdout: `${renderSelection(selection)}${claimed}would run: ${formatCommand(launch.command)}\n`,
+		stderr: "",
+	};
+}
+
+/** What the gate shows before it asks: the pick, why it won, and exactly what approving it runs. */
+function gate(selection: Selection, plan: LaunchPlan): string {
+	return `${renderSelection(selection)}would run: ${formatCommand(plan.command)}\nclaim it and start work? [y/N]`;
 }
 
 /**
@@ -187,6 +232,7 @@ class CliError extends Error {}
 interface Options {
 	readonly help: boolean;
 	readonly json: boolean;
+	readonly yes: boolean;
 	readonly printCommand: boolean;
 	readonly effort: string | null;
 	readonly filter: LabelFilterSpec;
@@ -195,6 +241,7 @@ interface Options {
 function parse(argv: readonly string[]): Options {
 	let help = false;
 	let json = false;
+	let yes = false;
 	let printCommand = false;
 	let effort: string | null = null;
 	const include: string[] = [];
@@ -209,6 +256,9 @@ function parse(argv: readonly string[]): Options {
 				break;
 			case "--json":
 				json = true;
+				break;
+			case "--yes":
+				yes = true;
 				break;
 			case "--print-command":
 				printCommand = true;
@@ -229,7 +279,7 @@ function parse(argv: readonly string[]): Options {
 
 	// The default exclusion is a floor, not a starting point a filter flag replaces: `--include backend`
 	// would otherwise hand out a wayfinder ticket labelled `backend`.
-	return { help, json, printCommand, effort, filter: { include, exclude: [...DEFAULT_LABEL_FILTER.exclude, ...exclude] } };
+	return { help, json, yes, printCommand, effort, filter: { include, exclude: [...DEFAULT_LABEL_FILTER.exclude, ...exclude] } };
 }
 
 function value(argv: readonly string[], index: number, flag: string): string {
