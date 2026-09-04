@@ -89,7 +89,11 @@ const BARE_NUMBERS = /^[\s#\d,|]*$/;
  */
 function declaresBlockers(line: string): boolean {
 	const text = line.replace(TABLE_CELL, "").trim();
-	if (!BLOCKER_NAME.test(text)) return false;
+	// Matched once and measured, so the name test and the remainder can never disagree about where the
+	// name ended.
+	const named = BLOCKER_NAME.exec(text);
+	if (named === null) return false;
+	const rest = text.slice(named[0].length);
 	return (
 		// `Blocked_by: 2`, `Dependencies: 2` — a colon straight after the name.
 		BLOCKER_FIELD.test(text) ||
@@ -98,7 +102,7 @@ function declaresBlockers(line: string): boolean {
 		// `Blocked by 2`, `Blocked by #2, #3` — the colon omitted, and `Blocked by` alone above a list.
 		// Numbers and separators only: one word after the name and it is a sentence, so "blocked by 3
 		// separate reviews" stays prose.
-		BARE_NUMBERS.test(text.replace(BLOCKER_NAME, ""))
+		BARE_NUMBERS.test(rest)
 	);
 }
 // `to-tickets` writes "None — can start immediately" where a ticket has no blockers, so the trailing
@@ -226,15 +230,17 @@ function readTicketFiles(issuesDir: string): ParsedFile[] {
 	for (const name of listDirectory(issuesDir).sort()) {
 		// macOS writes .DS_Store into any directory the Finder has opened, unbidden.
 		if (name.startsWith(".")) continue;
-		const path = join(issuesDir, name);
-		if (!isReadableFile(path)) continue;
 
 		// A README or a template alongside the tickets is directory junk, skipped for the same reason a
 		// dotfile and an unreadable entry are: refusing would take a whole effort down over one file,
 		// which is the cost this module declines to pay for a blocking cycle a few lines below. It errs
 		// toward a ticket being absent, never toward one being available when it is not.
+		//
+		// Checked before the entry is inspected, so only real ticket names cost a syscall.
 		const named = TICKET_FILENAME.exec(name);
 		if (named?.[1] === undefined) continue;
+		const path = join(issuesDir, name);
+		if (!isReadableFile(path)) continue;
 		const file = parseTicketFile(readTicketText(path), path, named[1]);
 		const collision = seen.get(file.ticket.ref.key);
 		if (collision !== undefined) {
@@ -292,7 +298,9 @@ function stripTitleNumber(title: string, key: string, path: string): string {
 			`${path} is numbered ${key} but its title is numbered ${prefixed[1]}; one of the two is wrong`,
 		);
 	}
-	return title.replace(TITLE_NUMBER_PREFIX, "");
+	// Cut what the match already measured, rather than running the pattern a second time where the two
+	// runs could come to disagree about what the prefix was.
+	return title.slice(prefixed[0].length);
 }
 
 function parseTicketFile(text: string, path: string, number: string): ParsedFile {
@@ -446,10 +454,11 @@ function requireNoStrayDeclaration(tokens: readonly Token[], path: string): void
 			const heading = token as Tokens.Heading;
 			// Rendered, not raw, so an emphasised `_Blocked by_` heading is seen like a plain one.
 			const headingText = renderedText(heading.tokens);
-			if (!BLOCKER_NAME.test(headingText)) continue;
+			const named = BLOCKER_NAME.exec(headingText);
+			if (named === null) continue;
 			// A heading that is nothing but the name is a section, so `declaresBlockers`' bare-name clause
 			// cannot apply here — being nothing but a name is what a heading is.
-			const rest = headingText.replace(BLOCKER_NAME, "").replace(/^\s*:/, "");
+			const rest = headingText.slice(named[0].length).replace(/^\s*:/, "");
 			const numbersInHeading = rest.trim() !== "" && BARE_NUMBERS.test(rest);
 			if (numbersInHeading || followedByTicketNumbers(tokens, index)) {
 				throw strayDeclaration(path, headingText);
@@ -465,7 +474,8 @@ function requireNoStrayDeclaration(tokens: readonly Token[], path: string): void
 
 /** The next block's text, when it is nothing but ticket numbers. */
 function followedByTicketNumbers(tokens: readonly Token[], index: number): boolean {
-	for (const token of tokens.slice(index + 1)) {
+	for (let next = index + 1; next < tokens.length; next += 1) {
+		const token = tokens[next]!;
 		if (token.type === "space") continue;
 		if (token.type === "code") return false;
 		const lines = blockText(token);
