@@ -248,6 +248,27 @@ describe("readEffort: the bold-field format the to-tickets skill emits", () => {
 		]);
 	});
 
+	// CommonMark lets a closing fence carry only trailing whitespace, so a marker with an info string
+	// is content rather than a closer. Treating it as one released the rest of the block, and the
+	// fenced `Status: resolved` below became this ticket's real state.
+	test("a fence marker carrying an info string does not close the block", () => {
+		const ticket = oneTicket(
+			tempRepo(),
+			"01-a.md",
+			["# 01 — A", "", "```", "```ts", "Status: resolved", "```", ""].join("\n"),
+		);
+		expect(ticket.state).toBe("open");
+	});
+
+	test("a closing fence may still carry trailing whitespace", () => {
+		const ticket = oneTicket(
+			tempRepo(),
+			"01-a.md",
+			["# 01 — A", "", "```", "Status: resolved", "```   ", "", "Status: claimed", ""].join("\n"),
+		);
+		expect(ticket.claim).toEqual({ by: null });
+	});
+
 	test("ignores a field-shaped line inside an inlined code snippet", () => {
 		const ticket = oneTicket(
 			tempRepo(),
@@ -404,7 +425,14 @@ describe("readEffort: malformed input fails loudly", () => {
 	// the parser having to understand every way markdown can dress a line.
 	test("a decorated Blocked by is refused, not read and not dropped", () => {
 		const repo = tempRepo();
-		const decorated = ["- Blocked by: 2", "* Blocked by: 2", "> Blocked by: 2", "1. Blocked by: 2"];
+		// `1)` is CommonMark's other ordered-list delimiter; omitting it dropped the line silently.
+		const decorated = [
+			"- Blocked by: 2",
+			"* Blocked by: 2",
+			"> Blocked by: 2",
+			"1. Blocked by: 2",
+			"1) Blocked by: 2",
+		];
 		for (const line of decorated) {
 			const effort = writeEffort(repo, "effort", {
 				"01-a.md": `# 01 — A\n\nStatus: open\n${line}\n`,

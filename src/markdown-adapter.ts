@@ -77,7 +77,7 @@ const INDENTED_CODE = /^(?: {4,}|\t)/;
 // The set is markdown's own line markers, which is what makes it closed: task-list boxes and nested
 // prefixes each got a declaration through while the set was guessed from the shapes review happened
 // to find. Stripped repeatedly, because `> - Blocked by: 2` wears two and one pass left a marker on.
-const LEADING_MARKER = /^(?:[-*+>|]|#{1,6}|\d+\.|\[[ xX]?\])\s*/;
+const LEADING_MARKER = /^(?:[-*+>|]|#{1,6}|\d+[.)]|\[[ xX]?\])\s*/;
 // Any separator between the words, and the near-miss names, for the same reason: `Blocked_by` and
 // `Dependencies` were dropped because the pattern spelled the separators and suffixes it had seen.
 // One source for both, since spelling the alternation twice is how `Depends on:` came to satisfy the
@@ -421,14 +421,22 @@ function markCodeRegions(rawLines: readonly string[], path: string): SourceLine[
 		// An indented fence is literal content of an indented code block, not a fence marker. Treating
 		// it as one refused whole efforts whose notes showed fence syntax as an indented example.
 		const indented = INDENTED_CODE.test(bare);
-		const marker = indented ? null : FENCE.exec(raw.trim())?.[1];
+		const trimmed = raw.trim();
+		const marker = indented ? null : FENCE.exec(trimmed)?.[1];
 
 		if (fence === null) {
 			if (marker !== undefined && marker !== null) fence = marker;
 			lines.push({ text: bare.trim(), raw, code: marker != null, indented, body: false });
 			continue;
 		}
-		const closes = marker != null && marker[0] === fence[0] && marker.length >= fence.length;
+		// A closer may carry only trailing whitespace, per CommonMark — a marker with an info string
+		// like ```ts is content. Accepting it as a closer released the rest of the block, and the fenced
+		// fields below it were read as this ticket's own.
+		const closes =
+			marker != null &&
+			marker[0] === fence[0] &&
+			marker.length >= fence.length &&
+			trimmed.slice(marker.length).trim() === "";
 		if (closes) fence = null;
 		lines.push({ text: bare.trim(), raw, code: true, indented, body: false });
 	}
