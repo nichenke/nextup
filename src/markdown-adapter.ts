@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { type Token, type Tokens, marked } from "marked";
 import { type BlockedState, type DependencyGraph, deriveEffectiveBlockedness } from "./effective-blockedness";
 import { seedGraph } from "./graph-store";
 import { type Claim, type Ticket, ticketId } from "./ticket";
@@ -51,33 +52,18 @@ const MAP_FILE = "map.md";
 const ISSUES_DIR = "issues";
 
 const TICKET_FILENAME = /^(\d+)-.*\.md$/;
-const TITLE_LINE = /^#\s+(.*\S)\s*$/;
 // The number already comes from the filename, so a title repeating it is a duplicate rather than
 // part of the title. `to-tickets` writes the em dash form; the en dash and hyphen are accepted
 // because nothing constrains a hand-written title to match it. Whitespace is required on at least
 // one side of the dash, or the pattern eats the first word of a title that legitimately starts with
 // a number — "3-way merge conflict resolution" became "way merge conflict resolution".
 const TITLE_NUMBER_PREFIX = /^(\d+)(?:\s+[—–-]\s*|\s*[—–-]\s+)/;
-const SECTION_HEADING = /^#{2,}\s/;
-// The whole accepted field grammar, per ADR-0008: an unindented, undecorated line, plain or bold.
-// Deliberately narrow — the only producers writing these files are the wayfinder local-markdown
-// convention and the `to-tickets` skill, so widening it buys tolerance nothing needs and costs a new
-// way to read a line wrongly.
+// The whole accepted field grammar, per ADR-0008: a `Name: value` line, plain or bold, inside a
+// paragraph of the header region. Deliberately narrow — the only producers writing these files are the
+// wayfinder local-markdown convention and the `to-tickets` skill.
 const FIELD_LINE = /^(Type|Status|Blocked by)\s*:\s*(.*?)\s*$/i;
-// Any indent at all disqualifies a field, per the grammar above. Four spaces or a tab additionally
-// makes the line a markdown code block, which is what suppresses a fence marker inside one.
-const INDENTED = /^[ \t]/;
-const INDENTED_CODE = /^(?: {4,}|\t)/;
-// Decoration a field must not wear. Stripped only to decide whether to REFUSE a line, never to read
-// one: a `Blocked by:` this parser cannot read must be refused rather than dropped, because dropped
-// reads as no blockers at all. Anchoring after the strip is what keeps prose out — a sentence
-// mentioning being blocked does not begin with the field's name — and no digit is required, since a
-// declaration whose numbers sit on the lines below it has none on its own line.
-//
-// The set is markdown's own line markers, which is what makes it closed: task-list boxes and nested
-// prefixes each got a declaration through while the set was guessed from the shapes review happened
-// to find. Stripped repeatedly, because `> - Blocked by: 2` wears two and one pass left a marker on.
-const LEADING_MARKER = /^(?:[-*+>|]|#{1,6}|\d+[.)]|\[[ xX]?\])\s*/;
+// A table row, the one declaration shape a paragraph can hold that the lexer does not strip for us.
+const TABLE_CELL = /^\|\s*/;
 // Any separator between the words, and the near-miss names, for the same reason: `Blocked_by` and
 // `Dependencies` were dropped because the pattern spelled the separators and suffixes it had seen.
 // One source for both, since spelling the alternation twice is how `Depends on:` came to satisfy the
@@ -88,41 +74,31 @@ const BLOCKER_NAME = new RegExp(`^${BLOCKER_WORDS}\\b`, "i");
 // over one line of prose in one ticket — "Depends on the spike landing." — which is the same
 // "no work available" the refusal exists to prevent, arrived at from the other side.
 const BLOCKER_FIELD = new RegExp(`^${BLOCKER_WORDS}\\s*:`, "i");
-const HEADING = /^#{1,6}\s/;
 const SENTENCE_END = /[.!?]$/;
-const BARE_NUMBERS = /^[\s#\d,]*$/;
-
-function undecorate(line: string): string {
-	let stripped = line;
-	for (let previous = ""; stripped !== previous; ) {
-		previous = stripped;
-		stripped = stripped.replace(LEADING_MARKER, "");
-	}
-	return stripped;
-}
+// Pipes included so a table row reduces to numbers once its cells are stripped.
+const BARE_NUMBERS = /^[\s#\d,|]*$/;
 
 /**
  * Whether a line names blockers in a shape this parser will not read — which must be refused rather
  * than dropped, since a dropped declaration reads as a confident `unblocked`.
  *
- * Each clause is a way of being structurally a field rather than a sentence, and that distinction is
- * the whole point: the name alone is not enough, because ordinary prose starts with these words, and
- * one such sentence in one ticket refused every ticket in the effort.
+ * Called only on text the lexer has already classified as prose, a heading, or a list item, with the
+ * markdown markers stripped, so what is left is the one judgment markdown itself cannot make: whether
+ * this is structurally a field or a sentence. The name alone is not enough — ordinary prose starts
+ * with these words, and one such sentence in one ticket once refused every ticket in the effort.
  */
 function declaresBlockers(line: string): boolean {
-	const stripped = undecorate(line);
-	if (!BLOCKER_NAME.test(stripped)) return false;
+	const text = line.replace(TABLE_CELL, "").trim();
+	if (!BLOCKER_NAME.test(text)) return false;
 	return (
 		// `Blocked_by: 2`, `Dependencies: 2` — a colon straight after the name.
-		BLOCKER_FIELD.test(stripped) ||
-		// `| Blocked by | 2 |` — a table row, where cells take the colon's place.
-		line.startsWith("|") ||
+		BLOCKER_FIELD.test(text) ||
 		// `Blocked by the tickets listed below:` — a lead-in to a list. A sentence ends otherwise.
-		(stripped.endsWith(":") && !SENTENCE_END.test(stripped)) ||
+		(text.endsWith(":") && !SENTENCE_END.test(text)) ||
 		// `Blocked by 2`, `Blocked by #2, #3` — the colon omitted, and `Blocked by` alone above a list.
 		// Numbers and separators only: one word after the name and it is a sentence, so "blocked by 3
 		// separate reviews" stays prose.
-		BARE_NUMBERS.test(stripped.replace(BLOCKER_NAME, ""))
+		BARE_NUMBERS.test(text.replace(BLOCKER_NAME, ""))
 	);
 }
 // `to-tickets` writes "None — can start immediately" where a ticket has no blockers, so the trailing
@@ -374,196 +350,144 @@ function resolveMarkdownRef(token: string, describeRefusal: () => string): Ticke
 }
 
 /**
- * The fields above the first section heading. Bold markers are stripped before matching, so the form
- * `to-tickets` emits and the plain form the wayfinder convention writes are one shape by the time it
- * is read: `**Status:** x`, `**Status**: x`, and `Status: x` all arrive here identically.
+ * The fields in the header region: the run of paragraphs after the H1, up to the first block that is
+ * anything else. Bold markers are stripped before matching, so `**Status:** x`, `**Status**: x`, and
+ * `Status: x` arrive identically — the form `to-tickets` emits and the plain form the wayfinder
+ * convention writes are one shape by the time this reads them.
  *
- * Nothing else is a field. ADR-0008 has the reasoning; the short version is that this adapter reads
- * only files this project authors, so a decorated or indented field is a quotation rather than a
- * declaration, and treating it as one is how a quoted `Status: resolved` came to close a ticket.
+ * Block structure comes from a CommonMark lexer rather than from patterns here, and ADR-0009 records
+ * why: nine separate rules of markdown's block grammar were rediscovered one review round at a time,
+ * each a place a hand-written regex diverged from the spec, and every divergence was a way to read a
+ * fenced or quoted field as a live one. A `code` block is never a field because the lexer says it is
+ * code; a spaced `* * *`, a one-dash setext underline and a bare `##` all end the region because the
+ * lexer calls them a break and a heading.
  */
 function readHeader(text: string, path: string): { title: string | null; fields: Map<string, string> } {
-	const lines = markCodeRegions(text.split("\n"), path);
-	const title = markHeaderBoundary(lines, path);
-	return { title, fields: readFields(lines, path) };
-}
-
-/**
- * One source line, with the two questions that used to be answered mid-field-scan already settled.
- * Resolving them in order is the point: they were four regexes evaluated in a load-bearing sequence
- * inside the field loop, and three separate holes in that sequence each let body prose be read as a
- * real field — which prunes a live blocker and reports a confident `unblocked`.
- */
-interface SourceLine {
-	/** Bold markers removed and trimmed, which is what a field is matched against. */
-	readonly text: string;
-	/** The line as written, before bold markers are collapsed. */
-	readonly raw: string;
-	/** Markdown reads this as code: inside a fence, or in an indented block. Never a field. */
-	readonly code: boolean;
-	/** Indented far enough to be a code block on its own. */
-	readonly indented: boolean;
-	/** At or below the line that ended the header region. */
-	body: boolean;
-}
-
-// A fence is a run of at least three backticks or tildes. CommonMark closes it only with the same
-// character, which is why the opener is remembered rather than a boolean: a `~~~` inside a ``` block
-// closed it early, and the fenced lines below were then read as this ticket's real fields.
-const FENCE = /^(`{3,}|~{3,})/;
-
-function markCodeRegions(rawLines: readonly string[], path: string): SourceLine[] {
-	const lines: SourceLine[] = [];
-	let fence: string | null = null;
-
-	for (const raw of rawLines) {
-		const bare = raw.replace(/\*\*/g, "");
-		// An indented fence is literal content of an indented code block, not a fence marker. Treating
-		// it as one refused whole efforts whose notes showed fence syntax as an indented example.
-		const indented = INDENTED_CODE.test(bare);
-		const trimmed = raw.trim();
-		const marker = indented ? null : FENCE.exec(trimmed)?.[1];
-
-		if (fence === null) {
-			if (marker !== undefined && marker !== null) fence = marker;
-			lines.push({ text: bare.trim(), raw, code: marker != null, indented, body: false });
-			continue;
-		}
-		// A closer may carry only trailing whitespace, per CommonMark — a marker with an info string
-		// like ```ts is content. Accepting it as a closer released the rest of the block, and the fenced
-		// fields below it were read as this ticket's own.
-		const closes =
-			marker != null &&
-			marker[0] === fence[0] &&
-			marker.length >= fence.length &&
-			trimmed.slice(marker.length).trim() === "";
-		if (closes) fence = null;
-		lines.push({ text: bare.trim(), raw, code: true, indented, body: false });
-	}
-
-	if (fence !== null) {
-		throw new MarkdownEffortError(`${path} has an unterminated code fence, which hides any field below it`);
-	}
-	return lines;
-}
-
-// A thematic break, tested on the raw line: the bold-marker strip collapses `**` pairs, so `***`
-// reached this as one stray `*` and never matched.
-const THEMATIC_BREAK = /^(?:\*{3,}|_{3,}|-{3,})$/;
-// A setext underline is one or more `=` or `-` under a paragraph line, per CommonMark. Requiring three
-// left a one- or two-dash heading unrecognised, so everything under it stayed in the header region.
-const SETEXT_UNDERLINE = /^(?:=+|-+)$/;
-
-/**
- * Finds the title and marks where the header region ends. Returns the title so the caller need not
- * ask again — and the title is settled here, before any field is read, so a title that happens to
- * read "Blocked by 3 upstream changes" can never be mistaken for a malformed declaration.
- */
-function markHeaderBoundary(lines: SourceLine[], path: string): string | null {
-	let title: string | null = null;
-	let body = false;
-
-	for (const [index, line] of lines.entries()) {
-		if (line.code) {
-			line.body = body;
-			continue;
-		}
-		const raw = line.raw.trim();
-		const heading = line.indented ? null : TITLE_LINE.exec(line.text);
-
-		if (!body && heading?.[1] !== undefined) {
-			if (title !== null) {
-				throw new MarkdownEffortError(`${path} has more than one H1 title`);
-			}
-			title = heading[1];
-			line.body = false;
-			continue;
-		}
-
-		const previous = lines[index - 1];
-		const underlines =
-			title !== null &&
-			SETEXT_UNDERLINE.test(raw) &&
-			previous !== undefined &&
-			!previous.code &&
-			previous.text !== "";
-		if (SECTION_HEADING.test(line.text) || (title !== null && THEMATIC_BREAK.test(raw)) || underlines) {
-			body = true;
-		}
-		line.body = body;
-	}
-	return title;
-}
-
-/**
- * Whether a blocker-named heading is declaring blockers or introducing a prose section. Only what
- * follows it can say: `## Blocked by` above `- 2` is a declaration whose payload this parser will not
- * read, while `## Dependencies` above a paragraph is a section, and refusing on the name alone took a
- * whole effort down over one heading.
- */
-function headingDeclaresBlockers(lines: readonly SourceLine[], index: number): boolean {
-	const heading = lines[index];
-	if (heading === undefined) return false;
-	const text = undecorate(heading.text);
-	if (!BLOCKER_NAME.test(text)) return false;
-
-	// `## Blocked by: 2` carries its numbers itself. The bare-name clause `declaresBlockers` uses is no
-	// help here, because a heading being nothing but a name is what headings are.
-	const rest = text.replace(BLOCKER_NAME, "").replace(/^\s*:/, "");
-	if (rest.trim() !== "" && BARE_NUMBERS.test(rest)) return true;
-
-	for (const line of lines.slice(index + 1)) {
-		if (line.code || line.text === "") continue;
-		if (HEADING.test(line.text)) return false;
-		return BARE_NUMBERS.test(undecorate(line.text));
-	}
-	return false;
-}
-
-function readFields(lines: readonly SourceLine[], path: string): Map<string, string> {
+	const tokens = marked.lexer(text);
 	const fields = new Map<string, string>();
+	let title: string | null = null;
+	let index = 0;
 
-	for (const [index, line] of lines.entries()) {
-		if (line.code) continue;
-
-		if (HEADING.test(line.text)) {
-			if (headingDeclaresBlockers(lines, index)) {
-				throw new MarkdownEffortError(
-					`${path} has a "${line.text}" section listing ticket numbers; write them as an unindented "Blocked by: <numbers>" line above the first section heading`,
-				);
-			}
+	for (; index < tokens.length; index += 1) {
+		const token = tokens[index]!;
+		if (token.type === "space") continue;
+		if (token.type === "heading") {
+			// The first heading is the title; any heading after it ends the header region, whatever its
+			// depth. Depth cannot be the test: a setext `===` underline makes a level-one heading, so
+			// refusing a second H1 as a duplicate title refused an ordinary underlined section instead.
+			if (title !== null) break;
+			title = (token as Tokens.Heading).text;
 			continue;
 		}
-		// A field is only a field in the accepted grammar: unindented, undecorated, plain or bold.
-		const field = line.indented ? null : FIELD_LINE.exec(line.text);
+		if (token.type === "paragraph") {
+			addFields((token as Tokens.Paragraph).text, fields, path);
+			continue;
+		}
+		// A code block does not end the header region: `to-tickets` inlines a snippet where one encodes
+		// a decision more precisely than prose, and fields written after it are still the ticket's own.
+		if (token.type === "code") continue;
+		break;
+	}
 
+	requireNoStrayDeclaration(tokens.slice(index), path);
+	return { title, fields };
+}
+
+function addFields(paragraph: string, fields: Map<string, string>, path: string): void {
+	// A paragraph holds every field written on consecutive lines, since a soft break does not start a
+	// new block — which is exactly how the wayfinder convention writes Type, Status and Blocked by.
+	for (const raw of paragraph.replace(/\*\*/g, "").split("\n")) {
+		const field = FIELD_LINE.exec(raw.trim());
 		if (field?.[1] === undefined) {
-			// Not a field, so the only question left is whether it names blockers in a shape that would
-			// be dropped. Dropped reads as a confident `unblocked`, so it is refused instead.
-			if (declaresBlockers(line.text)) {
-				throw new MarkdownEffortError(
-					`${path} names blockers in a shape this parser cannot read ("${line.text}"); write it as an unindented "Blocked by: <numbers>" line above the first section heading, or fence it if it is prose`,
-				);
-			}
+			if (declaresBlockers(raw.trim())) throw strayDeclaration(path, raw.trim());
 			continue;
 		}
-
 		const key = field[1].toLowerCase();
-		// An accepted-shape field below the boundary is refused rather than read or ignored. Ignoring it
-		// is what let `Status: claimed` below a divider report somebody's in-flight work as available —
-		// and `Blocked by:` in that same position was already refused, so silence here was an asymmetry
-		// with nothing behind it.
-		if (line.body) {
-			throw new MarkdownEffortError(
-				`${path} has a ${field[1]} field below a section heading, where it is not read as this ticket's own; move it above the first heading, or fence it if it is prose`,
-			);
-		}
 		if (fields.has(key)) {
 			throw new MarkdownEffortError(`${path} has more than one ${field[1]} field`);
 		}
 		fields.set(key, field[2] ?? "");
 	}
-	return fields;
+}
+
+function strayDeclaration(path: string, line: string): MarkdownEffortError {
+	return new MarkdownEffortError(
+		`${path} names blockers in a shape this parser cannot read ("${line}"); write it as a "Blocked by: <numbers>" line in the block under the title, or put it in a code block if it is an example`,
+	);
+}
+
+/**
+ * Refuses a blocker declaration outside the header region, because dropping one reads as a confident
+ * `unblocked` — the state `CONTEXT.md` forbids inferring. A `Status:` out there is ignored instead: a
+ * missed one reads open and unclaimed, which a human sees at the confirmation gate.
+ *
+ * Everything the lexer calls `code` is skipped, which is what makes quoting a field in an example safe
+ * without this needing to know a single thing about fences.
+ */
+function requireNoStrayDeclaration(tokens: readonly Token[], path: string): void {
+	for (const [index, token] of tokens.entries()) {
+		if (token.type === "code") continue;
+
+		if (token.type === "heading") {
+			// Only what follows can say whether a blocker-named heading declares blockers or introduces a
+			// prose section: `## Blocked by` above `- 2` is a declaration, `## Dependencies` above a
+			// paragraph is a section.
+			const heading = token as Tokens.Heading;
+			if (!BLOCKER_NAME.test(heading.text)) continue;
+			// A heading that is nothing but the name is a section, so `declaresBlockers`' bare-name clause
+			// cannot apply here — being nothing but a name is what a heading is.
+			const rest = heading.text.replace(BLOCKER_NAME, "").replace(/^\s*:/, "");
+			const numbersInHeading = rest.trim() !== "" && BARE_NUMBERS.test(rest);
+			if (numbersInHeading || followedByTicketNumbers(tokens, index)) {
+				throw strayDeclaration(path, heading.text);
+			}
+			continue;
+		}
+
+		for (const line of blockText(token)) {
+			if (declaresBlockers(line)) throw strayDeclaration(path, line);
+		}
+	}
+}
+
+/** The next block's text, when it is nothing but ticket numbers. */
+function followedByTicketNumbers(tokens: readonly Token[], index: number): boolean {
+	for (const token of tokens.slice(index + 1)) {
+		if (token.type === "space") continue;
+		if (token.type === "code") return false;
+		const lines = blockText(token);
+		return lines.length > 0 && lines.every((line) => BARE_NUMBERS.test(line));
+	}
+	return false;
+}
+
+/**
+ * A block's own text, one entry per line, with markdown's markers already removed by the lexer — a
+ * task-list box, an ordered-list delimiter and a nested blockquote prefix all arrive stripped, which
+ * is the work a hand-written marker set kept getting wrong.
+ */
+function blockText(token: Token): string[] {
+	const lines: string[] = [];
+	if (token.type === "code") return lines;
+	// Nested blocks are walked rather than read as text, because a list item's own `text` keeps the
+	// inner markdown: `1. - Blocked by: 2` arrives as `- Blocked by: 2` there, marker still attached,
+	// while its parsed `tokens` hold the inner list with the marker already gone. Recursing is what
+	// makes this independent of how many markers deep a declaration is buried.
+	const nested = collectNested(token);
+	if (nested.length > 0) {
+		for (const inner of nested) lines.push(...blockText(inner));
+	} else if ("text" in token && typeof token.text === "string") {
+		lines.push(...token.text.split("\n"));
+	}
+	return lines.map((line) => line.replace(/\*\*/g, "").trim()).filter((line) => line !== "");
+}
+
+function collectNested(token: Token): Token[] {
+	if (token.type === "list") {
+		return (token as Tokens.List).items.flatMap((item) => item.tokens ?? []);
+	}
+	if (token.type === "blockquote") return (token as Tokens.Blockquote).tokens;
+	return [];
 }
 
 function readStatus(value: string | undefined, path: string): StatusReading {

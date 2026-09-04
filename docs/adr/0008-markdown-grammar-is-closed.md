@@ -26,11 +26,17 @@ exist — the wayfinder local-markdown convention, which writes plain `Status:` 
 - Fenced code blocks are skipped, so a snippet may quote any of the above.
 
 Everything else that looks like a blocker declaration is refused, loudly, naming the file: a bulleted
-or blockquoted field, a table row, a definition list, an indented one, a `## Blocked by` heading, a
-renamed `Blockers:` or `Depends on:`, one below a section heading. A `Status:` in any of those shapes
-is ignored rather than refused — a missed `Status:` reads open and unclaimed, which a human sees at
-the confirmation gate, whereas a missed `Blocked by:` reads a confident `unblocked`, the one state
-`CONTEXT.md` forbids inferring.
+or blockquoted field, a table row, a definition list, a `## Blocked by` heading, a renamed `Blockers:`
+or `Depends on:`, one below a section heading. A `Status:` in any of those shapes is ignored rather
+than refused — a missed `Status:` reads open and unclaimed, which a human sees at the confirmation
+gate, whereas a missed `Blocked by:` reads a confident `unblocked`, the one state `CONTEXT.md` forbids
+inferring.
+
+ADR-0009 supersedes one line of this: a field in an **indented** block is an example rather than a
+refused declaration, because markdown reads an indented block as code and that is what the author's
+renderer shows them. It also moves the decision about where a code block or a section begins out of
+this file entirely — the boundary is whatever a CommonMark lexer says it is, which is what stopped
+that boundary being enumerated one review round at a time.
 
 ## Consequences
 

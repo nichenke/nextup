@@ -173,27 +173,26 @@ describe("readEffort: the observed plain-field format", () => {
 		]);
 	});
 
-	// A field below the boundary is refused rather than read or ignored. Reading it let body prose
-	// become the ticket's state and prune a live blocker; ignoring it let `Status: claimed` below a
-	// divider report somebody's in-flight work as available. Both are silent; refusing is not.
-	// CommonMark setext underlines are one or more `=` or `-`, so all of these are real headings.
-	test("a field below a setext-underlined heading is refused, at every underline length", () => {
+	// A `Status:` outside the header region is body text, not the ticket's own — the asymmetry ADR-0008
+	// states: dropping a Status errs open and unclaimed, which a human sees at the confirmation gate,
+	// while dropping a `Blocked by:` reads as a confident unblocked and is refused instead.
+	// CommonMark setext underlines are one or more `=` or `-`, and thematic breaks may be spaced, so
+	// every one of these ends the header region — which the lexer decides, not a pattern here.
+	test("a Status below any real section boundary is body text, not the ticket's state", () => {
 		const repo = tempRepo();
-		for (const underline of ["-", "--", "-----", "=", "==="]) {
-			const effort = writeEffort(repo, "effort", {
-				"01-a.md": `# 01 — A\n\nNotes\n${underline}\n\nStatus: resolved\n`,
-			});
-			expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
+		const boundaries = ["Notes\n-", "Notes\n--", "Notes\n=", "---", "***", "* * *", "- - -", "##", "## Notes"];
+		for (const boundary of boundaries) {
+			const ticket = oneTicket(repo, "01-a.md", `# 01 — A\n\n${boundary}\n\nStatus: resolved\n`);
+			expect(ticket.state).toBe("open");
 		}
 	});
 
-	test("a claimed status below a divider is refused, not read as unclaimed and open", () => {
+	test("a claimed status below a divider does not silently claim the ticket either", () => {
 		const repo = tempRepo();
-		for (const divider of ["---", "***", "___"]) {
-			const effort = writeEffort(repo, "effort", {
-				"01-a.md": `# 01 — A\n\n${divider}\n\nStatus: claimed\n`,
-			});
-			expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
+		for (const divider of ["---", "***", "___", "* * *"]) {
+			const ticket = oneTicket(repo, "01-a.md", `# 01 — A\n\n${divider}\n\nStatus: claimed\n`);
+			expect(ticket.claim).toBeNull();
+			expect(ticket.state).toBe("open");
 		}
 	});
 
@@ -489,8 +488,13 @@ describe("readEffort: malformed input fails loudly", () => {
 		}
 	});
 
-	test("a second H1 in the header is refused, like every other duplicated field", () => {
-		expectRejected("# 01 — A\n\n# 01 — A again\n\nStatus: open\n", /title/);
+	// The first heading is the title and any later one ends the header region, so a second H1 is a
+	// section rather than a duplicate. Depth cannot distinguish them: a setext `===` underline produces
+	// a level-one heading, so refusing a second H1 refused an ordinary underlined section too.
+	test("a second H1 ends the header region rather than being read as a duplicate title", () => {
+		const ticket = oneTicket(tempRepo(), "01-a.md", "# 01 — A\n\nStatus: resolved\n\n# Later section\n\nStatus: open\n");
+		expect(ticket.title).toBe("A");
+		expect(ticket.state).toBe("closed");
 	});
 
 	// The refusal detector is anchored after stripping markdown markers, so its completeness rests on
@@ -505,7 +509,7 @@ describe("readEffort: malformed input fails loudly", () => {
 			"- > Blocked by: 2",
 			"1. - Blocked by: 2",
 			"- - Blocked by: 2",
-			"| - Blocked by | 2 |",
+			"1) Blocked by: 2",
 		];
 		for (const line of decorated) {
 			const effort = writeEffort(repo, "effort", {
@@ -619,8 +623,11 @@ describe("readEffort: malformed input fails loudly", () => {
 		}
 	});
 
-	test("an indented Blocked by is refused rather than dropped as a code block", () => {
-		expectRejected("# 01 — A\n\nStatus: open\n\nExample:\n\n    Blocked by: 2\n", /blocker/i);
+	// A code block is the documented way to quote a field, and markdown makes an indented block code —
+	// which is what the author's renderer shows them too. So this is an example, not a declaration.
+	test("an indented Blocked by is a code example, like a fenced one", () => {
+		const ticket = oneTicket(tempRepo(), "01-a.md", "# 01 — A\n\nStatus: open\n\nExample:\n\n    Blocked by: 2\n");
+		expect(ticket.blockers).toEqual([]);
 	});
 
 	test("a diamond is not a cycle", () => {
@@ -730,8 +737,13 @@ describe("readEffort: malformed input fails loudly", () => {
 		expectRejected("# 01 — A\n\nStatus: resolved\n\n## Answer\n\nBlocked by: 2 originally.\n", /Blocked by/);
 	});
 
-	test("an unterminated code fence, which otherwise swallows every field after it", () => {
-		expectRejected("# 01 — A\n\n```\n\nStatus: resolved\nBlocked by: 1\n", /fence/);
+	// An unterminated fence makes the rest of the file a code block, which is what a renderer shows.
+	// Fields inside it are examples, so they are skipped rather than read — the same rule as any other
+	// code block, rather than a special case that needed its own fence bookkeeping.
+	test("an unterminated code fence makes the rest an example, not the ticket's fields", () => {
+		const ticket = oneTicket(tempRepo(), "01-a.md", "# 01 — A\n\nStatus: open\n\n```\nStatus: resolved\nBlocked by: 1\n");
+		expect(ticket.state).toBe("open");
+		expect(ticket.blockers).toEqual([]);
 	});
 
 });
