@@ -74,6 +74,11 @@ currently produces.
 Every key is validated and an unrecognised one is refused: a misspelled key in a fixture reads as a
 scenario that passes while asserting nothing, which looks like coverage rather than a gap.
 
+A scenario may also carry a `<name>.expected.txt`, holding the human rendering rather than the JSON.
+Only a couple do: the JSON pins which ticket wins, and these pin the shape of what a person reads —
+line order, the blank line, the sentinel last — so a wording change arrives as a diff to approve
+instead of passing unnoticed. Add one by creating the file empty and regenerating.
+
 ## Development
 
 ```sh
