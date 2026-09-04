@@ -3,14 +3,14 @@
 	"input": {
 		"ref": {
 			"tracker": "github",
-			"repo": "an-owner/a-repo",
+			"repo": "example/repo",
 			"host": null,
-			"key": "123"
+			"key": "1"
 		},
 		"slashCommand": "/implement"
 	},
 	"argv": [
 		"claude",
-		"/implement gh:an-owner/a-repo#123"
+		"/implement gh:example/repo#1"
 	]
 }

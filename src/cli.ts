@@ -153,6 +153,10 @@ function startWork(
 			claimer: markdownClaimer(ticket),
 		});
 	} catch (cause) {
+		// A command that could not be built is not a claim that could not be written: the claim landed
+		// and `beforeWorktreeExists` has already given it back, so this is 2 like every other bad
+		// invocation. A LaunchError says the release failed too, which leaves a real claim behind.
+		if (cause instanceof CommandBuilderError) return { code: 2, stdout: "", stderr: `${message(cause)}\n` };
 		if (cause instanceof ClaimError || cause instanceof LaunchError || cause instanceof MarkdownEffortError) {
 			return { code: 3, stdout: "", stderr: `${message(cause)}\n` };
 		}

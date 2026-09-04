@@ -16,7 +16,7 @@ interface Case {
 }
 
 const markdown: TicketRef = { tracker: "markdown", repo: null, host: null, key: "1" };
-const github: TicketRef = { tracker: "github", repo: "an-owner/a-repo", host: null, key: "123" };
+const github: TicketRef = { tracker: "github", repo: "example/repo", host: null, key: "1" };
 const jira: TicketRef = { tracker: "jira", repo: null, host: null, key: "ABC-7" };
 
 const CASES: readonly Case[] = [

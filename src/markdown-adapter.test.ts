@@ -774,6 +774,19 @@ describe("withStatus", () => {
 		}
 	});
 
+	// Not a grammar shape but a file-encoding one: a checkout can hand back CRLF, and rewriting one
+	// line in LF leaves a file whose endings disagree with themselves.
+	test("leaves the file's line endings as it found them", () => {
+		expect(withStatus("# 01 — A\r\n\r\nStatus: open\r\n", "claimed", PATH)).toBe("# 01 — A\r\n\r\nStatus: claimed\r\n");
+	});
+
+	// The endings a lexer normalises away that a line split does not: the counts drift, so no line is
+	// found to rewrite and the field is refused rather than written over whatever now sits at that
+	// offset. The reader accepts such a file, so the two disagree — knowingly, in the safe direction.
+	test("refuses rather than rewriting a line it can no longer locate", () => {
+		expect(() => withStatus("# 01 — A\r\rStatus: open\r", "claimed", PATH)).toThrow(MarkdownEffortError);
+	});
+
 	test("refuses a file with no title rather than writing a field nothing would read", () => {
 		expect(() => withStatus("Status: open\n", "claimed", PATH)).toThrow(MarkdownEffortError);
 	});

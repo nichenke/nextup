@@ -422,8 +422,12 @@ export function withStatus(text: string, value: string, path: string): string {
 	const lines = text.split("\n");
 
 	for (const paragraph of region.paragraphs) {
-		const raw = paragraph.token.raw.split("\n");
-		for (const [offset, line] of raw.entries()) {
+		for (let offset = 0; offset < countLines(paragraph.token.raw); offset++) {
+			// Matched against the file's own line rather than the token's. The lexer normalises line
+			// endings before it tokenises, so a CRLF file's token text has lost the `\r` that the line
+			// still carries — rewriting from the token would leave that one line alone in LF.
+			const line = lines[paragraph.line + offset];
+			if (line === undefined) break;
 			const field = STATUS_FIELD_LINE.exec(line);
 			if (field === null) continue;
 			lines[paragraph.line + offset] = `${field[1]}${value}${field[3]}`;
@@ -460,6 +464,15 @@ interface HeaderRegion {
 	readonly paragraphs: readonly { readonly token: Token; readonly line: number }[];
 }
 
+/**
+ * Lines a run of text occupies, counting the empty one a trailing newline leaves. One more than its
+ * newlines, which is what makes it usable both as a line count and, less one, as an offset to advance
+ * a running line number by.
+ */
+function countLines(text: string): number {
+	return (text.match(/\n/g) ?? []).length + 1;
+}
+
 function walkHeader(text: string): HeaderRegion {
 	const paragraphs: { token: Token; line: number }[] = [];
 	let title: string | null = null;
@@ -470,7 +483,7 @@ function walkHeader(text: string): HeaderRegion {
 		const start = line;
 		// Concatenating every token's `raw` reproduces the source exactly, so counting newlines through
 		// them is what keeps this on the line the next token starts on.
-		line += (token.raw.match(/\n/g) ?? []).length;
+		line += countLines(token.raw) - 1;
 		if (token.type === "space") continue;
 		if (token.type === "heading") {
 			// The first heading is the title, and any heading after it ends the header region whatever its
