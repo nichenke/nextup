@@ -273,33 +273,12 @@ describe("readEffort: the bold-field format the to-tickets skill emits", () => {
 		expect(ticket.blockers.map((ref) => ref.key)).toEqual(["1"]);
 	});
 
-	test("a hard line break does not hide a stray declaration from the refusal", () => {
-		const effort = writeEffort(tempRepo(), "effort", {
-			"01-a.md": "# 01 — A\n\nStatus: open\n\n## Notes\n\ntext  \nBlocked by: 2\n",
-		});
-		expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
-	});
-
 	test("a field wearing any inline emphasis is read from its rendered text", () => {
 		const repo = tempRepo();
 		for (const field of ["_Blocked by_: 1", "__Blocked by__: 1", "*Blocked by*: 1", "**Blocked by:** 1"]) {
 			const ticket = oneTicket(repo, "02-b.md", `# 02 — B\n\nStatus: open\n\n${field}\n`);
 			expect(ticket.blockers.map((ref) => ref.key)).toEqual(["1"]);
 		}
-	});
-
-	test("an emphasised blocker declaration outside the header is refused, not dropped", () => {
-		const effort = writeEffort(tempRepo(), "effort", {
-			"01-a.md": "# 01 — A\n\nStatus: open\n\n## Notes\n\n- _Blocked by_: 2\n",
-		});
-		expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
-	});
-
-	test("a blocker declared in a table row is refused, not discarded with the table", () => {
-		const effort = writeEffort(tempRepo(), "effort", {
-			"01-a.md": "# 01 — A\n\nStatus: open\n\n| field | value |\n| --- | --- |\n| Blocked by: | 2 |\n",
-		});
-		expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
 	});
 
 	test("a file whose first heading is a section, not a title, is refused", () => {
@@ -508,27 +487,6 @@ describe("readEffort: malformed input fails loudly", () => {
 		expect(() => readEffort(effort)).toThrow(pattern);
 	}
 
-	// Per ADR-0008 the accepted grammar is closed: an unindented, undecorated line, plain or bold.
-	// A decorated Blocked by is refused rather than read, so no shape is silently dropped without
-	// the parser having to understand every way markdown can dress a line.
-	test("a decorated Blocked by is refused, not read and not dropped", () => {
-		const repo = tempRepo();
-		// `1)` is CommonMark's other ordered-list delimiter; omitting it dropped the line silently.
-		const decorated = [
-			"- Blocked by: 2",
-			"* Blocked by: 2",
-			"> Blocked by: 2",
-			"1. Blocked by: 2",
-			"1) Blocked by: 2",
-		];
-		for (const line of decorated) {
-			const effort = writeEffort(repo, "effort", {
-				"01-a.md": `# 01 — A\n\nStatus: open\n${line}\n`,
-			});
-			expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
-		}
-	});
-
 	// `/^none\b/i` matched on its first word alone, so a blocker appended to an existing "None" line
 	// was discarded and the ticket read a confident unblocked.
 	test("a blocker stated after a leading None clause is not discarded", () => {
@@ -567,16 +525,6 @@ describe("readEffort: malformed input fails loudly", () => {
 		}
 	});
 
-	test("a blocker field under a name this parser does not read is refused, not dropped", () => {
-		const repo = tempRepo();
-		for (const line of ["Blocked-by: 2", "Blockers: 2", "Depends on: 2", "Blocked by 2"]) {
-			const effort = writeEffort(repo, "effort", {
-				"01-a.md": `# 01 — A\n\nStatus: open\n${line}\n`,
-			});
-			expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
-		}
-	});
-
 	// The first heading is the title and any later one ends the header region, so a second H1 is a
 	// section rather than a duplicate. Depth cannot distinguish them: a setext `===` underline produces
 	// a level-one heading, so refusing a second H1 refused an ordinary underlined section too.
@@ -584,139 +532,6 @@ describe("readEffort: malformed input fails loudly", () => {
 		const ticket = oneTicket(tempRepo(), "01-a.md", "# 01 — A\n\nStatus: resolved\n\n# Later section\n\nStatus: open\n");
 		expect(ticket.title).toBe("A");
 		expect(ticket.state).toBe("closed");
-	});
-
-	// The refusal detector is anchored after stripping markdown markers, so its completeness rests on
-	// the marker set being closed rather than on enumerating declaration shapes. Each of these got
-	// through by wearing a marker the strip did not know, or two where it stripped one.
-	test("a blocker declaration wearing any combination of markdown markers is refused", () => {
-		const repo = tempRepo();
-		const decorated = [
-			"- [ ] Blocked by: 2",
-			"- [x] Blocked by: 2",
-			"> - Blocked by: 2",
-			"- > Blocked by: 2",
-			"1. - Blocked by: 2",
-			"- - Blocked by: 2",
-			"1) Blocked by: 2",
-		];
-		for (const line of decorated) {
-			const effort = writeEffort(repo, "effort", {
-				"01-a.md": `# 01 — A\n\nStatus: open\n${line}\n`,
-			});
-			expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
-		}
-	});
-
-	test("a blocker field under any separator or near-miss name is refused", () => {
-		const repo = tempRepo();
-		for (const line of ["Blocked_by: 2", "Dependencies: 2", "Depends: 2", "Blocker: 2"]) {
-			const effort = writeEffort(repo, "effort", {
-				"01-a.md": `# 01 — A\n\nStatus: open\n${line}\n`,
-			});
-			expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
-		}
-	});
-
-	// A blocker-named heading is a declaration when ticket numbers follow it and a prose section when
-	// words do. The heading alone cannot say which, so refusing on the name made `## Dependencies`
-	// above an explanatory paragraph take the whole effort down.
-	test("a blocker heading with ticket numbers under it is refused, at every level", () => {
-		const repo = tempRepo();
-		for (const heading of ["# Blocked by", "## Blocked by", "### Dependencies", "## Blockers"]) {
-			const effort = writeEffort(repo, "effort", {
-				"01-a.md": `# 01 — A\n\nStatus: open\n\n## Notes\n\ntext\n\n${heading}\n\n- 2\n`,
-			});
-			expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
-		}
-	});
-
-	test("a blocker heading above prose is a section, not a declaration", () => {
-		const repo = tempRepo();
-		const sections = [
-			"## Dependencies\n\nDocumented in map.md.",
-			"## Blockers\n\nMostly organisational.",
-			"### Dependency notes\n\nThe new client, eventually.",
-			"## Dependencies",
-		];
-		for (const section of sections) {
-			const ticket = oneTicket(repo, "01-a.md", `# 01 — A\n\nStatus: open\n\n${section}\n`);
-			expect(ticket.blockers).toEqual([]);
-			expect(ticket.blocked).toBe("unblocked");
-		}
-	});
-
-	test("a Blocked by naming ticket numbers in a shape that cannot be read as a field", () => {
-		expectRejected("# 01 — A\n\nStatus: open\n\n| Blocked by | 2 |\n", /Blocked by/);
-	});
-
-	// The refusal must not become the mirror of the bug it prevents. Matching the phrase anywhere on
-	// a line made ordinary prose and ordinary titles abort the whole effort, which presents as the
-	// same "no work available" the unrecognised-Status failure was written to avoid.
-	test("a title that reads like a blocker declaration is a title", () => {
-		const repo = tempRepo();
-		for (const title of ["Blocked by 3 upstream changes", "Remove the depends-on 2 workaround"]) {
-			const ticket = oneTicket(repo, "01-a.md", `# 01 — ${title}\n\nStatus: open\n`);
-			expect(ticket.title).toBe(title);
-			expect(ticket.blockers).toEqual([]);
-		}
-	});
-
-	// The controls below all began with another word, which is how a refusal that fires on any line
-	// starting with a dependency word got through: a sentence is not a declaration, and one sentence
-	// in one ticket took down every ticket in the effort.
-	test("body prose that begins with a dependency word is prose, not a declaration", () => {
-		const repo = tempRepo();
-		const sentences = [
-			"Depends on the spike landing.",
-			"Blocked by the vendor, historically.",
-			"Blockers were mostly organisational.",
-			"Depends how you count it!",
-		];
-		for (const sentence of sentences) {
-			const ticket = oneTicket(repo, "01-a.md", `# 01 — A\n\nStatus: open\n\n## Notes\n\n${sentence}\n`);
-			expect(ticket.blockers).toEqual([]);
-			expect(ticket.blocked).toBe("unblocked");
-		}
-	});
-
-	test("body prose that mentions being blocked by a number is prose", () => {
-		const repo = tempRepo();
-		const bodies = [
-			"## Answer\n\nWe were blocked by 3 teams before this landed.",
-			"## Notes\n\nThis depends on 2 things landing upstream first.",
-			"## Notes\n\nThere were 0 blockers, so we shipped.",
-		];
-		for (const body of bodies) {
-			const ticket = oneTicket(repo, "01-a.md", `# 01 — A\n\nStatus: open\n\n${body}\n`);
-			expect(ticket.blockers).toEqual([]);
-			expect(ticket.blocked).toBe("unblocked");
-		}
-	});
-
-	// A heading branch that `continue`d before the guard, plus a digit requirement on the same line,
-	// left every declaration whose numbers sit below it silently reading as no blockers.
-	test("a Blocked by heading with its numbers listed below is refused", () => {
-		const repo = tempRepo();
-		const bodies = [
-			"## Blocked by\n\n- 2",
-			"## Blocked by: 2",
-			"Blocked by the tickets listed below:\n\n- 2",
-			"Blocked by\n: 2",
-		];
-		for (const body of bodies) {
-			const effort = writeEffort(repo, "effort", {
-				"01-a.md": `# 01 — A\n\nStatus: open\n\n${body}\n`,
-			});
-			expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
-		}
-	});
-
-	// A code block is the documented way to quote a field, and markdown makes an indented block code —
-	// which is what the author's renderer shows them too. So this is an example, not a declaration.
-	test("an indented Blocked by is a code example, like a fenced one", () => {
-		const ticket = oneTicket(tempRepo(), "01-a.md", "# 01 — A\n\nStatus: open\n\nExample:\n\n    Blocked by: 2\n");
-		expect(ticket.blockers).toEqual([]);
 	});
 
 	test("a diamond is not a cycle", () => {
@@ -727,15 +542,6 @@ describe("readEffort: malformed input fails loudly", () => {
 			"04-join.md": "# 04 — Join\n\nStatus: open\nBlocked by: 2, 3\n",
 		});
 		expect(byKey(readEffort(effort).tickets).get("4")!.blocked).toBe("blocked");
-	});
-
-	test("prose merely mentioning being blocked is not mistaken for a declaration", () => {
-		const ticket = oneTicket(
-			tempRepo(),
-			"01-a.md",
-			"# 01 — A\n\nStatus: open\n\n## Notes\n\nThis was blocked by the substrate decision for a while.\n",
-		);
-		expect(ticket.blockers).toEqual([]);
 	});
 
 	test("a ticket file numbered zero fails as a domain error, not a reference error", () => {
@@ -812,20 +618,6 @@ describe("readEffort: malformed input fails loudly", () => {
 		expect(() => readEffort(join(repo, ".scratch", "no-map"))).toThrow(MarkdownEffortError);
 	});
 
-	// The asymmetry is the point: a missed Status reads open and unclaimed, which a human sees at
-	// launch, but a missed Blocked by reads unblocked — the one state the domain forbids. So a
-	// Blocked by line is policed everywhere, while a Status line below the header stays prose.
-	test("a Blocked by line below the first section heading, which would otherwise read unblocked", () => {
-		expectRejected(
-			"# 01 — A\n\nStatus: open\n\n## Dependencies\n\nBlocked by: 1\n",
-			/Blocked by/,
-		);
-	});
-
-	test("a Blocked by line in a section quoting a past state, rather than guessing at its intent", () => {
-		expectRejected("# 01 — A\n\nStatus: resolved\n\n## Answer\n\nBlocked by: 2 originally.\n", /Blocked by/);
-	});
-
 	// An unterminated fence makes the rest of the file a code block, which is what a renderer shows.
 	// Fields inside it are examples, so they are skipped rather than read — the same rule as any other
 	// code block, rather than a special case that needed its own fence bookkeeping.
@@ -835,6 +627,42 @@ describe("readEffort: malformed input fails loudly", () => {
 		expect(ticket.blockers).toEqual([]);
 	});
 
+});
+
+// The contract, stated positively so the decision is visible rather than implied by absent tests.
+// Per ADR-0010 this adapter reads the accepted grammar and infers nothing from anything else: markdown
+// is the fixture substrate that proves the contract shape, and the trackers that matter carry blocking
+// as structured data rather than as prose. Every shape below was once refused by a heuristic, and each
+// of those heuristics also refused something legitimate.
+describe("readEffort: content outside the grammar is body", () => {
+	const outsideTheGrammar: Array<[string, string]> = [
+		["a renamed field", "Requires: 1"],
+		["another renamed field", "Waiting on: 1"],
+		["a decorated field", "- Blocked by: 1"],
+		["a blockquoted field", "> Blocked by: 1"],
+		["a table row", "| id | Blocked by: 1 |"],
+		["an html comment", "<!-- Blocked by: 1 -->"],
+		["a section heading", "## Blocked by\n\n- 1"],
+		["prose", "Depends on ticket 1 landing first."],
+	];
+
+	for (const [name, body] of outsideTheGrammar) {
+		test(`${name} is not read and does not refuse the effort`, () => {
+			const ticket = oneTicket(tempRepo(), "02-b.md", `# 02 — B\n\nStatus: open\n\n## Notes\n\n${body}\n`);
+			expect(ticket.blockers).toEqual([]);
+			expect(ticket.state).toBe("open");
+		});
+	}
+
+	test("the grammar itself is still read, and still validated", () => {
+		const repo = tempRepo();
+		const ticket = oneTicket(repo, "02-b.md", "# 02 — B\n\n**Status:** ready-for-agent\n\n**Blocked by:** #1\n");
+		expect(ticket.blockers.map((ref) => ref.key)).toEqual(["1"]);
+		expect(ticket.labels).toEqual(["ready-for-agent"]);
+
+		const bad = writeEffort(repo, "bad", { "01-a.md": "# 01 — A\n\nStatus: in-flight\n" });
+		expect(() => readEffort(bad)).toThrow(/not a recognised status/);
+	});
 });
 
 describe("readEffort: blockedness", () => {

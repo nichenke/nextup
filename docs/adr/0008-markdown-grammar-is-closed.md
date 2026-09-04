@@ -28,18 +28,17 @@ exist — the wayfinder local-markdown convention, which writes plain `Status:` 
 - Anything else in the header region is prose, which is how `to-tickets` writes `**What to build:**`.
 - Fenced code blocks are skipped, so a snippet may quote any of the above.
 
-Everything else that looks like a blocker declaration is refused, loudly, naming the file: a bulleted
-or blockquoted field, a table row, a definition list, a `## Blocked by` heading, a renamed `Blockers:`
-or `Depends on:`, one below a section heading. A `Status:` in any of those shapes is ignored rather
-than refused — a missed `Status:` reads open and unclaimed, which a human sees at the confirmation
-gate, whereas a missed `Blocked by:` reads a confident `unblocked`, the one state `CONTEXT.md` forbids
-inferring.
+**ADR-0010 supersedes what this section originally said about refusal.** It listed the out-of-grammar
+shapes that were refused loudly — a bulleted or blockquoted field, a table row, a `## Blocked by`
+heading, a renamed `Blockers:` — and the asymmetry that a stray `Status:` was ignored while a stray
+`Blocked by:` was refused. None of that survives: out-of-grammar content is body text and is not
+inspected at all. Deciding which of them to refuse required guessing what an author meant, which is the
+one thing with no specification behind it, and six heuristics later it was still failing in both
+directions. ADR-0009 moves the same decision about *where* a code block or a section begins out of this
+file too — the boundary is whatever a CommonMark lexer says it is.
 
-ADR-0009 supersedes one line of this: a field in an **indented** block is an example rather than a
-refused declaration, because markdown reads an indented block as code and that is what the author's
-renderer shows them. It also moves the decision about where a code block or a section begins out of
-this file entirely — the boundary is whatever a CommonMark lexer says it is, which is what stopped
-that boundary being enumerated one review round at a time.
+Validation of the grammar itself is unaffected and still fails loudly: an unrecognised `Status:` value,
+a present-but-empty `Blocked by:`, a non-numeric blocker token, a duplicated field, a missing title.
 
 ## Consequences
 
