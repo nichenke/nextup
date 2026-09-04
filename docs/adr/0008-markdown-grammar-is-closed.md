@@ -23,13 +23,10 @@ exist — the wayfinder local-markdown convention, which writes plain `Status:` 
   `Status:`, `Blocked by:`. A whole field line must be plain or bold — `Status: x` and `**Status:** x`,
   which is what the two producers write. Any other inline form makes the line prose, name or value:
   `_Status_: x`, `` `Status`: x ``, `Status\: x`, `[Status](destination): x` and `Type: *decision*` are
-  none of them fields. What a field also may not be is a list item, a quote, a table cell or code, and
-  those are block positions the lexer decides.
-
-  An earlier version of this line said inline emphasis did not matter, because the grammar read a line's
-  fully rendered text. ADR-0010's rule closed that: flattening accepted shapes no producer writes, and a
-  link was the sharp case — `[Status](destination): resolved` became authoritative metadata off its link
-  text alone.
+  none of them fields. A link is the case that makes this worth stating rather than assuming, since
+  reading a line's fully rendered text turned `[Status](destination): resolved` into authoritative
+  metadata off its link text alone. What a field also may not be is a list item, a quote, a table cell or
+  code, and those are block positions the lexer decides.
 - `Blocked by:` as bare comma-separated ticket numbers, or `None` with optional dash commentary.
 - Anything else in the header region is prose, which is how `to-tickets` writes `**What to build:**`.
 - Fenced code blocks are skipped, so a snippet may quote any of the above.

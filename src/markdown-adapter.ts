@@ -121,21 +121,19 @@ interface StatusReading {
 /**
  * What makes a directory an effort, defined once: `discoverEfforts` skips anything this rejects and
  * `readEffort` refuses it, so the two cannot come to disagree about what they are looking at.
- */
-/**
- * What makes a directory an effort. The entry types matter, not just existence: a `map.md` that is a
- * directory passed an existence check and then read as a valid effort holding no tickets, which a
- * caller cannot tell apart from a real effort with nothing takeable.
+ *
+ * The entry types matter, not just existence: a `map.md` that is a directory passed an existence check
+ * and then read as a valid effort holding no tickets, which a caller cannot tell apart from a real
+ * effort with nothing takeable.
  */
 function isEffortRoot(root: string): boolean {
 	return entryIs(join(root, MAP_FILE), "file") && entryIs(join(root, ISSUES_DIR), "directory");
 }
 
 /**
- * Whether an entry exists and is of that kind. Any failure to find out answers "no", which is the whole
- * errno class rather than the one instance: asking about `<file>/map.md` raises ENOTDIR, a symlink loop
- * raises ELOOP, an unreadable candidate raises EACCES, and converting any of them to a domain error let
- * one junk entry in `.scratch` abort discovery for every effort.
+ * Whether an entry exists and is of that kind. Any failure to find out answers "no" — the whole errno
+ * class that `onFilesystem` below enumerates, rather than the one instance of it that a junk entry in
+ * `.scratch` happened to raise while aborting discovery for every effort.
  *
  * Deliberately more forgiving than `isReadableFile`, which is inside an effort we have already committed
  * to reading and where an unreadable ticket file is a real failure. Here the question is only whether a
@@ -433,9 +431,7 @@ function blockLines(token: Token): BlockLine[] {
 
 /**
  * Walks inline tokens onto lines, marking a line impure the moment a form other than plain text or bold
- * touches it. That is the whole of the field grammar's inline half: `**Status:** x` and `Status: x` are
- * fields, while `_Status_: x`, `` `Status`: x ``, `Status\: x` and `[Status](destination): x` are not —
- * the last being the sharp case, since flattening once made a link's text into authoritative metadata.
+ * touches it. That is the field grammar's inline half, which ADR-0008 states.
  *
  * Bold is whatever the lexer calls `strong`, which is wider than the `**Status:**` the producers write —
  * `__Status__:` is accepted too. Narrowing that would mean inspecting marker characters, the enumeration
@@ -461,8 +457,8 @@ function appendInline(tokens: readonly Token[], lines: Array<{ text: string; pla
 			for (const part of parts.slice(1)) lines.push({ text: part, plain: true });
 			continue;
 		}
-		// Some other inline form. Its rendered text still belongs to the line — a value may legitimately
-		// contain one — but every line it touches stops being a candidate field.
+		// The rendered text still belongs to the line — a value may legitimately contain one — but every
+		// line this form touches stops being a candidate field.
 		const rendered = nested !== undefined && nested.length > 0 ? renderedText(nested) : renderedText([token]);
 		const parts = rendered.split("\n");
 		last().text += parts[0] ?? "";
