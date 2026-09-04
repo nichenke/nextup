@@ -20,10 +20,16 @@ exist — the wayfinder local-markdown convention, which writes plain `Status:` 
 - A ticket file at `issues/<NN>-<slug>.md`.
 - One H1 title, optionally prefixed `<NN> —`.
 - Field lines in the header region, in a paragraph rather than a list, quote or code block: `Type:`,
-  `Status:`, `Blocked by:`. Inline emphasis does not matter, because ADR-0009 reads a line's *rendered*
-  text — `**Status:** x`, `_Status_: x` and `Status: x` are one line by the time the grammar sees them.
-  That is narrower than it sounds: what a field may not be is a list item, a quote, a table cell or
-  code, and those are block positions the lexer decides.
+  `Status:`, `Blocked by:`. A whole field line must be plain or bold — `Status: x` and `**Status:** x`,
+  which is what the two producers write. Any other inline form makes the line prose, name or value:
+  `_Status_: x`, `` `Status`: x ``, `Status\: x`, `[Status](destination): x` and `Type: *decision*` are
+  none of them fields. What a field also may not be is a list item, a quote, a table cell or code, and
+  those are block positions the lexer decides.
+
+  An earlier version of this line said inline emphasis did not matter, because the grammar read a line's
+  fully rendered text. ADR-0010's rule closed that: flattening accepted shapes no producer writes, and a
+  link was the sharp case — `[Status](destination): resolved` became authoritative metadata off its link
+  text alone.
 - `Blocked by:` as bare comma-separated ticket numbers, or `None` with optional dash commentary.
 - Anything else in the header region is prose, which is how `to-tickets` writes `**What to build:**`.
 - Fenced code blocks are skipped, so a snippet may quote any of the above.

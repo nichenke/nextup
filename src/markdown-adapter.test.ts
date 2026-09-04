@@ -74,12 +74,12 @@ describe("discoverEfforts", () => {
 		expect(discoverEfforts(repo)).toEqual([]);
 	});
 
-	// A non-directory in `.scratch` made `statSync("<file>/map.md")` throw ENOTDIR, which the filesystem
-	// wrapper turned into a domain error — so one stray file aborted discovery for every effort.
-	test("a stray file in the scratch directory does not abort discovery", () => {
+	// One junk entry used to abort discovery for every effort; see `entryIs` for which errnos and why.
+	test("junk beside the efforts does not abort discovery, whatever the entry is", () => {
 		const repo = tempRepo();
 		const effort = writeEffort(repo, "real", { "01-a.md": "# 01 — A\n\nStatus: open\n" });
 		writeFileSync(join(repo, ".scratch", "README.md"), "notes about these efforts\n");
+		symlinkSync(join(repo, ".scratch", "loop"), join(repo, ".scratch", "loop"));
 		expect(discoverEfforts(repo)).toEqual([effort]);
 	});
 
@@ -505,11 +505,8 @@ describe("readEffort: content outside the grammar is body", () => {
 	// metadata. Per ADR-0010 a shape no producer emits should not be accepted, not just untested.
 	test("a field wearing an inline form no producer emits is not a field", () => {
 		const repo = tempRepo();
-		const notFields = ["_Status_: resolved", "*Status*: resolved", "`Status`: resolved"];
-		for (const line of notFields) {
-			const ticket = oneTicket(repo, "01-a.md", `# 01 — A\n\n${line}\n`);
-			expect(ticket.state).toBe("open");
-		}
+		const ticket = oneTicket(repo, "01-a.md", "# 01 — A\n\n_Status_: resolved\n");
+		expect(ticket.state).toBe("open");
 	});
 
 	test("a link whose text ends in a field name is not a field", () => {
@@ -518,6 +515,33 @@ describe("readEffort: content outside the grammar is body", () => {
 			"01-a.md",
 			"# 01 — A\n\n[Status](https://example.com/issues/1): resolved\n",
 		);
+		expect(ticket.state).toBe("open");
+	});
+
+	// An escaped colon is not a producer form either, and it reassembled into a field while the sibling
+	// forms beside it were refused — the one entry in the unwrap list with no case at its edge.
+	test("an escaped colon does not reassemble into a field", () => {
+		const repo = tempRepo();
+		expect(oneTicket(repo, "01-a.md", "# 01 — A\n\nStatus\\: resolved\n").state).toBe("open");
+		expect(oneTicket(repo, "01-a.md", "# 01 — A\n\nStatus: open\nBlocked by\\: 1\n").blockers).toEqual([]);
+	});
+
+	// A whole field line has to be plain or bold, value included — `Type: *decision*` is not a shape a
+	// producer writes, so it is prose rather than a field with the markers cleaned off it. Reading it
+	// stored the raw markers on `Type`, the one field with no validation to notice, and cleaning them
+	// instead would have been accepting a shape the rule excludes.
+	test("a field whose value wears markup is not a field", () => {
+		const repo = tempRepo();
+		expect(oneTicket(repo, "01-a.md", "# 01 — A\n\nStatus: open\nType: *decision*\n").type).toBeNull();
+		expect(oneTicket(repo, "01-a.md", "# 01 — A\n\nStatus: open\nType: decision\n").type).toBe("decision");
+	});
+
+	// Emphasis spanning a hard break put a closing marker on the next line, so ordinary prose matched the
+	// grammar with a garbage value and refused the whole effort — an effort lost over a sentence, which is
+	// the failure ADR-0010 exists to stop.
+	test("emphasis spanning a hard break does not refuse the effort", () => {
+		const repo = tempRepo();
+		const ticket = oneTicket(repo, "01-a.md", "# 01 — A\n\nStatus: open\n\n_see also  \nStatus: resolved_\n");
 		expect(ticket.state).toBe("open");
 	});
 

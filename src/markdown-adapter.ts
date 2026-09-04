@@ -122,22 +122,33 @@ interface StatusReading {
  * What makes a directory an effort, defined once: `discoverEfforts` skips anything this rejects and
  * `readEffort` refuses it, so the two cannot come to disagree about what they are looking at.
  */
+/**
+ * What makes a directory an effort. The entry types matter, not just existence: a `map.md` that is a
+ * directory passed an existence check and then read as a valid effort holding no tickets, which a
+ * caller cannot tell apart from a real effort with nothing takeable.
+ */
 function isEffortRoot(root: string): boolean {
-	// The candidate has to be a directory before anything is looked for inside it. Asking about
-	// `<file>/map.md` throws ENOTDIR rather than reporting absence, and the filesystem wrapper turns
-	// that into a domain error — so one stray file in `.scratch` aborted discovery for every effort.
-	//
-	// The entry types matter beyond that, not just existence: a `map.md` that is a directory passed an
-	// existence check and then read as a valid effort holding no tickets, which a caller cannot tell
-	// apart from a real effort with nothing takeable.
-	if (!entryIs(root, "directory")) return false;
 	return entryIs(join(root, MAP_FILE), "file") && entryIs(join(root, ISSUES_DIR), "directory");
 }
 
+/**
+ * Whether an entry exists and is of that kind. Any failure to find out answers "no", which is the whole
+ * errno class rather than the one instance: asking about `<file>/map.md` raises ENOTDIR, a symlink loop
+ * raises ELOOP, an unreadable candidate raises EACCES, and converting any of them to a domain error let
+ * one junk entry in `.scratch` abort discovery for every effort.
+ *
+ * Deliberately more forgiving than `isReadableFile`, which is inside an effort we have already committed
+ * to reading and where an unreadable ticket file is a real failure. Here the question is only whether a
+ * candidate is an effort at all, and "cannot tell" and "no" have the same consequence.
+ */
 function entryIs(path: string, kind: "file" | "directory"): boolean {
-	const entry = onFilesystem(path, "inspected", () => statSync(path, { throwIfNoEntry: false }));
-	if (entry === undefined) return false;
-	return kind === "file" ? entry.isFile() : entry.isDirectory();
+	try {
+		const entry = statSync(path, { throwIfNoEntry: false });
+		if (entry === undefined) return false;
+		return kind === "file" ? entry.isFile() : entry.isDirectory();
+	} catch {
+		return false;
+	}
 }
 
 /** Effort directories under `<repoRoot>/.scratch`. */
@@ -372,12 +383,13 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 	return { title, fields };
 }
 
-function addFields(lines: readonly string[], fields: Map<string, string>, path: string): void {
+function addFields(lines: readonly BlockLine[], fields: Map<string, string>, path: string): void {
 	// A paragraph holds every field written on consecutive lines, since a soft break does not start a
 	// new block — which is exactly how the wayfinder convention writes Type, Status and Blocked by. A
 	// line that is not a field is prose, and is left alone.
-	for (const raw of lines) {
-		const field = FIELD_LINE.exec(raw.trim());
+	for (const line of lines) {
+		if (!line.plain) continue;
+		const field = FIELD_LINE.exec(line.text.trim());
 		if (field?.[1] === undefined) continue;
 		const key = field[1].toLowerCase();
 		if (fields.has(key)) {
@@ -394,42 +406,76 @@ function addFields(lines: readonly string[], fields: Map<string, string>, path: 
 	}
 }
 
-/** A block's own lines, with line breaks kept so a run of fields stays separable. */
-function blockLines(token: Token): string[] {
-	const inline = (token as { tokens?: Token[] }).tokens;
-	if (inline !== undefined && inline.length > 0) return fieldText(inline).split("\n");
-	if ("text" in token && typeof token.text === "string") return token.text.split("\n");
-	return [];
-}
-
 /**
- * A line as the field grammar sees it: plain text and bold unwrapped, every other inline form left as
- * the source wrote it. Only those two are what the producers emit, so an emphasis, a code span or a
- * link keeps its markers and fails `FIELD_LINE` rather than flattening into a field.
+ * One line of a block: its text, and whether every inline token that contributed to it was one a field
+ * may be written with — plain text or bold. A line only some other inline form touched is prose.
  *
- * Flattening everything was accepting shapes no producer writes, which ADR-0010's rule rules out — and
- * a link was the sharp case, since `[Status](destination): resolved` would otherwise have become
- * authoritative metadata off the back of its link text.
+ * Tracked per line rather than reconstructed from source, because an inline span can cross a line break:
+ * an emphasis opened on one line and closed on the next put a stray marker on the second, which then
+ * matched the grammar with a garbage value and refused the whole effort. Whether a token spans a break is
+ * something only the walk knows, and nothing a rendered string retains.
  */
-function fieldText(tokens: readonly Token[]): string {
-	return tokens
-		.map((token) => {
-			if (token.type === "br") return "\n";
-			if (token.type !== "text" && token.type !== "strong" && token.type !== "escape") {
-				return "raw" in token && typeof token.raw === "string" ? token.raw : "";
-			}
-			const nested = (token as { tokens?: Token[] }).tokens;
-			if (nested !== undefined && nested.length > 0) return fieldText(nested);
-			return "text" in token && typeof token.text === "string" ? token.text : "";
-		})
-		.join("");
+interface BlockLine {
+	readonly text: string;
+	readonly plain: boolean;
+}
+
+function blockLines(token: Token): BlockLine[] {
+	const inline = (token as { tokens?: Token[] }).tokens;
+	if (inline === undefined || inline.length === 0) {
+		const raw = "text" in token && typeof token.text === "string" ? token.text.split("\n") : [];
+		return raw.map((line) => ({ text: line, plain: true }));
+	}
+	const lines: Array<{ text: string; plain: boolean }> = [{ text: "", plain: true }];
+	appendInline(inline, lines);
+	return lines;
 }
 
 /**
- * Inline tokens flattened to the text a reader sees. The lexer has already removed the emphasis, code
- * spans and link syntax, which is the point: stripping `**` by hand left `_Blocked by_: 2` matching
- * neither the field grammar nor the refusal, so it was silently dropped — the same mistake as
- * hand-written block detection, one level down.
+ * Walks inline tokens onto lines, marking a line impure the moment a form other than plain text or bold
+ * touches it. That is the whole of the field grammar's inline half: `**Status:** x` and `Status: x` are
+ * fields, while `_Status_: x`, `` `Status`: x ``, `Status\: x` and `[Status](destination): x` are not —
+ * the last being the sharp case, since flattening once made a link's text into authoritative metadata.
+ *
+ * Bold is whatever the lexer calls `strong`, which is wider than the `**Status:**` the producers write —
+ * `__Status__:` is accepted too. Narrowing that would mean inspecting marker characters, the enumeration
+ * ADR-0009 moved to the lexer to escape, so the rule is stated as what the code does rather than as
+ * something stricter.
+ */
+function appendInline(tokens: readonly Token[], lines: Array<{ text: string; plain: boolean }>): void {
+	const last = (): { text: string; plain: boolean } => lines[lines.length - 1]!;
+	for (const token of tokens) {
+		if (token.type === "br") {
+			lines.push({ text: "", plain: true });
+			continue;
+		}
+		const nested = (token as { tokens?: Token[] }).tokens;
+		if (token.type === "text" || token.type === "strong") {
+			if (nested !== undefined && nested.length > 0) {
+				appendInline(nested, lines);
+				continue;
+			}
+			const text = "text" in token && typeof token.text === "string" ? token.text : "";
+			const parts = text.split("\n");
+			last().text += parts[0] ?? "";
+			for (const part of parts.slice(1)) lines.push({ text: part, plain: true });
+			continue;
+		}
+		// Some other inline form. Its rendered text still belongs to the line — a value may legitimately
+		// contain one — but every line it touches stops being a candidate field.
+		const rendered = nested !== undefined && nested.length > 0 ? renderedText(nested) : renderedText([token]);
+		const parts = rendered.split("\n");
+		last().text += parts[0] ?? "";
+		last().plain = false;
+		for (const part of parts.slice(1)) lines.push({ text: part, plain: false });
+	}
+}
+
+/**
+ * Inline tokens flattened to the text a reader sees, with emphasis, code spans and link syntax removed
+ * by the lexer. Used for a ticket's title, which is descriptive, and for the text a non-plain inline form
+ * contributes to a line — never to decide whether a line is a field. That decision is `appendInline`'s,
+ * and it turns on which forms touched the line rather than on what they rendered to.
  */
 function renderedText(tokens: readonly Token[]): string {
 	return tokens
