@@ -381,15 +381,17 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 		const token = tokens[index]!;
 		if (token.type === "space") continue;
 		if (token.type === "heading") {
-			// The first heading is the title; any heading after it ends the header region, whatever its
-			// depth. Depth cannot be the test: a setext `===` underline makes a level-one heading, so
-			// refusing a second H1 as a duplicate title refused an ordinary underlined section instead.
-			if (title !== null) break;
-			title = (token as Tokens.Heading).text;
+			// The first heading is the title, and any heading after it ends the header region whatever its
+			// depth — depth cannot be that test, because a setext `===` underline makes a level-one
+			// heading, so refusing a second H1 as a duplicate refused an ordinary underlined section. The
+			// title itself must still be level one: accepting a leading `## Notes` as a title read that
+			// section's own body as this ticket's metadata.
+			if (title !== null || (token as Tokens.Heading).depth > 1) break;
+			title = renderedText((token as Tokens.Heading).tokens);
 			continue;
 		}
 		if (token.type === "paragraph") {
-			addFields((token as Tokens.Paragraph).text, fields, path);
+			addFields(blockLines(token), fields, path);
 			continue;
 		}
 		// A code block does not end the header region: `to-tickets` inlines a snippet where one encodes
@@ -402,10 +404,10 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 	return { title, fields };
 }
 
-function addFields(paragraph: string, fields: Map<string, string>, path: string): void {
+function addFields(lines: readonly string[], fields: Map<string, string>, path: string): void {
 	// A paragraph holds every field written on consecutive lines, since a soft break does not start a
 	// new block — which is exactly how the wayfinder convention writes Type, Status and Blocked by.
-	for (const raw of paragraph.replace(/\*\*/g, "").split("\n")) {
+	for (const raw of lines) {
 		const field = FIELD_LINE.exec(raw.trim());
 		if (field?.[1] === undefined) {
 			if (declaresBlockers(raw.trim())) throw strayDeclaration(path, raw.trim());
@@ -442,13 +444,15 @@ function requireNoStrayDeclaration(tokens: readonly Token[], path: string): void
 			// prose section: `## Blocked by` above `- 2` is a declaration, `## Dependencies` above a
 			// paragraph is a section.
 			const heading = token as Tokens.Heading;
-			if (!BLOCKER_NAME.test(heading.text)) continue;
+			// Rendered, not raw, so an emphasised `_Blocked by_` heading is seen like a plain one.
+			const headingText = renderedText(heading.tokens);
+			if (!BLOCKER_NAME.test(headingText)) continue;
 			// A heading that is nothing but the name is a section, so `declaresBlockers`' bare-name clause
 			// cannot apply here — being nothing but a name is what a heading is.
-			const rest = heading.text.replace(BLOCKER_NAME, "").replace(/^\s*:/, "");
+			const rest = headingText.replace(BLOCKER_NAME, "").replace(/^\s*:/, "");
 			const numbersInHeading = rest.trim() !== "" && BARE_NUMBERS.test(rest);
 			if (numbersInHeading || followedByTicketNumbers(tokens, index)) {
-				throw strayDeclaration(path, heading.text);
+				throw strayDeclaration(path, headingText);
 			}
 			continue;
 		}
@@ -478,17 +482,25 @@ function followedByTicketNumbers(tokens: readonly Token[], index: number): boole
 function blockText(token: Token): string[] {
 	const lines: string[] = [];
 	if (token.type === "code") return lines;
-	// Nested blocks are walked rather than read as text, because a list item's own `text` keeps the
-	// inner markdown: `1. - Blocked by: 2` arrives as `- Blocked by: 2` there, marker still attached,
-	// while its parsed `tokens` hold the inner list with the marker already gone. Recursing is what
-	// makes this independent of how many markers deep a declaration is buried.
-	const nested = collectNested(token);
-	if (nested.length > 0) {
-		for (const inner of nested) lines.push(...blockText(inner));
-	} else if ("text" in token && typeof token.text === "string") {
-		lines.push(...token.text.split("\n"));
+
+	if (token.type === "table") {
+		// A table keeps its content in `header` and `rows`, not in `text`, so falling through to the text
+		// branch discarded a `Blocked by:` row entirely and the ticket read unblocked.
+		const table = token as Tokens.Table;
+		for (const cell of [...table.header, ...table.rows.flat()]) lines.push(renderedText(cell.tokens));
+	} else {
+		// Nested blocks are walked rather than read as text, because a list item's own `text` keeps the
+		// inner markdown: `1. - Blocked by: 2` arrives as `- Blocked by: 2` there, marker still attached,
+		// while its parsed `tokens` hold the inner list with the marker already gone. Recursing is what
+		// makes this independent of how many markers deep a declaration is buried.
+		const nested = collectNested(token);
+		if (nested.length > 0) {
+			for (const inner of nested) lines.push(...blockText(inner));
+		} else {
+			lines.push(...blockLines(token));
+		}
 	}
-	return lines.map((line) => line.replace(/\*\*/g, "").trim()).filter((line) => line !== "");
+	return lines.map((line) => line.trim()).filter((line) => line !== "");
 }
 
 function collectNested(token: Token): Token[] {
@@ -497,6 +509,30 @@ function collectNested(token: Token): Token[] {
 	}
 	if (token.type === "blockquote") return (token as Tokens.Blockquote).tokens;
 	return [];
+}
+
+/** A block's own lines as rendered text, with soft line breaks kept so a run of fields stays separable. */
+function blockLines(token: Token): string[] {
+	const inline = (token as { tokens?: Token[] }).tokens;
+	if (inline !== undefined && inline.length > 0) return renderedText(inline).split("\n");
+	if ("text" in token && typeof token.text === "string") return token.text.split("\n");
+	return [];
+}
+
+/**
+ * Inline tokens flattened to the text a reader sees. The lexer has already removed the emphasis, code
+ * spans and link syntax, which is the point: stripping `**` by hand left `_Blocked by_: 2` matching
+ * neither the field grammar nor the refusal, so it was silently dropped — the same mistake as
+ * hand-written block detection, one level down.
+ */
+function renderedText(tokens: readonly Token[]): string {
+	return tokens
+		.map((token) => {
+			const nested = (token as { tokens?: Token[] }).tokens;
+			if (nested !== undefined && nested.length > 0) return renderedText(nested);
+			return "text" in token && typeof token.text === "string" ? token.text : "";
+		})
+		.join("");
 }
 
 function readStatus(value: string | undefined, path: string): StatusReading {

@@ -235,6 +235,41 @@ describe("readEffort: the observed plain-field format", () => {
 });
 
 describe("readEffort: the bold-field format the to-tickets skill emits", () => {
+	// The lexer hands back inline text with every decoration already removed, so the grammar is about
+	// rendered text rather than about which markers were used. Stripping `**` by hand instead left
+	// `_Blocked by_: 2` matching nothing, so it was neither read nor refused.
+	test("a field wearing any inline emphasis is read from its rendered text", () => {
+		const repo = tempRepo();
+		for (const field of ["_Blocked by_: 1", "__Blocked by__: 1", "*Blocked by*: 1", "**Blocked by:** 1"]) {
+			const ticket = oneTicket(repo, "02-b.md", `# 02 — B\n\nStatus: open\n\n${field}\n`);
+			expect(ticket.blockers.map((ref) => ref.key)).toEqual(["1"]);
+		}
+	});
+
+	test("an emphasised blocker declaration outside the header is refused, not dropped", () => {
+		const effort = writeEffort(tempRepo(), "effort", {
+			"01-a.md": "# 01 — A\n\nStatus: open\n\n## Notes\n\n- _Blocked by_: 2\n",
+		});
+		expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
+	});
+
+	test("a blocker declared in a table row is refused, not discarded with the table", () => {
+		const effort = writeEffort(tempRepo(), "effort", {
+			"01-a.md": "# 01 — A\n\nStatus: open\n\n| field | value |\n| --- | --- |\n| Blocked by: | 2 |\n",
+		});
+		expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
+	});
+
+	test("a file whose first heading is a section, not a title, is refused", () => {
+		const repo = tempRepo();
+		for (const first of ["## Notes", "### Question"]) {
+			const effort = writeEffort(repo, "effort", {
+				"01-a.md": `${first}\n\nStatus: claimed\nBlocked by: 2\n`,
+			});
+			expect(() => readEffort(effort)).toThrow(/title/);
+		}
+	});
+
 	test("parses bold fields, with the colon inside or outside the bold markers", () => {
 		const ticket = oneTicket(
 			tempRepo(),
