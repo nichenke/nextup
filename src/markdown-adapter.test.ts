@@ -238,6 +238,27 @@ describe("readEffort: the bold-field format the to-tickets skill emits", () => {
 	// The lexer hands back inline text with every decoration already removed, so the grammar is about
 	// rendered text rather than about which markers were used. Stripping `**` by hand instead left
 	// `_Blocked by_: 2` matching nothing, so it was neither read nor refused.
+	// Two trailing spaces are a hard line break, which the lexer reports as its own inline token. Losing
+	// it joined two field lines into one, so a real blocker disappeared into the value above it — and
+	// the source looks identical to the soft-break form, because trailing whitespace is invisible.
+	test("a hard line break separates fields, like a soft one", () => {
+		const ticket = oneTicket(
+			tempRepo(),
+			"02-b.md",
+			"# 02 — B\n\nStatus: open  \nType: grilling  \nBlocked by: 1\n",
+		);
+		expect(ticket.state).toBe("open");
+		expect(ticket.type).toBe("grilling");
+		expect(ticket.blockers.map((ref) => ref.key)).toEqual(["1"]);
+	});
+
+	test("a hard line break does not hide a stray declaration from the refusal", () => {
+		const effort = writeEffort(tempRepo(), "effort", {
+			"01-a.md": "# 01 — A\n\nStatus: open\n\n## Notes\n\ntext  \nBlocked by: 2\n",
+		});
+		expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
+	});
+
 	test("a field wearing any inline emphasis is read from its rendered text", () => {
 		const repo = tempRepo();
 		for (const field of ["_Blocked by_: 1", "__Blocked by__: 1", "*Blocked by*: 1", "**Blocked by:** 1"]) {

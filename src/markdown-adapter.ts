@@ -538,6 +538,10 @@ function blockLines(token: Token): string[] {
 function renderedText(tokens: readonly Token[]): string {
 	return tokens
 		.map((token) => {
+			// A hard break is a line break with no text of its own, so rendering it as nothing joined two
+			// field lines into one — and a real blocker vanished into the value above it, invisibly, since
+			// the two trailing spaces that make a hard break cannot be seen in the source.
+			if (token.type === "br") return "\n";
 			const nested = (token as { tokens?: Token[] }).tokens;
 			if (nested !== undefined && nested.length > 0) return renderedText(nested);
 			return "text" in token && typeof token.text === "string" ? token.text : "";
