@@ -116,11 +116,18 @@ function resolveJiraShort(body: string): TicketRef {
 	return { tracker: "jira", repo: null, host: null, key: body };
 }
 
+// Both spellings occur, so they have to converge on one key: the local-markdown convention writes
+// the padded form in the filename ("07-slug.md") and in `Blocked by: NN, NN` alike, while a
+// hand-typed reference is bare. Stripping here means no comparison downstream has to remember.
 function resolveMarkdownShort(body: string): TicketRef {
 	if (!MARKDOWN_KEY.test(body)) {
 		throw new TicketRefError(`md:${body} is not a valid ticket number`);
 	}
-	return { tracker: "markdown", repo: null, host: null, key: body };
+	const key = body.replace(/^0+/, "");
+	if (key === "") {
+		throw new TicketRefError(`md:${body} is not a valid ticket number (efforts number from 1)`);
+	}
+	return { tracker: "markdown", repo: null, host: null, key };
 }
 
 function resolveUrl(url: string, runner: Runner): TicketRef {

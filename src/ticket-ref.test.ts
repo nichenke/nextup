@@ -91,6 +91,16 @@ describe("resolveTicketRef: short forms", () => {
 		expect(() => resolveTicketRef("md:not-a-number")).toThrow(TicketRefError);
 	});
 
+	test("md: short form normalizes a zero-padded number to the same key as its bare form", () => {
+		expect(resolveTicketRef("md:07").key).toBe("7");
+		expect(resolveTicketRef("md:7").key).toBe("7");
+	});
+
+	test("md: short form rejects a ticket number of zero, which no effort numbers from", () => {
+		expect(() => resolveTicketRef("md:0")).toThrow(TicketRefError);
+		expect(() => resolveTicketRef("md:00")).toThrow(TicketRefError);
+	});
+
 	test("an unrecognised reference fails loudly rather than guessing", () => {
 		expect(() => resolveTicketRef("bitbucket:1")).toThrow(TicketRefError);
 	});
