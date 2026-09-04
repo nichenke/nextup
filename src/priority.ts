@@ -1,6 +1,7 @@
 /**
  * The priority rung's signal, read from labels. A lower `rank` is more urgent, matching how the
- * `P0`/`P1` spelling already reads; `null` is no signal at all, which the ladder skips. `unread` holds
+ * `P0`/`P1` spelling already reads; `null` is no signal at all, which sorts after every candidate that
+ * carries one and skips the rung only when neither does — see ADR-0011. `unread` holds
  * the priority-shaped labels this reading could not order, deduplicated, folded to lower case, and
  * sorted. ADR-0011 says why those are reported rather than ranked.
  */
@@ -37,13 +38,13 @@ export function readPriority(labels: readonly string[]): PriorityReading {
 /**
  * The digit run as a number, or `null` where `Number` cannot hold it exactly. Nothing bounds how many
  * digits a label carries, and past 2^53 the conversion is lossy in a way that ranks silently wrong:
- * `P9007199254740993` and `P9007199254740992` both become the same value, and a few hundred digits
- * become `Infinity`, so two distinct priorities compare equal and the rung hands the decision on.
+ * `P9007199254740993` and `P9007199254740992` both become 9007199254740992, so two distinct priorities
+ * compare equal and the rung hands the decision to the next one.
  *
- * The round trip is the test rather than `Number.isSafeInteger`, which the first of those pairs passes
- * — it lands exactly on a representable integer, just not its own.
+ * Safe for a digit run specifically, which is all `NUMBERED` captures: a value at or below 2^53-1 is
+ * exact, and anything above it rounds to at least 2^53 and fails the check.
  */
 function exactly(digits: string): number | null {
 	const value = Number(digits);
-	return String(value) === digits.replace(/^0+(?=\d)/, "") ? value : null;
+	return Number.isSafeInteger(value) ? value : null;
 }

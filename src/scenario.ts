@@ -8,8 +8,7 @@ import { type TicketRef, resolveTicketRef } from "./ticket-ref";
 export class ScenarioError extends Error {}
 
 /**
- * One golden-file scenario: a ticket set and the filter applied to it, as written on disk. Data rather
- * than a test body, so that a reader can check what the answer should be without reading TypeScript.
+ * One golden-file scenario: a ticket set and the filter applied to it, as written on disk.
  */
 export interface Scenario {
 	readonly description: string;

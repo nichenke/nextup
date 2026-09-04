@@ -1,5 +1,5 @@
 {
-	"description": "A tracker carrying native blocking edges but no priority field — GitHub's blocked-by, GitLab's blocking issues, or a Jira \"is blocked by\" link on a project with Priority left at its default. The first rung is silent, so the ticket two others are waiting on wins, and the critical path falls out of the edges rather than out of a chain diagram.",
+	"description": "A tracker carrying native blocking edges but no priority field — GitHub's blocked-by, GitLab's blocking issues, or a Jira \"is blocked by\" link on a project with Priority left at its default. The first rung is silent, so the ticket that two others directly wait on wins.",
 	"truncated": false,
 	"filter": { "include": [], "exclude": ["wayfinder:*"] },
 	"tickets": [

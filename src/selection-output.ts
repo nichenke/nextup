@@ -11,8 +11,8 @@ export const DEGRADED_PREFIX = "degraded: ";
 
 /**
  * The JSON forms are their source types with only the fields that change shape restated. Spelling them
- * out in full let a field added to `Candidate` or `Selection` reach neither the type nor the output,
- * silently: `--json` would simply not carry it, and nothing would fail.
+ * out in full would let a field added to `Candidate` or `Selection` reach neither the type nor the
+ * output: `--json` would simply not carry it, and nothing would fail.
  */
 export type CandidateJson = Omit<Candidate, "ref"> & { readonly ref: string };
 
@@ -76,21 +76,25 @@ export function renderSelection(selection: Selection): string {
 }
 
 /**
- * A lone candidate is only lone within the partition that was consulted. Saying "the only candidate"
- * while the counts below report two more contradicts them, and those two are held back rather than
- * absent — the confirmed set won outright, so the unknown set was never ranked or shown.
+ * A lone candidate is only lone among the ones the ladder ranked. Saying "the only candidate" while the
+ * counts two lines below report more of them contradicts those counts, and the rest are held back
+ * rather than absent — blocked, or in the partition that was never consulted.
  */
 function renderDecision(selection: Selection): string {
 	const decision = selection.decision;
 	if (decision !== null && decision.kind === "rung") {
 		return `won on ${decision.rung} over ${formatTicketRef(decision.over)}`;
 	}
-	return heldBackCount(selection) === 0 ? "the only candidate" : "the only candidate with confirmed blocking";
+	return heldBackCount(selection) === 0 ? "the only candidate" : "the only candidate the ladder ranked";
 }
 
-/** Candidates in the partition that was not consulted, which the ranking never saw. */
+/**
+ * Candidates the ranking never saw. Every candidate not in `ranked` counts, whatever held it back:
+ * counting only the unconsulted partition left a lone pick claiming to be the only candidate while the
+ * counts line reported the blocked ones alongside it.
+ */
 function heldBackCount(selection: Selection): number {
-	return selection.consulted === "confirmed" ? selection.counts.unknown : 0;
+	return selection.counts.candidates - selection.ranked.length;
 }
 
 function renderSignals(candidate: Candidate): string {
@@ -115,7 +119,7 @@ function renderCounts(counts: SelectionCounts): string {
 		`${counts.closed} closed`,
 		`${counts.claimed} claimed`,
 		`${counts.filtered} filtered out`,
-		`${counts.candidates} candidates (${counts.confirmed} unblocked, ${counts.unknown} unknown, ${counts.blocked} blocked)`,
+		`${counts.candidates} candidates (${counts.unblocked} unblocked, ${counts.unknown} unknown, ${counts.blocked} blocked)`,
 	];
 	return `${counts.tickets} tickets: ${aside.join(", ")}`;
 }

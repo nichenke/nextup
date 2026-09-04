@@ -12,7 +12,7 @@ interface Spec {
 	readonly claim?: Claim | null;
 	readonly blockers?: readonly string[] | "unknown";
 	readonly labels?: readonly string[];
-	/** Openness as a *blocker*, where a closed ticket did not meet what depended on it. */
+	/** Openness as a *blocker*; see `GraphSeed.open` for why that differs from `state`. */
 	readonly openness?: boolean | "unknown";
 }
 
@@ -62,7 +62,7 @@ describe("the candidate set", () => {
 		const selection = select(inputOf([{ key: "1" }]));
 		expect(formatTicketRef(selection.pick!.ref)).toBe("md:1");
 		expect(selection.decision).toEqual({ kind: "only-candidate" });
-		expect(selection.consulted).toBe("confirmed");
+		expect(selection.consulted).toBe("unblocked");
 	});
 
 	test("never recommends a closed ticket", () => {
@@ -170,7 +170,7 @@ describe("the confirmed and unknown partition", () => {
 			inputOf([{ key: "1", labels: ["P0"], blockers: "unknown" }, { key: "2", labels: ["P1"] }]),
 		);
 		expect(formatTicketRef(selection.pick!.ref)).toBe("md:2");
-		expect(selection.consulted).toBe("confirmed");
+		expect(selection.consulted).toBe("unblocked");
 		expect(selection.degraded).toEqual([]);
 	});
 
@@ -252,12 +252,12 @@ describe("what the selection reports", () => {
 			claimed: 1,
 			filtered: 1,
 			candidates: 3,
-			confirmed: 1,
+			unblocked: 1,
 			unknown: 1,
 			blocked: 1,
 		});
 		expect(counts.closed + counts.claimed + counts.filtered + counts.candidates).toBe(counts.tickets);
-		expect(counts.confirmed + counts.unknown + counts.blocked).toBe(counts.candidates);
+		expect(counts.unblocked + counts.unknown + counts.blocked).toBe(counts.candidates);
 	});
 
 	test("ranks the whole consulted set, not only the winner", () => {

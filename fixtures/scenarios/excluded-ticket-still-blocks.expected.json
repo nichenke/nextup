@@ -12,7 +12,7 @@
 	"decision": {
 		"kind": "only-candidate"
 	},
-	"consulted": "confirmed",
+	"consulted": "unblocked",
 	"ranked": [
 		{
 			"ref": "md:3",
@@ -31,7 +31,7 @@
 		"claimed": 0,
 		"filtered": 1,
 		"candidates": 2,
-		"confirmed": 1,
+		"unblocked": 1,
 		"unknown": 0,
 		"blocked": 1
 	},

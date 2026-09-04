@@ -178,8 +178,6 @@ describe("bin/nextup.ts", () => {
 		return writeEffort(repoRoot, "large", files);
 	}
 
-	// `process.exit` tore the process down before an asynchronous pipe write drained, so a reader slower
-	// than the writer got a truncated document and an exit status of 0 saying it was fine.
 	test("delivers the whole JSON document to a reader slower than itself", () => {
 		const effort = largeEffort(tempRepo());
 		const piped = Bun.spawnSync(["sh", "-c", `bun ${BIN} --json --effort ${effort} | (sleep 1; cat)`]);
@@ -190,9 +188,6 @@ describe("bin/nextup.ts", () => {
 		expect(JSON.parse(piped.stdout.toString()).counts.tickets).toBe(400);
 	});
 
-	// The sibling of the case above: a reader that closes early rather than one that reads slowly. An
-	// unhandled EPIPE exits 1, which this command defines as "nothing to recommend", so `| head` on a
-	// real pick reads as an empty ticket set.
 	test("exits on a pick as a pick when the reader closes early", () => {
 		const effort = largeEffort(tempRepo());
 		const piped = Bun.spawnSync([

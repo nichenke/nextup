@@ -1,5 +1,5 @@
 {
-	"description": "Two tickets a tracker reports as open, unclaimed and unblocked, one carrying the P0 label GitHub and GitLab both express priority with. The first rung decides.",
+	"description": "Two tickets a tracker reports as open, unclaimed and unblocked, both carrying a user-created numeric priority label of the kind a GitHub or GitLab project adds for itself — neither platform ships one. This pins the ordering between two priorities that are both present; the neighbouring scenario covers present against absent.",
 	"truncated": false,
 	"filter": { "include": [], "exclude": ["wayfinder:*"] },
 	"tickets": [

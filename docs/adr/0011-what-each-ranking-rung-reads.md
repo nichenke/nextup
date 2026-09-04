@@ -40,6 +40,12 @@ blocking derivation cannot come to disagree about which edges exist. A ticket wh
 back `"unknown"` contributes no edges, which makes every count a lower bound. That is the safe
 direction: it understates how much a ticket unblocks rather than inventing dependents for it.
 
+"A number" means one JavaScript can hold exactly. Nothing bounds how many digits a label carries, and
+past 2^53 the conversion is lossy: `P9007199254740993` and `P9007199254740992` both become the same
+value, so two distinct priorities would tie on the rung that claims to compare numbers. A value the
+runtime cannot represent exactly is reported as unread rather than ranked, which is the same refusal
+as for a named one and for the same reason — this rung does not guess.
+
 Dependents excluded from the candidate set still count. The label filter narrows what may be
 recommended, not what the graph contains, and a wayfinder decision waiting on a backlog ticket is real
 work that ticket unblocks.

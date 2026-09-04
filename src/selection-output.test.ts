@@ -96,9 +96,7 @@ describe("renderSelection", () => {
 		expect(renderSelection(selectionOf([{ key: "1" }]))).toContain("the only candidate");
 	});
 
-	// Otherwise the decision line asserts those candidates do not exist while the counts below report
-	// them, and the ranking never showed them because it never consulted their partition.
-	test("scopes a lone pick to its partition when others were held back", () => {
+	test("scopes a lone pick when others were held back as unknown", () => {
 		const text = renderSelection(
 			selectionOf([
 				{ key: "1" },
@@ -106,13 +104,26 @@ describe("renderSelection", () => {
 				{ key: "3", blockers: "unknown" },
 			]),
 		);
-		expect(text).toContain("the only candidate with confirmed blocking");
+		expect(text).toContain("the only candidate the ladder ranked");
 		expect(text).toContain("2 unknown");
+	});
+
+	test("scopes a lone pick when the others were held back as blocked", () => {
+		const text = renderSelection(
+			selectionOf([
+				{ key: "1" },
+				{ key: "2", labels: ["wayfinder:decision"] },
+				{ key: "3", blockers: ["2"] },
+				{ key: "4", blockers: ["2"] },
+			]),
+		);
+		expect(text).toContain("the only candidate the ladder ranked");
+		expect(text).toContain("2 blocked");
 	});
 
 	test("does not scope a lone pick when nothing was held back", () => {
 		const text = renderSelection(selectionOf([{ key: "1" }]));
-		expect(text).not.toContain("confirmed blocking");
+		expect(text).not.toContain("the ladder ranked");
 	});
 
 	test("shows the ticket's url where the tracker has one", () => {

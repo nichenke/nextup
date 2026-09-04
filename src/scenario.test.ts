@@ -13,8 +13,7 @@ const EXPECTED = ".expected.json";
 /**
  * Rewrites every expected file from what the selector currently answers; see README's "Fixing a bad
  * pick". Ignored under `CI`, where a rewrite would make the suite assert whatever the code does and
- * report that as a pass — the one failure mode a golden suite exists to prevent. Left exported in a
- * shell it does the same thing locally, which is why the guard is here rather than in the README.
+ * report that as a pass — the one failure mode a golden suite exists to prevent.
  */
 const UPDATING = process.env.UPDATE_SCENARIOS === "1" && process.env.CI === undefined;
 

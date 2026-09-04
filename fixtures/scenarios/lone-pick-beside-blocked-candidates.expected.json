@@ -1,7 +1,7 @@
 {
 	"pick": {
-		"ref": "md:4",
-		"title": "Land the writer",
+		"ref": "md:1",
+		"title": "Update the changelog",
 		"url": null,
 		"labels": [],
 		"blocked": "unblocked",
@@ -15,8 +15,8 @@
 	"consulted": "unblocked",
 	"ranked": [
 		{
-			"ref": "md:4",
-			"title": "Land the writer",
+			"ref": "md:1",
+			"title": "Update the changelog",
 			"url": null,
 			"labels": [],
 			"blocked": "unblocked",
@@ -27,13 +27,13 @@
 	],
 	"counts": {
 		"tickets": 4,
-		"closed": 1,
-		"claimed": 2,
+		"closed": 0,
+		"claimed": 1,
 		"filtered": 0,
-		"candidates": 1,
+		"candidates": 3,
 		"unblocked": 1,
 		"unknown": 0,
-		"blocked": 0
+		"blocked": 2
 	},
 	"degraded": [],
 	"filter": {

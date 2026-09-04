@@ -7,12 +7,11 @@ import { type TicketRef, compareTicketRefs } from "./ticket-ref";
 export class SelectionError extends Error {}
 
 /**
- * Everything the decision is made from. Pure in, pure out: `select` reads nothing else and writes
- * nothing, so the same input always yields the same selection and a fixture can assert it exactly.
+ * Everything the decision is made from; the purity is ADR-0002's, and is what lets a fixture assert
+ * this exactly.
  *
- * `graph` spans *every* ticket, including the ones `filter` drops. That asymmetry is the point —
- * excluding the wayfinder track from candidates must not make a backlog ticket waiting on an open
- * decision look ready to start.
+ * `graph` spans *every* ticket, including the ones `filter` drops — see CONTEXT.md's **Blocking graph**
+ * for why that asymmetry is deliberate.
  */
 export interface SelectionInput {
 	readonly tickets: readonly Ticket[];
@@ -40,7 +39,7 @@ export interface Candidate {
 	readonly priority: number | null;
 	/** This ticket's own priority-shaped labels the ladder could not order; see `readPriority`. */
 	readonly unreadPriority: readonly string[];
-	/** How many open tickets in the set are waiting on this one. */
+	/** How many open tickets in the set are waiting on this one; a lower bound, per ADR-0011. */
 	readonly unblocks: number;
 }
 
@@ -61,7 +60,7 @@ export type Degrade = { readonly kind: "truncated" } | { readonly kind: "unknown
 
 /**
  * Where every ticket went. `closed + claimed + filtered + candidates === tickets` and
- * `confirmed + unknown + blocked === candidates`, both by construction — see `tally`.
+ * `unblocked + unknown + blocked === candidates`, both by construction — see `tally`.
  */
 export interface SelectionCounts {
 	readonly tickets: number;
@@ -69,7 +68,7 @@ export interface SelectionCounts {
 	readonly claimed: number;
 	readonly filtered: number;
 	readonly candidates: number;
-	readonly confirmed: number;
+	readonly unblocked: number;
 	readonly unknown: number;
 	readonly blocked: number;
 }
@@ -78,7 +77,7 @@ export interface Selection {
 	readonly pick: Candidate | null;
 	readonly decision: Decision | null;
 	/** Which partition the ranking was taken from; `null` when nothing was recommendable. */
-	readonly consulted: "confirmed" | "unknown" | null;
+	readonly consulted: "unblocked" | "unknown" | null;
 	/** The consulted partition, ranked. The other partition is reported only as a count. */
 	readonly ranked: readonly Candidate[];
 	readonly counts: SelectionCounts;
@@ -91,16 +90,16 @@ export function select(input: SelectionInput): Selection {
 	const unblocks = countUnblocks(input.tickets, ids, input.graph);
 	const placements = input.tickets.map((ticket) => place(ticket, ids.get(ticket)!, unblocks, input));
 
-	const confirmed: Candidate[] = [];
+	const unblocked: Candidate[] = [];
 	const unknown: Candidate[] = [];
 	for (const placement of placements) {
-		if (placement.kind === "confirmed") confirmed.push(placement.candidate);
+		if (placement.kind === "unblocked") unblocked.push(placement.candidate);
 		if (placement.kind === "unknown") unknown.push(placement.candidate);
 	}
 
 	// Partition before the ladder, per ADR-0003.
-	const consulted = confirmed.length > 0 ? "confirmed" : unknown.length > 0 ? "unknown" : null;
-	const ranked = [...(consulted === "unknown" ? unknown : confirmed)].sort(byLadder);
+	const consulted = unblocked.length > 0 ? "unblocked" : unknown.length > 0 ? "unknown" : null;
+	const ranked = [...(consulted === "unknown" ? unknown : unblocked)].sort(byLadder);
 
 	return {
 		pick: ranked[0] ?? null,
@@ -108,8 +107,6 @@ export function select(input: SelectionInput): Selection {
 		consulted,
 		ranked,
 		counts: tally(placements),
-		// A floor for the unblocks count only costs something once two candidates were ordered against
-		// each other, which is when a missing edge can put them the wrong way round.
 		degraded: degradesOf({ truncated: input.truncated, unknownBlocking: consulted === "unknown" }),
 		filter: input.filter.spec,
 	};
@@ -125,7 +122,7 @@ type Placement =
 	| { readonly kind: "claimed" }
 	| { readonly kind: "filtered" }
 	| { readonly kind: "blocked" }
-	| { readonly kind: "confirmed"; readonly candidate: Candidate }
+	| { readonly kind: "unblocked"; readonly candidate: Candidate }
 	| { readonly kind: "unknown"; readonly candidate: Candidate };
 
 function place(
@@ -146,7 +143,7 @@ function place(
 	if (state === "blocked") return { kind: "blocked" };
 
 	const candidate = candidateOf(ticket, state, readPriority(ticket.labels), unblocks.get(id) ?? 0);
-	return state === "unblocked" ? { kind: "confirmed", candidate } : { kind: "unknown", candidate };
+	return state === "unblocked" ? { kind: "unblocked", candidate } : { kind: "unknown", candidate };
 }
 
 /**
@@ -159,7 +156,7 @@ function tally(placements: readonly Placement[]): SelectionCounts {
 		claimed: 0,
 		filtered: 0,
 		blocked: 0,
-		confirmed: 0,
+		unblocked: 0,
 		unknown: 0,
 	};
 	for (const placement of placements) counts[placement.kind]++;
@@ -168,8 +165,8 @@ function tally(placements: readonly Placement[]): SelectionCounts {
 		closed: counts.closed,
 		claimed: counts.claimed,
 		filtered: counts.filtered,
-		candidates: counts.blocked + counts.confirmed + counts.unknown,
-		confirmed: counts.confirmed,
+		candidates: counts.blocked + counts.unblocked + counts.unknown,
+		unblocked: counts.unblocked,
 		unknown: counts.unknown,
 		blocked: counts.blocked,
 	};
@@ -235,8 +232,8 @@ function candidateOf(
 /**
  * The ladder itself, in order, each rung skipped when neither candidate carries its signal. Written
  * once because both the ordering and the "won on X" line read it: as two separate cascades, reordering
- * a rung or adding one changed only whichever the editor happened to be looking at, and the resulting
- * mismatch reports the wrong deciding rung with no type error and no failing fixture.
+ * a rung or adding one changes only whichever the editor is looking at, and the resulting mismatch
+ * reports the wrong deciding rung with no type error and no failing fixture.
  */
 const LADDER: readonly { readonly rung: Rung; readonly compare: (a: Candidate, b: Candidate) => number }[] = [
 	{ rung: "priority", compare: (a, b) => comparePriority(a.priority, b.priority) },
@@ -252,7 +249,6 @@ function byLadder(a: Candidate, b: Candidate): number {
 	return 0;
 }
 
-/** Lower is more urgent, and a candidate carrying no priority sorts after every one that does. */
 function comparePriority(a: number | null, b: number | null): number {
 	if (a === null) return b === null ? 0 : 1;
 	if (b === null) return -1;

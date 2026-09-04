@@ -14,7 +14,7 @@
 		"rung": "unblocks",
 		"over": "md:1"
 	},
-	"consulted": "confirmed",
+	"consulted": "unblocked",
 	"ranked": [
 		{
 			"ref": "md:2",
@@ -43,7 +43,7 @@
 		"claimed": 0,
 		"filtered": 0,
 		"candidates": 4,
-		"confirmed": 2,
+		"unblocked": 2,
 		"unknown": 0,
 		"blocked": 2
 	},

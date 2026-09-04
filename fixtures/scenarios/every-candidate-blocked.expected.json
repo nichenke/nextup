@@ -9,7 +9,7 @@
 		"claimed": 0,
 		"filtered": 0,
 		"candidates": 3,
-		"confirmed": 0,
+		"unblocked": 0,
 		"unknown": 0,
 		"blocked": 3
 	},

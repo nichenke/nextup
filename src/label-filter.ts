@@ -4,16 +4,13 @@ export class LabelFilterError extends Error {}
  * The label filter as a user wrote it, and as output echoes it back. `include` empty admits every
  * label; a non-empty `include` admits only a ticket carrying one of them. `exclude` always wins.
  *
- * This is the parameter that partitions the backlog track from the wayfinder track, per CONTEXT.md's
- * **Wayfinder ticket**. It is deliberately a parameter rather than a rule in code: inverting it is
- * what lets the same selector drive the wayfinder track.
+ * This is the parameter CONTEXT.md's **Wayfinder ticket** refers to.
  */
 export interface LabelFilterSpec {
 	readonly include: readonly string[];
 	readonly exclude: readonly string[];
 }
 
-/** Excludes the wayfinder track, so the two tracks cannot compete for one ticket. */
 export const DEFAULT_LABEL_FILTER: LabelFilterSpec = { include: [], exclude: ["wayfinder:*"] };
 
 /**
@@ -31,10 +28,10 @@ export interface LabelFilter {
  *
  * Case is folded on both sides, which deliberately over-matches. A pattern is typed by hand where a
  * label is not, so `--exclude Wayfinder:*` against a lowercase label is otherwise a silent miss — and
- * the cost is that two labels differing only in case cannot be told apart. Nothing here prevents such a
- * pair: GitLab's label uniqueness is a plain `validates :title, uniqueness:` with no case handling, so
- * Postgres' case-sensitive collation admits both (gitlab-org/gitlab-foss issue 14909), and a markdown
- * effort enforces no uniqueness at all.
+ * the cost is that two labels differing only in case cannot be told apart. Such a pair is reachable:
+ * GitLab's label uniqueness is a plain `validates :title, uniqueness:` with no case handling, so
+ * Postgres' case-sensitive collation admits both (gitlab-org/gitlab-foss issue 14909). Markdown cannot
+ * produce one — its labels come from a fixed lowercase vocabulary, one per ticket.
  */
 interface Pattern {
 	readonly prefix: string;
