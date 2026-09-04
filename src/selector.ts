@@ -87,12 +87,6 @@ export interface Selection {
 	readonly ranked: readonly Candidate[];
 	readonly counts: SelectionCounts;
 	readonly degraded: readonly Degrade[];
-	/**
-	 * Every unread priority label across the candidates that reached the ladder. A ticket that was
-	 * closed, claimed, filtered out or confirmed blocked is never read for one — it could not have won
-	 * whatever its priority, and `counts` already says why it did not.
-	 */
-	readonly unreadPrioritySignals: readonly string[];
 	readonly filter: LabelFilterSpec;
 }
 
@@ -120,8 +114,13 @@ export function select(input: SelectionInput): Selection {
 		counts: tally(placements),
 		// A floor for the unblocks count only costs something once two candidates were ordered against
 		// each other, which is when a missing edge can put them the wrong way round.
-		degraded: degradesOf(input.truncated, consulted === "unknown", unblocks.partial && ranked.length > 1),
-		unreadPrioritySignals: unreadSignals([...confirmed, ...unknown]),
+		degraded: degradesOf({
+			truncated: input.truncated,
+			unknownBlocking: consulted === "unknown",
+			// A floor for the unblocks count only costs something once two candidates were ordered against
+			// each other, which is when a missing edge can put them the wrong way round.
+			partialUnblocks: unblocks.partial && ranked.length > 1,
+		}),
 		filter: input.filter.spec,
 	};
 }
@@ -257,10 +256,6 @@ function candidateOf(
 	};
 }
 
-function unreadSignals(candidates: readonly Candidate[]): string[] {
-	return [...new Set(candidates.flatMap((candidate) => candidate.unreadPriority))].sort();
-}
-
 /**
  * The ladder itself, in order, each rung skipped when neither candidate carries its signal. Written
  * once because both the ordering and the "won on X" line read it: as two separate cascades, reordering
@@ -308,10 +303,15 @@ function decidingRung(pick: Candidate, runnerUp: Candidate): Rung {
 	return LADDER[LADDER.length - 1]!.rung;
 }
 
-function degradesOf(truncated: boolean, unknownBlocking: boolean, partialUnblocks: boolean): Degrade[] {
+/** Named rather than positional: three booleans in a row are silently transposable at the call site. */
+function degradesOf(reasons: {
+	truncated: boolean;
+	unknownBlocking: boolean;
+	partialUnblocks: boolean;
+}): Degrade[] {
 	const degrades: Degrade[] = [];
-	if (truncated) degrades.push({ kind: "truncated" });
-	if (unknownBlocking) degrades.push({ kind: "unknown-blocking" });
-	if (partialUnblocks) degrades.push({ kind: "partial-unblocks" });
+	if (reasons.truncated) degrades.push({ kind: "truncated" });
+	if (reasons.unknownBlocking) degrades.push({ kind: "unknown-blocking" });
+	if (reasons.partialUnblocks) degrades.push({ kind: "partial-unblocks" });
 	return degrades;
 }

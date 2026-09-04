@@ -60,10 +60,6 @@
 		"blocked": 0
 	},
 	"degraded": [],
-	"unreadPrioritySignals": [
-		"priority:high",
-		"priority:urgent"
-	],
 	"filter": {
 		"include": [],
 		"exclude": [

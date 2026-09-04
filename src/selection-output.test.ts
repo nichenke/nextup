@@ -98,7 +98,7 @@ describe("renderSelection", () => {
 
 	// Otherwise the decision line asserts those candidates do not exist while the counts below report
 	// them, and the ranking never showed them because it never consulted their partition.
-	test("scopes a lone pick to its partition when others were held back, and counts them", () => {
+	test("scopes a lone pick to its partition when others were held back", () => {
 		const text = renderSelection(
 			selectionOf([
 				{ key: "1" },
@@ -107,12 +107,11 @@ describe("renderSelection", () => {
 			]),
 		);
 		expect(text).toContain("the only candidate with confirmed blocking");
-		expect(text).toContain("held back: 2 candidate(s)");
+		expect(text).toContain("2 unknown");
 	});
 
 	test("does not scope a lone pick when nothing was held back", () => {
 		const text = renderSelection(selectionOf([{ key: "1" }]));
-		expect(text).not.toContain("held back");
 		expect(text).not.toContain("confirmed blocking");
 	});
 
@@ -151,24 +150,10 @@ describe("renderSelection", () => {
 	});
 
 	test("separates a candidate carrying no priority from one whose priority went unread", () => {
-		const text = renderSelection(selectionOf([{ key: "1", labels: ["priority:high"] }, { key: "2" }]));
-		expect(text).toContain("priority none (unread: priority:high)");
-		expect(text).toContain("priority none, unblocks 0");
-	});
-
-	test("names a handful of runners-up and counts the rest", () => {
-		const many = Array.from({ length: 9 }, (_, index) => ({ key: String(index + 1) }));
-		const text = renderSelection(selectionOf(many));
-		expect(text).toContain("md:2 — Ticket 2");
-		expect(text).toContain("md:6 — Ticket 6");
-		expect(text).not.toContain("md:7 — Ticket 7");
-		expect(text).toContain("… and 3 more");
-	});
-
-	test("names every runner-up when they exactly fill the list", () => {
-		const text = renderSelection(selectionOf(Array.from({ length: 6 }, (_, index) => ({ key: String(index + 1) }))));
-		expect(text).toContain("md:6 — Ticket 6");
-		expect(text).not.toContain("more");
+		expect(renderSelection(selectionOf([{ key: "1" }]))).toContain("priority none, unblocks 0");
+		expect(renderSelection(selectionOf([{ key: "1", labels: ["priority:high"] }]))).toContain(
+			"priority none (unread: priority:high), unblocks 0",
+		);
 	});
 
 	test("ends with a newline, so it composes with anything reading it a line at a time", () => {

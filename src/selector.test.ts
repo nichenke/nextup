@@ -160,7 +160,7 @@ describe("the ranking ladder", () => {
 	test("reports a priority label it could not order rather than ranking on a guess", () => {
 		const selection = select(inputOf([{ key: "1", labels: ["priority:high"] }, { key: "2" }]));
 		expect(formatTicketRef(selection.pick!.ref)).toBe("md:1");
-		expect(selection.unreadPrioritySignals).toEqual(["priority:high"]);
+		expect(selection.pick!.unreadPriority).toEqual(["priority:high"]);
 	});
 });
 

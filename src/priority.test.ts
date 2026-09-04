@@ -29,6 +29,23 @@ describe("readPriority", () => {
 		expect(readPriority(["priority:high", "P1"])).toEqual({ rank: 1, unread: ["priority:high"] });
 	});
 
+	// `Number` is lossy past 2^53, so ranking on it read two distinct priorities as one: the pair below
+	// converts to the same value, and a few hundred digits converts to Infinity. Both then tie on the
+	// rung that claims to compare numbers, and the decision falls through.
+	test("reports a numeric priority too large to hold exactly, rather than ranking on it", () => {
+		expect(readPriority(["P9007199254740993"])).toEqual({ rank: null, unread: ["p9007199254740993"] });
+		expect(readPriority([`P${"9".repeat(400)}`]).rank).toBeNull();
+	});
+
+	test("still ranks either side of the boundary", () => {
+		expect(readPriority(["P9007199254740991"]).rank).toBe(9007199254740991);
+		expect(readPriority(["P9007199254740992"]).rank).toBe(9007199254740992);
+	});
+
+	test("reads a leading-zero spelling as the number it writes", () => {
+		expect(readPriority(["P01"])).toEqual({ rank: 1, unread: [] });
+	});
+
 	test("reports each unread label once, in a stable order", () => {
 		expect(readPriority(["priority:urgent", "priority:high", "priority:URGENT"]).unread).toEqual([
 			"priority:high",

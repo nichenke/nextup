@@ -51,9 +51,6 @@ function candidateJson(candidate: Candidate): CandidateJson {
 	return { ...candidate, ref: formatTicketRef(candidate.ref) };
 }
 
-/** How many runners-up the human rendering names before summarising the rest. */
-const RUNNERS_UP = 5;
-
 const DEGRADE_REASON: Record<Degrade["kind"], string> = {
 	truncated: "the ticket set was truncated, so a better candidate may not have been read",
 	"unknown-blocking": "no candidate's blockers could be confirmed closed, so this pick may be blocked",
@@ -70,18 +67,10 @@ export function renderSelection(selection: Selection): string {
 		if (selection.pick.url !== null) lines.push(`  ${selection.pick.url}`);
 		lines.push(`  ${renderDecision(selection)}`);
 		lines.push(`  ${renderSignals(selection.pick)}`);
-		lines.push(...renderRunnersUp(selection.ranked));
-		const heldBack = heldBackCount(selection);
-		if (heldBack > 0) {
-			lines.push("", `held back: ${heldBack} candidate(s) whose blockers could not be confirmed closed`);
-		}
 	}
 
 	lines.push("");
 	lines.push(renderCounts(selection.counts));
-	if (selection.unreadPrioritySignals.length > 0) {
-		lines.push(`note: priority labels the ladder does not read: ${selection.unreadPrioritySignals.join(", ")}`);
-	}
 	for (const degrade of selection.degraded) lines.push(`${DEGRADED_PREFIX}${DEGRADE_REASON[degrade.kind]}`);
 
 	return `${lines.join("\n")}\n`;
@@ -120,18 +109,6 @@ function renderPriority(candidate: Candidate): string {
 	const rank = candidate.priority === null ? "priority none" : `priority P${candidate.priority}`;
 	if (candidate.unreadPriority.length === 0) return rank;
 	return `${rank} (unread: ${candidate.unreadPriority.join(", ")})`;
-}
-
-/** What the pick beat, which is the only answer to "why not that other one" the ladder can give. */
-function renderRunnersUp(ranked: readonly Candidate[]): string[] {
-	const rest = ranked.slice(1);
-	if (rest.length === 0) return [];
-	const lines = ["", "also considered:"];
-	for (const candidate of rest.slice(0, RUNNERS_UP)) {
-		lines.push(`  ${formatTicketRef(candidate.ref)} — ${candidate.title} (${renderSignals(candidate)})`);
-	}
-	if (rest.length > RUNNERS_UP) lines.push(`  … and ${rest.length - RUNNERS_UP} more`);
-	return lines;
 }
 
 function renderCounts(counts: SelectionCounts): string {

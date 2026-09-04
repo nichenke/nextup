@@ -54,7 +54,6 @@
 	"degraded": [
 		"truncated"
 	],
-	"unreadPrioritySignals": [],
 	"filter": {
 		"include": [],
 		"exclude": [

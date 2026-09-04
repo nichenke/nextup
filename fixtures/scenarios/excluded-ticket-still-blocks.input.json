@@ -1,5 +1,5 @@
 {
-	"description": "A wayfinder decision the default filter drops from the candidate set, and a backlog ticket waiting on it. The backlog ticket is reported blocked, and a third unrelated ticket is what gets recommended.",
+	"description": "A tracker where planning and delivery tickets share one project and are told apart by label, which is how a GitHub repository carrying both a design-decision label and ordinary work looks. The filter drops the decision from the candidate set, the ticket waiting on it is reported blocked, and a third unrelated ticket is what gets recommended.",
 	"truncated": false,
 	"filter": { "include": [], "exclude": ["wayfinder:*"] },
 	"tickets": [

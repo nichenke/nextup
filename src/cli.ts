@@ -26,16 +26,13 @@ const USAGE = `nextup — picks the ticket to start next, and says why
 usage: nextup [--effort <path>] [--include <label>]... [--exclude <label>]... [--json]
 
   --effort <path>    the effort to read; defaults to the single effort under <cwd>/.scratch
-  --include <label>       consider only tickets carrying one of these labels; repeatable
-  --exclude <label>       never consider a ticket carrying one of these labels; repeatable
-  --no-default-exclude    drop the wayfinder exclusion below rather than adding to it
-  --json                  emit the selection as JSON rather than the human rendering
-  --help                  print this
+  --include <label>  consider only tickets carrying one of these labels; repeatable
+  --exclude <label>  never consider a ticket carrying one of these labels; repeatable
+  --json             emit the selection as JSON rather than the human rendering
+  --help             print this
 
-A label may end in "*" to match a prefix. --exclude 'wayfinder:*' always applies unless
---no-default-exclude lifts it, and --exclude adds to it, so the two tracks cannot compete for one
-ticket on a flag that never mentioned wayfinder. To drive the wayfinder track instead, invert the
-filter: --include 'wayfinder:*' --no-default-exclude.
+A label may end in "*" to match a prefix. --exclude 'wayfinder:*' always applies and --exclude adds
+to it, so the two tracks cannot compete for one ticket on a flag that never mentioned wayfinder.
 
 The filter narrows only what may be recommended: the blocking graph still reads every ticket, so an
 excluded ticket still blocks.
@@ -96,7 +93,6 @@ function parse(argv: readonly string[]): Options {
 	let help = false;
 	let json = false;
 	let effort: string | null = null;
-	let keepDefaults = true;
 	const include: string[] = [];
 	const exclude: string[] = [];
 
@@ -109,9 +105,6 @@ function parse(argv: readonly string[]): Options {
 				break;
 			case "--json":
 				json = true;
-				break;
-			case "--no-default-exclude":
-				keepDefaults = false;
 				break;
 			case "--effort":
 				effort = value(argv, ++i, flag);
@@ -127,12 +120,10 @@ function parse(argv: readonly string[]): Options {
 		}
 	}
 
-	// The default exclusion is a floor that only `--no-default-exclude` lifts. Letting a filter flag
-	// replace it implicitly re-admits the wayfinder track on a flag that never mentioned wayfinder —
-	// `--include backend` would then hand out a wayfinder ticket labelled `backend`, which is the
-	// competition between the two tracks that the default exists to prevent.
-	const exclusions = keepDefaults ? [...DEFAULT_LABEL_FILTER.exclude, ...exclude] : exclude;
-	return { help, json, effort, filter: { include, exclude: exclusions } };
+	// The default exclusion is a floor, not a starting point a filter flag replaces: `--include backend`
+	// would otherwise hand out a wayfinder ticket labelled `backend`, which is the competition between
+	// the two tracks that the default exists to prevent.
+	return { help, json, effort, filter: { include, exclude: [...DEFAULT_LABEL_FILTER.exclude, ...exclude] } };
 }
 
 function value(argv: readonly string[], index: number, flag: string): string {

@@ -55,7 +55,6 @@
 		"unknown-blocking",
 		"partial-unblocks"
 	],
-	"unreadPrioritySignals": [],
 	"filter": {
 		"include": [],
 		"exclude": [

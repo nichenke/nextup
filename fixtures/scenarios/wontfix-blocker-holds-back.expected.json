@@ -38,7 +38,6 @@
 	"degraded": [
 		"unknown-blocking"
 	],
-	"unreadPrioritySignals": [],
 	"filter": {
 		"include": [],
 		"exclude": [

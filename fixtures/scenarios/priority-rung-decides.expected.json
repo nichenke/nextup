@@ -54,7 +54,6 @@
 		"blocked": 0
 	},
 	"degraded": [],
-	"unreadPrioritySignals": [],
 	"filter": {
 		"include": [],
 		"exclude": [
