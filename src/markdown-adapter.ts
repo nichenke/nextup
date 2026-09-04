@@ -115,8 +115,6 @@ function declaresBlockers(line: string): boolean {
 	return (
 		// `Blocked_by: 2`, `Dependencies: 2` — a colon straight after the name.
 		BLOCKER_FIELD.test(stripped) ||
-		// `## Blocked by`, `# Blocked by` — a section naming blockers, its numbers listed below.
-		HEADING.test(line) ||
 		// `| Blocked by | 2 |` — a table row, where cells take the colon's place.
 		line.startsWith("|") ||
 		// `Blocked by the tickets listed below:` — a lead-in to a list. A sentence ends otherwise.
@@ -324,12 +322,17 @@ function parseTicketFile(text: string, path: string, number: string): ParsedFile
 		() => `${path} is numbered ${number}, which is not a valid ticket number`,
 	);
 	const title = stripTitleNumber(rawTitle, ref.key, path);
-	// A ticket blocking itself, and a cycle between several, are deliberately not refused here. The
-	// shared traversal tolerates both by design — its visited set guards them — so refusing them in
-	// one adapter would make markdown disagree with the other three about which graphs are legal, and
-	// would take a whole effort down over one file. Both read `blocked`, which is the safe direction;
-	// telling a deadlock apart from a backlog that is merely all blocked belongs to the selector,
-	// where the whole graph is in view.
+	// A ticket blocking itself, and a cycle between several, are deliberately not refused here: the
+	// shared traversal is built to terminate on them, so refusing them in one adapter would make
+	// markdown disagree with the other three about which graphs are legal, and would take a whole
+	// effort down over one file.
+	//
+	// The read is correct either way, but not uniformly `blocked`: a cycle whose members are all open
+	// reads blocked throughout, while one containing a resolved member prunes at that edge and its
+	// dependent reads unblocked — which is right, since a resolved blocker is a met dependency. What
+	// is missing is only the diagnostic: nothing yet distinguishes a deadlocked effort from a backlog
+	// that happens to be entirely blocked, and that needs the whole graph, so it belongs to the
+	// selector rather than to one adapter's file parsing.
 	const blockers = parseBlockers(fields.get("blocked by"), path);
 
 	const type = fields.get("type");
@@ -484,11 +487,45 @@ function markHeaderBoundary(lines: SourceLine[], path: string): string | null {
 	return title;
 }
 
+/**
+ * Whether a blocker-named heading is declaring blockers or introducing a prose section. Only what
+ * follows it can say: `## Blocked by` above `- 2` is a declaration whose payload this parser will not
+ * read, while `## Dependencies` above a paragraph is a section, and refusing on the name alone took a
+ * whole effort down over one heading.
+ */
+function headingDeclaresBlockers(lines: readonly SourceLine[], index: number): boolean {
+	const heading = lines[index];
+	if (heading === undefined) return false;
+	const text = undecorate(heading.text);
+	if (!BLOCKER_NAME.test(text)) return false;
+
+	// `## Blocked by: 2` carries its numbers itself. The bare-name clause `declaresBlockers` uses is no
+	// help here, because a heading being nothing but a name is what headings are.
+	const rest = text.replace(BLOCKER_NAME, "").replace(/^\s*:/, "");
+	if (rest.trim() !== "" && BARE_NUMBERS.test(rest)) return true;
+
+	for (const line of lines.slice(index + 1)) {
+		if (line.code || line.text === "") continue;
+		if (HEADING.test(line.text)) return false;
+		return BARE_NUMBERS.test(undecorate(line.text));
+	}
+	return false;
+}
+
 function readFields(lines: readonly SourceLine[], path: string): Map<string, string> {
 	const fields = new Map<string, string>();
 
-	for (const line of lines) {
+	for (const [index, line] of lines.entries()) {
 		if (line.code) continue;
+
+		if (HEADING.test(line.text)) {
+			if (headingDeclaresBlockers(lines, index)) {
+				throw new MarkdownEffortError(
+					`${path} has a "${line.text}" section listing ticket numbers; write them as an unindented "Blocked by: <numbers>" line above the first section heading`,
+				);
+			}
+			continue;
+		}
 		// A field is only a field in the accepted grammar: unindented, undecorated, plain or bold.
 		const field = line.indented ? null : FIELD_LINE.exec(line.text);
 

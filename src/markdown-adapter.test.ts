@@ -497,13 +497,31 @@ describe("readEffort: malformed input fails loudly", () => {
 		}
 	});
 
-	test("a blocker heading is refused at every level, not just below the first", () => {
+	// A blocker-named heading is a declaration when ticket numbers follow it and a prose section when
+	// words do. The heading alone cannot say which, so refusing on the name made `## Dependencies`
+	// above an explanatory paragraph take the whole effort down.
+	test("a blocker heading with ticket numbers under it is refused, at every level", () => {
 		const repo = tempRepo();
-		for (const heading of ["# Blocked by", "## Blocked by", "### Dependencies"]) {
+		for (const heading of ["# Blocked by", "## Blocked by", "### Dependencies", "## Blockers"]) {
 			const effort = writeEffort(repo, "effort", {
 				"01-a.md": `# 01 — A\n\nStatus: open\n\n## Notes\n\ntext\n\n${heading}\n\n- 2\n`,
 			});
 			expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
+		}
+	});
+
+	test("a blocker heading above prose is a section, not a declaration", () => {
+		const repo = tempRepo();
+		const sections = [
+			"## Dependencies\n\nDocumented in map.md.",
+			"## Blockers\n\nMostly organisational.",
+			"### Dependency notes\n\nThe new client, eventually.",
+			"## Dependencies",
+		];
+		for (const section of sections) {
+			const ticket = oneTicket(repo, "01-a.md", `# 01 — A\n\nStatus: open\n\n${section}\n`);
+			expect(ticket.blockers).toEqual([]);
+			expect(ticket.blocked).toBe("unblocked");
 		}
 	});
 
