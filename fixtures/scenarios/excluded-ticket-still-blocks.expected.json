@@ -1,0 +1,45 @@
+{
+	"pick": {
+		"ref": "md:3",
+		"title": "Add a --version flag",
+		"url": null,
+		"labels": [],
+		"blocked": "unblocked",
+		"priority": null,
+		"unreadPriority": [],
+		"unblocks": 0
+	},
+	"decision": {
+		"kind": "only-candidate"
+	},
+	"consulted": "unblocked",
+	"ranked": [
+		{
+			"ref": "md:3",
+			"title": "Add a --version flag",
+			"url": null,
+			"labels": [],
+			"blocked": "unblocked",
+			"priority": null,
+			"unreadPriority": [],
+			"unblocks": 0
+		}
+	],
+	"counts": {
+		"tickets": 3,
+		"closed": 0,
+		"claimed": 0,
+		"filtered": 1,
+		"candidates": 2,
+		"unblocked": 1,
+		"unknown": 0,
+		"blocked": 1
+	},
+	"degraded": [],
+	"filter": {
+		"include": [],
+		"exclude": [
+			"wayfinder:*"
+		]
+	}
+}

@@ -1,0 +1,63 @@
+{
+	"pick": {
+		"ref": "md:2",
+		"title": "Retry a timed-out fetch",
+		"url": null,
+		"labels": [
+			"P1"
+		],
+		"blocked": "unknown",
+		"priority": 1,
+		"unreadPriority": [],
+		"unblocks": 0
+	},
+	"decision": {
+		"kind": "rung",
+		"rung": "priority",
+		"over": "md:1"
+	},
+	"consulted": "unknown",
+	"ranked": [
+		{
+			"ref": "md:2",
+			"title": "Retry a timed-out fetch",
+			"url": null,
+			"labels": [
+				"P1"
+			],
+			"blocked": "unknown",
+			"priority": 1,
+			"unreadPriority": [],
+			"unblocks": 0
+		},
+		{
+			"ref": "md:1",
+			"title": "Replace the auth shim",
+			"url": null,
+			"labels": [],
+			"blocked": "unknown",
+			"priority": null,
+			"unreadPriority": [],
+			"unblocks": 0
+		}
+	],
+	"counts": {
+		"tickets": 2,
+		"closed": 0,
+		"claimed": 0,
+		"filtered": 0,
+		"candidates": 2,
+		"unblocked": 0,
+		"unknown": 2,
+		"blocked": 0
+	},
+	"degraded": [
+		"unknown-blocking"
+	],
+	"filter": {
+		"include": [],
+		"exclude": [
+			"wayfinder:*"
+		]
+	}
+}

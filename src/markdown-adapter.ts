@@ -34,6 +34,12 @@ export interface MarkdownEffort {
 	/** Ordered by ticket number ascending. */
 	readonly tickets: readonly MarkdownTicket[];
 	readonly graph: DependencyGraph;
+	/**
+	 * Whether `tickets` is short of what the effort holds. There is no page limit to stop at here — this
+	 * is an entry named like a ticket that could not be read, so a selection made from it is made from a
+	 * partial set and must say so.
+	 */
+	readonly truncated: boolean;
 }
 
 type UnresolvedTicket = Omit<MarkdownTicket, "blocked">;
@@ -166,7 +172,7 @@ export function readEffort(effortRoot: string): MarkdownEffort {
 		);
 	}
 
-	const parsed = readTicketFiles(join(effortRoot, ISSUES_DIR));
+	const { parsed, truncated } = readTicketFiles(join(effortRoot, ISSUES_DIR));
 	parsed.sort((a, b) => Number(a.ticket.ref.key) - Number(b.ticket.ref.key));
 
 	const identified = parsed.map((file) => ({ ...file, id: ticketId(file.ticket.ref) }));
@@ -188,6 +194,7 @@ export function readEffort(effortRoot: string): MarkdownEffort {
 	return {
 		root: effortRoot,
 		graph,
+		truncated,
 		tickets: identified.map(({ ticket, id }) => ({
 			...ticket,
 			blocked: deriveEffectiveBlockedness(id, graph),
@@ -195,24 +202,30 @@ export function readEffort(effortRoot: string): MarkdownEffort {
 	};
 }
 
-function readTicketFiles(issuesDir: string): ParsedFile[] {
+function readTicketFiles(issuesDir: string): { parsed: ParsedFile[]; truncated: boolean } {
 	const parsed: ParsedFile[] = [];
 	const seen = new Map<string, string>();
+	let truncated = false;
 
 	for (const name of listDirectory(issuesDir).sort()) {
 		// macOS writes .DS_Store into any directory the Finder has opened, unbidden.
 		if (name.startsWith(".")) continue;
 
-		// A README or a template alongside the tickets is directory junk, skipped for the same reason a
-		// dotfile and an unreadable entry are: refusing would take a whole effort down over one file,
-		// which is the cost this module declines to pay for a blocking cycle a few lines below. It errs
-		// toward a ticket being absent, never toward one being available when it is not.
-		//
-		// Checked before the entry is inspected, so only real ticket names cost a syscall.
+		// A README or a template alongside the tickets is directory junk, skipped because refusing would
+		// take a whole effort down over one file. Checked before the entry is inspected, so only real
+		// ticket names cost a syscall.
 		const named = TICKET_FILENAME.exec(name);
 		if (named?.[1] === undefined) continue;
 		const path = join(issuesDir, name);
-		if (!isReadableFile(path)) continue;
+		// An entry named like a ticket that cannot be read is a ticket this effort failed to deliver, not
+		// junk: a dangling symlink, or a file removed between the listing and this call. Skipping it
+		// silently hands back a smaller effort presented as the whole one, and nothing downstream can
+		// tell — the missing ticket may have been the one that would have won, and it degrades a
+		// dependent only if some other ticket happens to name it as a blocker.
+		if (!isReadableFile(path)) {
+			truncated = true;
+			continue;
+		}
 		const file = parseTicketFile(readTicketText(path), path, named[1]);
 		const collision = seen.get(file.ticket.ref.key);
 		if (collision !== undefined) {
@@ -221,7 +234,7 @@ function readTicketFiles(issuesDir: string): ParsedFile[] {
 		seen.set(file.ticket.ref.key, path);
 		parsed.push(file);
 	}
-	return parsed;
+	return { parsed, truncated };
 }
 
 // Everything below converts a filesystem failure into this module's own error. `existsSync` is true

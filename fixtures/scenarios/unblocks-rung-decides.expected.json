@@ -1,0 +1,57 @@
+{
+	"pick": {
+		"ref": "md:2",
+		"title": "Settle the storage format",
+		"url": null,
+		"labels": [],
+		"blocked": "unblocked",
+		"priority": null,
+		"unreadPriority": [],
+		"unblocks": 2
+	},
+	"decision": {
+		"kind": "rung",
+		"rung": "unblocks",
+		"over": "md:1"
+	},
+	"consulted": "unblocked",
+	"ranked": [
+		{
+			"ref": "md:2",
+			"title": "Settle the storage format",
+			"url": null,
+			"labels": [],
+			"blocked": "unblocked",
+			"priority": null,
+			"unreadPriority": [],
+			"unblocks": 2
+		},
+		{
+			"ref": "md:1",
+			"title": "Write the release notes",
+			"url": null,
+			"labels": [],
+			"blocked": "unblocked",
+			"priority": null,
+			"unreadPriority": [],
+			"unblocks": 0
+		}
+	],
+	"counts": {
+		"tickets": 4,
+		"closed": 0,
+		"claimed": 0,
+		"filtered": 0,
+		"candidates": 4,
+		"unblocked": 2,
+		"unknown": 0,
+		"blocked": 2
+	},
+	"degraded": [],
+	"filter": {
+		"include": [],
+		"exclude": [
+			"wayfinder:*"
+		]
+	}
+}

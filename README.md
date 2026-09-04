@@ -12,8 +12,20 @@ treated as unblocked.
 
 ## Status
 
-Bootstrapping. Nothing functional yet — the design is settled and written down, but no adapter, selector,
-or launcher exists.
+The selector works, on local markdown ticket sets. It reads an effort, ranks what is startable, and
+prints which ticket to start next and why. Nothing writes yet — no claim, no worktree, no launch — and
+the GitHub, GitLab and Jira adapters are not built.
+
+```sh
+bun bin/nextup.ts            # the ticket to start next, and why
+bun bin/nextup.ts --json     # the same selection, as JSON
+bun bin/nextup.ts --help     # every flag
+```
+
+It reads the single effort under `<cwd>/.scratch`, or the one `--effort <path>` names. `--help` has the
+label-filter semantics and the exit codes. A degraded answer — a truncated fetch, or a pick whose
+blockers nothing could confirm — carries one `degraded: ` line per reason, which is the sentinel to
+grep for.
 
 - [The spec](https://github.com/nichenke/nextup/issues/2) — problem, solution, user stories, and the
   phased delivery
@@ -41,6 +53,31 @@ a total order:
 2. How many other tickets this one unblocks
 3. Ascending reference — unique by construction, so the order is total however many projects a query
    spans
+
+ADR-0003 fixes that order and the reference rung; ADR-0011 says what the other two read, including why
+`priority:high` is reported rather than ranked.
+
+## Fixing a bad pick
+
+The ladder is fixed in code and has no knobs, so the way to change an answer is to record the answer you
+wanted and change the rule. Scenarios live in `fixtures/scenarios/` as paired files: `<name>.input.json`
+is a ticket set and the filter applied to it, and `<name>.expected.json` is the selection the code
+currently produces.
+
+1. Add a `<name>.input.json` holding the smallest ticket set that produces the bad pick. Its
+   `description` says which tracker behaviour the shape stands in for — the same standard `CLAUDE.md`
+   sets for markdown fixtures.
+2. Write `<name>.expected.json` by hand, or run `UPDATE_SCENARIOS=1 bun test src/scenario.test.ts` and
+   read the diff. Regenerating without reading is how a bad pick becomes the recorded expectation.
+3. Watch it fail, then change the ladder until it passes.
+
+Every key is validated and an unrecognised one is refused: a misspelled key in a fixture reads as a
+scenario that passes while asserting nothing, which looks like coverage rather than a gap.
+
+A scenario may also carry a `<name>.expected.txt`, holding the human rendering rather than the JSON.
+Only a couple do: the JSON pins which ticket wins, and these pin the shape of what a person reads —
+line order, the blank line, the sentinel last — so a wording change arrives as a diff to approve
+instead of passing unnoticed. Add one by creating the file empty and regenerating.
 
 ## Development
 

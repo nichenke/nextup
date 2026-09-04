@@ -1,0 +1,47 @@
+{
+	"pick": {
+		"ref": "md:2",
+		"title": "Read a legacy archive",
+		"url": null,
+		"labels": [],
+		"blocked": "unknown",
+		"priority": null,
+		"unreadPriority": [],
+		"unblocks": 0
+	},
+	"decision": {
+		"kind": "only-candidate"
+	},
+	"consulted": "unknown",
+	"ranked": [
+		{
+			"ref": "md:2",
+			"title": "Read a legacy archive",
+			"url": null,
+			"labels": [],
+			"blocked": "unknown",
+			"priority": null,
+			"unreadPriority": [],
+			"unblocks": 0
+		}
+	],
+	"counts": {
+		"tickets": 2,
+		"closed": 1,
+		"claimed": 0,
+		"filtered": 0,
+		"candidates": 1,
+		"unblocked": 0,
+		"unknown": 1,
+		"blocked": 0
+	},
+	"degraded": [
+		"unknown-blocking"
+	],
+	"filter": {
+		"include": [],
+		"exclude": [
+			"wayfinder:*"
+		]
+	}
+}

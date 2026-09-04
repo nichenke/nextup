@@ -1,0 +1,9 @@
+{
+	"description": "A project whose priority labels are named rather than numbered, which Jira and a hand-rolled GitHub label scheme both produce. Neither of the first two rungs can order these, so the terminal rung settles it, and the labels the ladder did not read are named against the candidates that carried them.",
+	"truncated": false,
+	"filter": { "include": [], "exclude": ["wayfinder:*"] },
+	"tickets": [
+		{ "ref": "md:1", "title": "Drop the stale index", "state": "open", "blockers": [], "labels": ["priority:high"] },
+		{ "ref": "md:2", "title": "Rebuild the index", "state": "open", "blockers": [], "labels": ["priority:urgent"] }
+	]
+}

@@ -1,0 +1,23 @@
+{
+	"pick": null,
+	"decision": null,
+	"consulted": null,
+	"ranked": [],
+	"counts": {
+		"tickets": 3,
+		"closed": 0,
+		"claimed": 0,
+		"filtered": 0,
+		"candidates": 3,
+		"unblocked": 0,
+		"unknown": 0,
+		"blocked": 3
+	},
+	"degraded": [],
+	"filter": {
+		"include": [],
+		"exclude": [
+			"wayfinder:*"
+		]
+	}
+}

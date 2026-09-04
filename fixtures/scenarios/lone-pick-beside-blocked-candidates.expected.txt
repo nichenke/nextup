@@ -1,0 +1,5 @@
+md:1 — Update the changelog
+  the only candidate the ladder ranked
+  priority none, unblocks 0, blockers confirmed closed
+
+4 tickets: 0 closed, 1 claimed, 0 filtered out, 3 candidates (1 unblocked, 0 unknown, 2 blocked)

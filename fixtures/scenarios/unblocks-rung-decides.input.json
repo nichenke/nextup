@@ -1,0 +1,11 @@
+{
+	"description": "A tracker carrying native blocking edges but no priority field — GitHub's blocked-by, GitLab's blocking issues, or a Jira \"is blocked by\" link on a project with Priority left at its default. The first rung is silent, so the ticket that two others directly wait on wins.",
+	"truncated": false,
+	"filter": { "include": [], "exclude": ["wayfinder:*"] },
+	"tickets": [
+		{ "ref": "md:1", "title": "Write the release notes", "state": "open", "blockers": [], "labels": [] },
+		{ "ref": "md:2", "title": "Settle the storage format", "state": "open", "blockers": [], "labels": [] },
+		{ "ref": "md:3", "title": "Write the reader", "state": "open", "blockers": ["md:2"], "labels": [] },
+		{ "ref": "md:4", "title": "Write the writer", "state": "open", "blockers": ["md:2"], "labels": [] }
+	]
+}

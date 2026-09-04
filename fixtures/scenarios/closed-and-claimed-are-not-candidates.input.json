@@ -1,0 +1,11 @@
+{
+	"description": "A closed ticket, a ticket assigned to somebody else, and a ticket a tracker with no assignee field marks claimed without recording who. None of the three is a candidate, and the claim recording no claimant is still a claim.",
+	"truncated": false,
+	"filter": { "include": [], "exclude": ["wayfinder:*"] },
+	"tickets": [
+		{ "ref": "md:1", "title": "Land the parser", "state": "closed", "blockers": [], "labels": [] },
+		{ "ref": "md:2", "title": "Land the renderer", "state": "open", "claim": { "by": "octocat" }, "blockers": [], "labels": [] },
+		{ "ref": "md:3", "title": "Land the loader", "state": "open", "claim": { "by": null }, "blockers": [], "labels": [] },
+		{ "ref": "md:4", "title": "Land the writer", "state": "open", "blockers": [], "labels": [] }
+	]
+}

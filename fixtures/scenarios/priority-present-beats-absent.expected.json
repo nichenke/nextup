@@ -1,0 +1,61 @@
+{
+	"pick": {
+		"ref": "md:2",
+		"title": "Stop dropping the last page of results",
+		"url": null,
+		"labels": [
+			"P3"
+		],
+		"blocked": "unblocked",
+		"priority": 3,
+		"unreadPriority": [],
+		"unblocks": 0
+	},
+	"decision": {
+		"kind": "rung",
+		"rung": "priority",
+		"over": "md:1"
+	},
+	"consulted": "unblocked",
+	"ranked": [
+		{
+			"ref": "md:2",
+			"title": "Stop dropping the last page of results",
+			"url": null,
+			"labels": [
+				"P3"
+			],
+			"blocked": "unblocked",
+			"priority": 3,
+			"unreadPriority": [],
+			"unblocks": 0
+		},
+		{
+			"ref": "md:1",
+			"title": "Tidy the fixture directory",
+			"url": null,
+			"labels": [],
+			"blocked": "unblocked",
+			"priority": null,
+			"unreadPriority": [],
+			"unblocks": 1
+		}
+	],
+	"counts": {
+		"tickets": 3,
+		"closed": 0,
+		"claimed": 0,
+		"filtered": 0,
+		"candidates": 3,
+		"unblocked": 2,
+		"unknown": 0,
+		"blocked": 1
+	},
+	"degraded": [],
+	"filter": {
+		"include": [],
+		"exclude": [
+			"wayfinder:*"
+		]
+	}
+}

@@ -1,0 +1,9 @@
+{
+	"description": "Two tickets a tracker reports as open, unclaimed and unblocked, both carrying a user-created numeric priority label of the kind a GitHub or GitLab project adds for itself — neither platform ships one. This pins the ordering between two priorities that are both present; the neighbouring scenario covers present against absent.",
+	"truncated": false,
+	"filter": { "include": [], "exclude": ["wayfinder:*"] },
+	"tickets": [
+		{ "ref": "md:1", "title": "Rename the config key", "state": "open", "blockers": [], "labels": ["P2"] },
+		{ "ref": "md:2", "title": "Fix the crash on an empty ticket set", "state": "open", "blockers": [], "labels": ["P0"] }
+	]
+}

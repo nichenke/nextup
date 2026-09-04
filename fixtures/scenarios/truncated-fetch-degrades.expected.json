@@ -1,0 +1,63 @@
+{
+	"pick": {
+		"ref": "md:1",
+		"title": "Page through the second hundred",
+		"url": null,
+		"labels": [
+			"P2"
+		],
+		"blocked": "unblocked",
+		"priority": 2,
+		"unreadPriority": [],
+		"unblocks": 0
+	},
+	"decision": {
+		"kind": "rung",
+		"rung": "priority",
+		"over": "md:2"
+	},
+	"consulted": "unblocked",
+	"ranked": [
+		{
+			"ref": "md:1",
+			"title": "Page through the second hundred",
+			"url": null,
+			"labels": [
+				"P2"
+			],
+			"blocked": "unblocked",
+			"priority": 2,
+			"unreadPriority": [],
+			"unblocks": 0
+		},
+		{
+			"ref": "md:2",
+			"title": "Cache the first page",
+			"url": null,
+			"labels": [],
+			"blocked": "unblocked",
+			"priority": null,
+			"unreadPriority": [],
+			"unblocks": 0
+		}
+	],
+	"counts": {
+		"tickets": 2,
+		"closed": 0,
+		"claimed": 0,
+		"filtered": 0,
+		"candidates": 2,
+		"unblocked": 2,
+		"unknown": 0,
+		"blocked": 0
+	},
+	"degraded": [
+		"truncated"
+	],
+	"filter": {
+		"include": [],
+		"exclude": [
+			"wayfinder:*"
+		]
+	}
+}

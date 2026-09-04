@@ -1,0 +1,10 @@
+{
+	"description": "Only one ticket carries a priority, which is the ordinary case in a tracker where priority is a label somebody adds rather than a required field. The labelled one wins even though it unblocks nothing and the unlabelled one unblocks a third ticket, so the first rung really does settle it before the second is consulted.",
+	"truncated": false,
+	"filter": { "include": [], "exclude": ["wayfinder:*"] },
+	"tickets": [
+		{ "ref": "md:1", "title": "Tidy the fixture directory", "state": "open", "blockers": [], "labels": [] },
+		{ "ref": "md:2", "title": "Stop dropping the last page of results", "state": "open", "blockers": [], "labels": ["P3"] },
+		{ "ref": "md:3", "title": "Assert the tidied fixtures", "state": "open", "blockers": ["md:1"], "labels": [] }
+	]
+}

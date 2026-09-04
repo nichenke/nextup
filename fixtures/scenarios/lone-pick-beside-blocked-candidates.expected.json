@@ -1,0 +1,45 @@
+{
+	"pick": {
+		"ref": "md:1",
+		"title": "Update the changelog",
+		"url": null,
+		"labels": [],
+		"blocked": "unblocked",
+		"priority": null,
+		"unreadPriority": [],
+		"unblocks": 0
+	},
+	"decision": {
+		"kind": "only-candidate"
+	},
+	"consulted": "unblocked",
+	"ranked": [
+		{
+			"ref": "md:1",
+			"title": "Update the changelog",
+			"url": null,
+			"labels": [],
+			"blocked": "unblocked",
+			"priority": null,
+			"unreadPriority": [],
+			"unblocks": 0
+		}
+	],
+	"counts": {
+		"tickets": 4,
+		"closed": 0,
+		"claimed": 1,
+		"filtered": 0,
+		"candidates": 3,
+		"unblocked": 1,
+		"unknown": 0,
+		"blocked": 2
+	},
+	"degraded": [],
+	"filter": {
+		"include": [],
+		"exclude": [
+			"wayfinder:*"
+		]
+	}
+}

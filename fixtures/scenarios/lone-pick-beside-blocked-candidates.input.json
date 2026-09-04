@@ -1,0 +1,11 @@
+{
+	"description": "One startable ticket in a project where everything else is waiting on a ticket somebody is already working — the ordinary mid-sprint shape on any tracker with blocking edges. The pick is the only candidate the ladder ranked, while the counts still report the blocked ones as candidates, so the two readings of \"candidate\" have to stay apart.",
+	"truncated": false,
+	"filter": { "include": [], "exclude": ["wayfinder:*"] },
+	"tickets": [
+		{ "ref": "md:1", "title": "Update the changelog", "state": "open", "blockers": [], "labels": [] },
+		{ "ref": "md:2", "title": "Land the parser", "state": "open", "claim": { "by": "octocat" }, "blockers": [], "labels": [] },
+		{ "ref": "md:3", "title": "Wire the parser in", "state": "open", "blockers": ["md:2"], "labels": [] },
+		{ "ref": "md:4", "title": "Document the grammar", "state": "open", "blockers": ["md:2"], "labels": [] }
+	]
+}

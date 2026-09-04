@@ -1,0 +1,69 @@
+{
+	"pick": {
+		"ref": "md:1",
+		"title": "Drop the stale index",
+		"url": null,
+		"labels": [
+			"priority:high"
+		],
+		"blocked": "unblocked",
+		"priority": null,
+		"unreadPriority": [
+			"priority:high"
+		],
+		"unblocks": 0
+	},
+	"decision": {
+		"kind": "rung",
+		"rung": "reference",
+		"over": "md:2"
+	},
+	"consulted": "unblocked",
+	"ranked": [
+		{
+			"ref": "md:1",
+			"title": "Drop the stale index",
+			"url": null,
+			"labels": [
+				"priority:high"
+			],
+			"blocked": "unblocked",
+			"priority": null,
+			"unreadPriority": [
+				"priority:high"
+			],
+			"unblocks": 0
+		},
+		{
+			"ref": "md:2",
+			"title": "Rebuild the index",
+			"url": null,
+			"labels": [
+				"priority:urgent"
+			],
+			"blocked": "unblocked",
+			"priority": null,
+			"unreadPriority": [
+				"priority:urgent"
+			],
+			"unblocks": 0
+		}
+	],
+	"counts": {
+		"tickets": 2,
+		"closed": 0,
+		"claimed": 0,
+		"filtered": 0,
+		"candidates": 2,
+		"unblocked": 2,
+		"unknown": 0,
+		"blocked": 0
+	},
+	"degraded": [],
+	"filter": {
+		"include": [],
+		"exclude": [
+			"wayfinder:*"
+		]
+	}
+}

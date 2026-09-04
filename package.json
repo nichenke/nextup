@@ -4,6 +4,9 @@
   "private": true,
   "description": "Unblocked Opportunist - picks the best unclaimed, unblocked ticket and starts work on it",
   "type": "module",
+  "bin": {
+    "nextup": "bin/nextup.ts"
+  },
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit",

@@ -1,0 +1,9 @@
+{
+	"description": "A GitHub repository with the dependencies API disabled and no `Blocked by:` line reports its P0 ticket's blockers as unknown. The confirmed-unblocked P1 wins outright.",
+	"truncated": false,
+	"filter": { "include": [], "exclude": ["wayfinder:*"] },
+	"tickets": [
+		{ "ref": "md:1", "title": "Replace the auth shim", "state": "open", "blockers": "unknown", "labels": ["P0"] },
+		{ "ref": "md:2", "title": "Retry a timed-out fetch", "state": "open", "blockers": [], "labels": ["P1"] }
+	]
+}

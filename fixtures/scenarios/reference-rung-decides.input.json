@@ -1,0 +1,9 @@
+{
+	"description": "The state every tracker starts in: two open tickets nobody has prioritised and nothing depends on, which is what a GitHub repository with no priority labels and no blocking edges hands back for most of its tickets. Both earlier rungs are silent, so the terminal rung decides, and ticket 9 precedes ticket 10 because the numeric part is compared as a number.",
+	"truncated": false,
+	"filter": { "include": [], "exclude": ["wayfinder:*"] },
+	"tickets": [
+		{ "ref": "md:10", "title": "Add the second adapter", "state": "open", "blockers": [], "labels": [] },
+		{ "ref": "md:9", "title": "Add the first adapter", "state": "open", "blockers": [], "labels": [] }
+	]
+}
