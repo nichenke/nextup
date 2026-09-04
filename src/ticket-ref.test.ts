@@ -126,11 +126,10 @@ describe("resolveTicketRef: pasted URLs", () => {
 		).toThrow(TicketRefError);
 	});
 
-	test("a userinfo prefix on the URL authority is stripped from the host", () => {
-		const ref = resolveTicketRef("https://alice@example.com/group/project/-/issues/1", {
-			runner: routedRunner(GLAB_AUTHED),
-		});
-		expect(ref).toEqual({ tracker: "gitlab", repo: "group/project", host: "example.com", key: "1" });
+	test("a userinfo prefix on the URL authority is unsupported and fails the host-auth check, even with a real account authenticated", () => {
+		expect(() =>
+			resolveTicketRef("https://alice@example.com/group/project/-/issues/1", { runner: routedRunner(GLAB_AUTHED) }),
+		).toThrow(TicketRefError);
 	});
 
 	test("a Jira browse URL resolves when a Jira session exists", () => {
