@@ -34,6 +34,12 @@ The tickets a single invocation considers. A scoped query is a valid ticket set;
 is required.
 _Avoid_: backlog, queue, ticket map
 
+**Effort**:
+Local markdown's on-disk unit: one directory holding a map file and a numbered ticket file per ticket.
+The markdown equivalent of a scoped query — it declares its own membership, which no other tracker's
+ticket set does.
+_Avoid_: feature, project, epic
+
 **Candidate set**:
 The subset of the ticket set eligible to be recommended — open, unclaimed, and passing the label filter.
 Narrower than the blocking graph, which always reads every ticket.
