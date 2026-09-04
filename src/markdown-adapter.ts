@@ -31,6 +31,17 @@ export interface MarkdownEffort {
 
 type UnresolvedTicket = Omit<MarkdownTicket, "blocked">;
 
+/**
+ * One parsed file: the ticket, and what its `Status:` says about its openness *to a dependent*.
+ * `openness` is `null` where the status confirms neither — the value is deliberately kept off the
+ * ticket surface, because it answers "was this dependency met?" rather than anything a consumer of
+ * the ticket asks.
+ */
+interface ParsedFile {
+	readonly ticket: UnresolvedTicket;
+	readonly openness: boolean | null;
+}
+
 const SCRATCH_DIR = ".scratch";
 const MAP_FILE = "map.md";
 const ISSUES_DIR = "issues";
@@ -39,11 +50,19 @@ const TICKET_FILENAME = /^(\d+)-.*\.md$/;
 const TITLE_LINE = /^#\s+(.*\S)\s*$/;
 // The number already comes from the filename, so a title repeating it is a duplicate rather than
 // part of the title. `to-tickets` writes the em dash form; the en dash and hyphen are accepted
-// because nothing constrains a hand-written title to match it.
-const TITLE_NUMBER_PREFIX = /^\d+\s*[—–-]\s*/;
+// because nothing constrains a hand-written title to match it. Whitespace is required on at least
+// one side of the dash, or the pattern eats the first word of a title that legitimately starts with
+// a number — "3-way merge conflict resolution" became "way merge conflict resolution".
+const TITLE_NUMBER_PREFIX = /^\d+(?:\s+[—–-]\s*|\s*[—–-]\s+)/;
 const SECTION_HEADING = /^#{2,}\s/;
 const CODE_FENCE = /^(?:```|~~~)/;
 const FIELD_LINE = /^(Type|Status|Blocked by)\s*:\s*(.*?)\s*$/i;
+// A field is commonly written as a list item or inside a blockquote; the anchored FIELD_LINE misses
+// both, and a missed `Blocked by:` reads as no blockers at all.
+const LINE_DECORATION = /^(?:[-*+]|\d+\.|>)\s+/;
+// Any remaining shape that names ticket numbers after "blocked by" — a table row, say. Requiring a
+// digit is what separates a declaration from prose merely mentioning being blocked by something.
+const BLOCKED_BY_DECLARATION = /blocked\s*by\b[^A-Za-z0-9]*\d/i;
 // `to-tickets` writes "None — can start immediately" where a ticket has no blockers.
 const NO_BLOCKERS = /^none\b/i;
 
@@ -57,16 +76,44 @@ const NO_BLOCKERS = /^none\b/i;
  * vocabulary would classify a whole to-tickets-generated effort as unrecognised and yield no
  * candidates at all, a failure that presents as "no work available".
  */
-const STATUS_VOCABULARY: Record<string, { state: "open" | "closed"; claimed: boolean }> = {
-	open: { state: "open", claimed: false },
-	claimed: { state: "open", claimed: true },
-	resolved: { state: "closed", claimed: false },
-	"ready-for-agent": { state: "open", claimed: false },
-	"ready-for-human": { state: "open", claimed: false },
-	"needs-triage": { state: "open", claimed: false },
-	"needs-info": { state: "open", claimed: false },
-	wontfix: { state: "closed", claimed: false },
-};
+/**
+ * A `Map`, not an object literal, because the lookup key is arbitrary file content. Indexing an
+ * object literal with `Status: constructor` or `Status: __proto__` answers from `Object.prototype`,
+ * so the value read as recognised, `state` came back `undefined`, and a blocker seeded as confirmed
+ * closed — the guard against the forbidden collapse was the thing delivering it. `Object.hasOwn`
+ * would also close it; a `Map` has no prototype chain to reach in the first place.
+ */
+const STATUS_VOCABULARY = new Map<string, StatusReading>([
+	["open", { state: "open", claimed: false, met: false, label: null }],
+	["claimed", { state: "open", claimed: true, met: false, label: null }],
+	["resolved", { state: "closed", claimed: false, met: true, label: null }],
+	["ready-for-agent", { state: "open", claimed: false, met: false, label: "ready-for-agent" }],
+	["ready-for-human", { state: "open", claimed: false, met: false, label: "ready-for-human" }],
+	["needs-triage", { state: "open", claimed: false, met: false, label: "needs-triage" }],
+	["needs-info", { state: "open", claimed: false, met: false, label: "needs-info" }],
+	["wontfix", { state: "closed", claimed: false, met: false, label: "wontfix" }],
+]);
+
+interface StatusReading {
+	state: "open" | "closed";
+	claimed: boolean;
+	/**
+	 * Whether closing this way tells a dependent that what it was waiting for actually happened.
+	 * Not the negation of `state`: the convention keys blocking on `resolved` specifically — "a
+	 * ticket is unblocked when every file it lists is `resolved`" — so `wontfix` is closed, and
+	 * therefore no candidate, while saying nothing about whether the dependency was met. Deriving
+	 * this from `state` prunes an abandoned blocker as satisfied and reports work as ready to start
+	 * on a foundation never built.
+	 */
+	met: boolean;
+	/**
+	 * The triage label this value maps to, per `docs/agents/triage-labels.md`, or `null` where it is
+	 * a wayfinder state rather than a triage role. Without it the role is consumed into open/closed
+	 * and lost, leaving `needs-info` indistinguishable from `open` and the candidate-set label
+	 * filter with nothing to act on.
+	 */
+	label: string | null;
+}
 
 /**
  * What makes a directory an effort, defined once: `discoverEfforts` skips anything this rejects and
@@ -93,81 +140,118 @@ export function readEffort(effortRoot: string): MarkdownEffort {
 		);
 	}
 
-	const unresolved = readTicketFiles(join(effortRoot, ISSUES_DIR));
-	unresolved.sort((a, b) => Number(a.ref.key) - Number(b.ref.key));
+	const parsed = readTicketFiles(join(effortRoot, ISSUES_DIR));
+	parsed.sort((a, b) => Number(a.ticket.ref.key) - Number(b.ticket.ref.key));
 
 	const store = emptyGraphStore();
-	for (const ticket of unresolved) {
+	for (const { ticket, openness } of parsed) {
 		const id = ticketId(ticket.ref);
 		// Markdown has no containment relation, so every ticket is a confirmed root. Leaving the key
 		// absent instead would read as "unknown", and no ticket here could then ever read
 		// "unblocked" — a confirmed open blocker would still win, so the damage is silent.
 		store.parents.set(id, null);
-		store.openness.set(id, ticket.state === "open");
+		if (openness !== null) store.openness.set(id, openness);
 		store.blockers.set(id, ticket.blockers.map(ticketId));
 	}
-	// A `Blocked by:` reference to a number no file in this effort carries seeds no openness, so it
-	// reads "unknown" and its dependents degrade to unknown rather than to unblocked.
+	// Two things deliberately seed no openness and so read "unknown": a `Blocked by:` reference to a
+	// number no file in this effort carries, and a ticket closed without its dependency being met.
+	// Both degrade their dependents to unknown rather than to unblocked.
 	const graph = buildGraph(store);
 
 	return {
 		root: effortRoot,
 		graph,
-		tickets: unresolved.map((ticket) => ({
+		tickets: parsed.map(({ ticket }) => ({
 			...ticket,
 			blocked: deriveEffectiveBlockedness(ticketId(ticket.ref), graph),
 		})),
 	};
 }
 
-function readTicketFiles(issuesDir: string): UnresolvedTicket[] {
-	const tickets: UnresolvedTicket[] = [];
+function readTicketFiles(issuesDir: string): ParsedFile[] {
+	const parsed: ParsedFile[] = [];
 	const seen = new Map<string, string>();
 
-	for (const name of readdirSync(issuesDir).sort()) {
+	for (const name of listDirectory(issuesDir).sort()) {
 		// macOS writes .DS_Store into any directory the Finder has opened, unbidden.
 		if (name.startsWith(".")) continue;
 		const path = join(issuesDir, name);
-		if (!statSync(path).isFile()) continue;
+		// A dangling symlink, or a file removed between the listing and this call, throws from
+		// `statSync` — `throwIfNoEntry` turns that into something this loop can skip.
+		if (!statSync(path, { throwIfNoEntry: false })?.isFile()) continue;
 
 		const named = TICKET_FILENAME.exec(name);
 		if (named?.[1] === undefined) {
 			throw new MarkdownEffortError(`${path} is not a numbered ticket file (expected <NN>-<slug>.md)`);
 		}
-		const ticket = parseTicketFile(readFileSync(path, "utf8"), path, named[1]);
-		const collision = seen.get(ticket.ref.key);
+		const file = parseTicketFile(readFileSync(path, "utf8"), path, named[1]);
+		const collision = seen.get(file.ticket.ref.key);
 		if (collision !== undefined) {
-			throw new MarkdownEffortError(`${path} and ${collision} are both ticket ${ticket.ref.key}`);
+			throw new MarkdownEffortError(`${path} and ${collision} are both ticket ${file.ticket.ref.key}`);
 		}
-		seen.set(ticket.ref.key, path);
-		tickets.push(ticket);
+		seen.set(file.ticket.ref.key, path);
+		parsed.push(file);
 	}
-	return tickets;
+	return parsed;
 }
 
-function parseTicketFile(text: string, path: string, number: string): UnresolvedTicket {
+// `existsSync` is true for a plain file, so a `.scratch` or `issues` that is a file rather than a
+// directory reaches `readdirSync` and throws ENOTDIR. A caller catching this module's own error would
+// see that escape as an unhandled exception.
+function listDirectory(dir: string): string[] {
+	try {
+		return readdirSync(dir);
+	} catch (cause) {
+		throw new MarkdownEffortError(
+			`${dir} could not be listed as a directory: ${cause instanceof Error ? cause.message : String(cause)}`,
+		);
+	}
+}
+
+function parseTicketFile(text: string, path: string, number: string): ParsedFile {
 	const { title, fields } = readHeader(text, path);
 	if (title === null) {
 		throw new MarkdownEffortError(`${path} has no H1 title`);
 	}
 
 	const status = readStatus(fields.get("status"), path);
+	const ref = requireTicketNumber(number, path);
+	const blockers = parseBlockers(fields.get("blocked by") ?? "", path);
+	if (blockers.some((blocker) => blocker.key === ref.key)) {
+		throw new MarkdownEffortError(`${path} lists itself as its own blocker, which can never resolve`);
+	}
+
+	const type = fields.get("type");
 	return {
-		ref: resolveTicketRef(`md:${number}`),
-		title,
-		state: status.state,
-		claim: status.claim,
-		blockers: parseBlockers(fields.get("blocked by") ?? "", path),
-		url: null,
-		// `Type:` is the ticket's kind and is deliberately not mapped onto a label. Per CONTEXT.md's
-		// **Wayfinder ticket**, the label filter partitions the two tracks, and for markdown that
-		// provenance is a property of the effort's map file rather than of a ticket's kind — so
-		// deriving a `wayfinder:*` label from `Type:` would put every ticket in an effort on the
-		// wayfinder side of a partition the map is supposed to decide.
-		labels: [],
-		type: fields.get("type") ?? null,
-		path,
+		openness: opennessOf(status),
+		ticket: {
+			ref,
+			title,
+			state: status.state,
+			claim: status.claimed ? { by: null } : null,
+			blockers,
+			url: null,
+			// The triage role, where the Status carried one. `Type:` is deliberately not mapped onto a
+			// label: per CONTEXT.md's **Wayfinder ticket**, the label filter partitions the two tracks,
+			// and for markdown that provenance is a property of the effort's map file rather than of a
+			// ticket's kind — so deriving a `wayfinder:*` label from `Type:` would put every ticket in
+			// an effort on the wayfinder side of a partition the map is supposed to decide.
+			labels: status.label === null ? [] : [status.label],
+			type: type === undefined || type === "" ? null : type,
+			path,
+		},
 	};
+}
+
+// A filename number the reference grammar rejects — "0-a.md" — is still a malformed effort rather
+// than a malformed reference, so it fails as this module's error like every other file-shape defect.
+function requireTicketNumber(number: string, path: string): TicketRef {
+	try {
+		return resolveTicketRef(`md:${number}`);
+	} catch (cause) {
+		if (!(cause instanceof TicketRefError)) throw cause;
+		throw new MarkdownEffortError(`${path} is numbered ${number}, which is not a valid ticket number`);
+	}
 }
 
 /**
@@ -183,10 +267,11 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 
 	for (const raw of text.split("\n")) {
 		const line = raw.replace(/\*\*/g, "").trim();
-		// A `to-tickets` ticket has no section heading at all, so its whole body is header region,
-		// and that skill inlines a code snippet where one encodes a decision. A `Status:` line in
-		// such a snippet is not this ticket's field. A fenced `##` is not a section heading either,
-		// so the fence is resolved before the heading that ends the header.
+		// A `to-tickets` ticket has no section heading at all, so its whole body is header region, and
+		// that skill inlines a code snippet where one encodes a decision. A field-shaped line in a
+		// fenced snippet is not this ticket's field. A fenced `##` is not a section heading either, so
+		// the fence is resolved before the heading that ends the header. Only *fenced* blocks are
+		// tracked: an indented block's fields are read as real, which errs toward `blocked`.
 		if (CODE_FENCE.test(line)) {
 			inFence = !inFence;
 			continue;
@@ -197,16 +282,24 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 			continue;
 		}
 
-		const field = FIELD_LINE.exec(line);
+		const undecorated = line.replace(LINE_DECORATION, "");
+		const field = FIELD_LINE.exec(undecorated);
+		const isBlockedBy = field?.[1]?.toLowerCase() === "blocked by";
 
-		// Below the header, only `Blocked by:` is policed, and the asymmetry is deliberate. A
-		// `Status:` line that is missed reads open and unclaimed, which a human sees at launch, and
-		// an Answer or Comments section legitimately quotes a past `Status:` value as prose. A
-		// `Blocked by:` line that is missed reads a confident `unblocked` — the one state
-		// `CONTEXT.md` forbids ever inferring — so it is refused wherever it appears rather than
-		// dropped. Fencing the line is the escape hatch for genuinely quoting one.
+		// A `Blocked by:` declaration this parser would not read is refused rather than dropped,
+		// wherever it sits: a missed one reads a confident `unblocked`, the state `CONTEXT.md` forbids
+		// ever inferring. `Status:` is deliberately not policed the same way — a missed one reads open
+		// and unclaimed, which a human sees at the confirmation gate, and an Answer or Comments
+		// section legitimately quotes a past `Status:` value as prose. Fencing a line is the escape
+		// hatch for genuinely quoting either.
+		if (!isBlockedBy && BLOCKED_BY_DECLARATION.test(undecorated)) {
+			throw new MarkdownEffortError(
+				`${path} names blockers in a shape this parser cannot read ("${line}"); write it as a "Blocked by: <numbers>" line above the first section heading, or fence it if it is prose`,
+			);
+		}
+
 		if (pastHeader) {
-			if (field?.[1]?.toLowerCase() === "blocked by") {
+			if (isBlockedBy) {
 				throw new MarkdownEffortError(
 					`${path} has a Blocked by line below a section heading, where it would be read as no blockers at all; move it above the first heading, or fence it if it is prose`,
 				);
@@ -235,18 +328,29 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 	return { title, fields };
 }
 
-function readStatus(value: string | undefined, path: string): { state: "open" | "closed"; claim: Claim | null } {
+function readStatus(value: string | undefined, path: string): StatusReading {
 	// The wayfinder convention records only `claimed` and `resolved`, so an absent Status line is
 	// how an open, unclaimed ticket is written.
-	if (value === undefined || value === "") return { state: "open", claim: null };
+	if (value === undefined || value === "") {
+		return { state: "open", claimed: false, met: false, label: null };
+	}
 
-	const known = STATUS_VOCABULARY[value.toLowerCase()];
+	const known = STATUS_VOCABULARY.get(value.toLowerCase());
 	if (known === undefined) {
 		throw new MarkdownEffortError(
-			`${path} has Status: ${value}, which is not a recognised status (${Object.keys(STATUS_VOCABULARY).join(", ")})`,
+			`${path} has Status: ${value}, which is not a recognised status (${[...STATUS_VOCABULARY.keys()].join(", ")})`,
 		);
 	}
-	return { state: known.state, claim: known.claimed ? { by: null } : null };
+	return known;
+}
+
+/**
+ * What to seed as this ticket's openness *to a dependent*, or `null` to leave it unconfirmed so the
+ * traversal reads `"unknown"`. See `StatusReading.met` for why closed is not the same as satisfied.
+ */
+function opennessOf(status: StatusReading): boolean | null {
+	if (status.state === "open") return true;
+	return status.met ? false : null;
 }
 
 // What counts as a markdown ticket number is `resolveTicketRef`'s to define, so a blocker token is

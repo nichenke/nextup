@@ -278,6 +278,26 @@ describe("readEffort: the Status vocabulary", () => {
 		expect(ticket.claim).toBeNull();
 	});
 
+	// An object literal indexed by a free-form string answers for Object.prototype's members, so
+	// `Status: constructor` read as recognised, `state` came back undefined, and the blocker seeded
+	// as confirmed-closed — the guard against the forbidden collapse was the thing delivering it.
+	for (const inherited of ["constructor", "__proto__", "toString", "hasOwnProperty"]) {
+		test(`Status: ${inherited} is unrecognised, not inherited from Object.prototype`, () => {
+			const effort = writeEffort(tempRepo(), "effort", {
+				"01-a.md": `# 01 — A\n\nStatus: ${inherited}\n`,
+			});
+			expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
+		});
+	}
+
+	test("a blocker whose Status is an inherited property name never prunes as satisfied", () => {
+		const effort = writeEffort(tempRepo(), "effort", {
+			"01-dependent.md": "# 01 — Dependent\n\nStatus: open\nBlocked by: 2\n",
+			"02-blocker.md": "# 02 — Blocker\n\nStatus: constructor\n",
+		});
+		expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
+	});
+
 	test("an unrecognised Status fails loudly naming the value, rather than yielding no candidates", () => {
 		const repo = tempRepo();
 		const effort = writeEffort(repo, "effort", {
@@ -298,6 +318,39 @@ describe("readEffort: malformed input fails loudly", () => {
 		expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
 		expect(() => readEffort(effort)).toThrow(pattern);
 	}
+
+	// FIELD_LINE is anchored, so a Blocked by wearing any markdown decoration missed it entirely and
+	// the ticket read unblocked. A bullet and a blockquote now parse; a shape that cannot be read as
+	// a field is refused rather than dropped.
+	test("a bulleted or blockquoted Blocked by is read, not dropped", () => {
+		const repo = tempRepo();
+		for (const line of ["- Blocked by: 2", "* Blocked by: 2", "> Blocked by: 2"]) {
+			const ticket = oneTicket(repo, "01-a.md", `# 01 — A\n\nStatus: open\n${line}\n`);
+			expect(ticket.blockers.map((ref) => ref.key)).toEqual(["2"]);
+		}
+	});
+
+	test("a Blocked by naming ticket numbers in a shape that cannot be read as a field", () => {
+		expectRejected("# 01 — A\n\nStatus: open\n\n| Blocked by | 2 |\n", /Blocked by/);
+	});
+
+	test("prose merely mentioning being blocked is not mistaken for a declaration", () => {
+		const ticket = oneTicket(
+			tempRepo(),
+			"01-a.md",
+			"# 01 — A\n\nStatus: open\n\n## Notes\n\nThis was blocked by the substrate decision for a while.\n",
+		);
+		expect(ticket.blockers).toEqual([]);
+	});
+
+	test("a ticket file numbered zero fails as a domain error, not a reference error", () => {
+		const effort = writeEffort(tempRepo(), "effort", { "0-a.md": "# 0 — A\n" });
+		expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
+	});
+
+	test("a ticket listing itself as its own blocker, which is always an authoring error", () => {
+		expectRejected("# 01 — A\n\nStatus: open\nBlocked by: 1\n", /itself/);
+	});
 
 	test("a Blocked by entry that is not a ticket number", () => {
 		expectRejected("# 01 — A\n\nBlocked by: the substrate decision\n", /the substrate decision/);
@@ -390,6 +443,28 @@ describe("readEffort: blockedness", () => {
 		expect(byKey(readEffort(effort).tickets).get("3")!.blocked).toBe("unblocked");
 	});
 
+	// The convention keys blocking on `resolved` specifically, not on closedness. A wontfix blocker
+	// is closed without the dependency ever having been met, so neither "satisfied" nor "still to
+	// come" is true of it and only unknown is honest — a human judges whether the abandoned
+	// dependency actually mattered.
+	test("a wontfix blocker leaves its dependent unknown, rather than pruning as satisfied", () => {
+		const effort = writeEffort(tempRepo(), "effort", {
+			"01-abandoned.md": "# 01 — Abandoned\n\nStatus: wontfix\n",
+			"02-built-on-it.md": "# 02 — Built on it\n\nStatus: open\nBlocked by: 1\n",
+		});
+		const tickets = byKey(readEffort(effort).tickets);
+		expect(tickets.get("1")!.state).toBe("closed");
+		expect(tickets.get("2")!.blocked).toBe("unknown");
+	});
+
+	test("a resolved blocker still prunes, so wontfix is the narrow exception", () => {
+		const effort = writeEffort(tempRepo(), "effort", {
+			"01-resolved.md": "# 01 — Resolved\n\nStatus: resolved\n",
+			"02-dependent.md": "# 02 — Dependent\n\nStatus: open\nBlocked by: 1\n",
+		});
+		expect(byKey(readEffort(effort).tickets).get("2")!.blocked).toBe("unblocked");
+	});
+
 	test("a Blocked by reference to a ticket absent from the effort is unknown, never unblocked", () => {
 		const effort = writeEffort(tempRepo(), "effort", {
 			"01-a.md": "# 01 — A\n\nStatus: open\nBlocked by: 99\n",
@@ -451,10 +526,40 @@ describe("readEffort: the normalized ticket surface", () => {
 		expect(oneTicket(tempRepo(), "01-a.md", "# 01 — A\n").url).toBeNull();
 	});
 
-	test("Type is not mapped onto a label, so labels stay empty", () => {
+	test("Type is not mapped onto a label", () => {
 		const ticket = oneTicket(tempRepo(), "01-a.md", "# 01 — A\n\nType: research\n");
 		expect(ticket.type).toBe("research");
 		expect(ticket.labels).toEqual([]);
+	});
+
+	test("Type with an empty value is absent, matching how an empty Status is read", () => {
+		expect(oneTicket(tempRepo(), "01-a.md", "# 01 — A\n\nType:\n").type).toBeNull();
+	});
+
+	// Without this the triage role is consumed into open/closed and discarded, so `needs-info`
+	// becomes indistinguishable from `open` and the candidate filter has nothing to act on.
+	test("a triage-role Status is carried as a label so a candidate filter can see it", () => {
+		const repo = tempRepo();
+		for (const role of ["needs-triage", "needs-info", "ready-for-agent", "ready-for-human"]) {
+			const ticket = oneTicket(repo, "01-a.md", `# 01 — A\n\nStatus: ${role}\n`);
+			expect(ticket.labels).toEqual([role]);
+			expect(ticket.state).toBe("open");
+		}
+	});
+
+	test("the wayfinder state values are not triage roles, so they carry no label", () => {
+		const repo = tempRepo();
+		for (const value of ["open", "claimed", "resolved"]) {
+			expect(oneTicket(repo, "01-a.md", `# 01 — A\n\nStatus: ${value}\n`).labels).toEqual([]);
+		}
+	});
+
+	test("a title whose first word begins with a number is not eaten by the number prefix", () => {
+		const repo = tempRepo();
+		expect(oneTicket(repo, "01-a.md", "# 3-way merge conflict resolution\n").title).toBe(
+			"3-way merge conflict resolution",
+		);
+		expect(oneTicket(repo, "01-a.md", "# 2-phase commit\n").title).toBe("2-phase commit");
 	});
 
 	test("a zero-padded Blocked by reference resolves to the same ticket as its bare form", () => {
