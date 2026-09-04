@@ -61,28 +61,19 @@ const SECTION_HEADING = /^#{2,}\s/;
 // title is in hand, so a leading `---` frontmatter fence cannot end the header before it begins.
 const SETEXT_OR_BREAK = /^(?:={3,}|-{3,}|\*{3,}|_{3,})$/;
 const CODE_FENCE = /^(?:```|~~~)/;
+// The whole accepted field grammar, per ADR-0008: an unindented, undecorated line, plain or bold.
+// Deliberately narrow — the only producers writing these files are the wayfinder local-markdown
+// convention and the `to-tickets` skill, so widening it buys tolerance nothing needs and costs a new
+// way to read a line wrongly.
 const FIELD_LINE = /^(Type|Status|Blocked by)\s*:\s*(.*?)\s*$/i;
-// A field is commonly written as a list item or inside a blockquote; the anchored FIELD_LINE misses
-// both, and a missed `Blocked by:` reads as no blockers at all. Only `Blocked by:` is read through
-// this, never `Status:` or `Type:` — see readHeader for why the asymmetry runs that way.
-const LINE_DECORATION = /^(?:[-*+]|\d+\.|>)\s+/;
-// A markdown indented code block. Four spaces or a tab, before the line is trimmed.
-const INDENTED_CODE = /^(?: {4,}|\t)/;
-// Any remaining shape that names ticket numbers as a dependency — a table row, a hyphenated or
-// renamed field, a missing colon. Each was a silent drop: the shape matched no field, so its blockers
-// were neither read nor refused.
-//
-// Anchored, and applied only after a title has been claimed, because matching the phrase anywhere on
-// any line made ordinary prose ("we were blocked by 3 teams") and ordinary titles ("Blocked by 3
-// upstream changes") abort the whole effort — the mirror of the bug it exists to prevent, presenting
-// as the same "no work available".
-// No digit is required: a declaration whose numbers sit on the lines below it ("Blocked by the
-// tickets listed below:", or a `## Blocked by` heading) has none on its own line, and those read as
-// no blockers at all. The anchor is what keeps prose out — a sentence merely mentioning being
-// blocked does not begin with the field's name.
+const INDENTED = /^[ \t]/;
+// Decoration a field must not wear. Stripped only to decide whether to REFUSE a line, never to read
+// one: a `Blocked by:` this parser cannot read must be refused rather than dropped, because dropped
+// reads as no blockers at all. Anchoring after the strip is what keeps prose out — a sentence
+// mentioning being blocked does not begin with the field's name — and no digit is required, since a
+// declaration whose numbers sit on the lines below it has none on its own line.
+const LEADING_MARKERS = /^(?:[-*+>|]|#{1,6}|\d+\.)\s*/;
 const UNREADABLE_BLOCKER_FIELD = /^(?:blocked[\s-]*by|blockers?|depends[\s-]*on)\b/i;
-// Stripped before the guard so a table row and a heading are both reachable by it.
-const GUARD_PREFIX = /^(?:\||#{1,6})\s*/;
 // `to-tickets` writes "None — can start immediately" where a ticket has no blockers, so the trailing
 // commentary is allowed — but only after a dash. Matching the bare `none` prefix instead swallowed
 // the rest of the value, so "None directly, but 2 must land first" read as no blockers at all.
@@ -333,9 +324,13 @@ function requireTicketNumber(number: string, path: string): TicketRef {
 }
 
 /**
- * The fields above the first section heading, with the bold form `to-tickets` emits normalized
- * into the plain form real ticket sets use — the bold markers are stripped before matching, so
- * `**Status:** x`, `**Status**: x`, and `Status: x` are one shape by the time it is read.
+ * The fields above the first section heading. Bold markers are stripped before matching, so the form
+ * `to-tickets` emits and the plain form the wayfinder convention writes are one shape by the time it
+ * is read: `**Status:** x`, `**Status**: x`, and `Status: x` all arrive here identically.
+ *
+ * Nothing else is a field. ADR-0008 has the reasoning; the short version is that this adapter reads
+ * only files this project authors, so a decorated or indented field is a quotation rather than a
+ * declaration, and treating it as one is how a quoted `Status: resolved` came to close a ticket.
  */
 function readHeader(text: string, path: string): { title: string | null; fields: Map<string, string> } {
 	const fields = new Map<string, string>();
@@ -348,9 +343,8 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 		const line = bare.trim();
 		// A `to-tickets` ticket has no section heading at all, so its whole body is header region, and
 		// that skill inlines a code snippet where one encodes a decision. A field-shaped line in a
-		// fenced snippet is not this ticket's field. A fenced `##` is not a section heading either, so
-		// the fence is resolved before the heading that ends the header. Only *fenced* blocks are
-		// tracked: an indented block's fields are read as real, which errs toward `blocked`.
+		// snippet is not this ticket's field. A fenced `##` is not a section heading either, so the
+		// fence is resolved before the heading that ends the header.
 		if (CODE_FENCE.test(line)) {
 			inFence = !inFence;
 			continue;
@@ -369,26 +363,16 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 			continue;
 		}
 
-		const undecorated = line.replace(LINE_DECORATION, "");
-		const decorated = undecorated !== line;
-		const indentedCode = INDENTED_CODE.test(bare);
-		const field = FIELD_LINE.exec(undecorated);
+		// A field is only a field in the accepted grammar: unindented, undecorated, plain or bold.
+		const field = INDENTED.test(bare) ? null : FIELD_LINE.exec(line);
 		const isBlockedBy = field?.[1]?.toLowerCase() === "blocked by";
 
-		// An indented block is markdown's other code block, so a field in one is an example, not this
-		// ticket's. `Status:` is ignored in that case; `Blocked by:` cannot be, so it is refused.
-		if (isBlockedBy && indentedCode) {
+		// Runs before the section-heading branch, because `## Blocked by` with its numbers listed
+		// underneath is a declaration too, and a branch that skipped headings first left it silently
+		// reading as no blockers.
+		if (!isBlockedBy && UNREADABLE_BLOCKER_FIELD.test(line.replace(LEADING_MARKERS, ""))) {
 			throw new MarkdownEffortError(
-				`${path} has an indented Blocked by line; markdown reads that as a code block, and a blocker declaration must not sit in one — unindent it, or fence it if it is an example`,
-			);
-		}
-
-		// The guard runs before the section-heading branch, because `## Blocked by` with its numbers
-		// listed underneath is a declaration too, and a branch that skipped headings first left it
-		// silently reading as no blockers.
-		if (!isBlockedBy && UNREADABLE_BLOCKER_FIELD.test(line.replace(GUARD_PREFIX, "").replace(LINE_DECORATION, ""))) {
-			throw new MarkdownEffortError(
-				`${path} names blockers in a shape this parser cannot read ("${line}"); write it as a "Blocked by: <numbers>" line above the first section heading, or fence it if it is prose`,
+				`${path} names blockers in a shape this parser cannot read ("${line}"); write it as an unindented "Blocked by: <numbers>" line above the first section heading, or fence it if it is prose`,
 			);
 		}
 
@@ -408,15 +392,6 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 
 		if (field?.[1] === undefined) continue;
 		const key = field[1].toLowerCase();
-
-		// The asymmetry, and the direction matters. A `Blocked by:` is read through a list marker or a
-		// blockquote, because dropping one reads a confident `unblocked` — the state `CONTEXT.md`
-		// forbids ever inferring — and it is refused above if the shape is unreadable. A `Status:` gets
-		// no such allowance: people quote a status when recording that something *completed*, so a
-		// decorated or indented `Status: resolved` read as the ticket's own would seed a confirmed-met
-		// blocker and prune its dependents. Ignoring it instead leaves the ticket open and unclaimed,
-		// which a human sees at the confirmation gate.
-		if (key !== "blocked by" && (decorated || indentedCode)) continue;
 		if (fields.has(key)) {
 			throw new MarkdownEffortError(`${path} has more than one ${field[1]} field`);
 		}

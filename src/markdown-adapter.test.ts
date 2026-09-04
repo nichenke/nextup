@@ -383,14 +383,17 @@ describe("readEffort: malformed input fails loudly", () => {
 		expect(() => readEffort(effort)).toThrow(pattern);
 	}
 
-	// FIELD_LINE is anchored, so a Blocked by wearing any markdown decoration missed it entirely and
-	// the ticket read unblocked. A bullet and a blockquote now parse; a shape that cannot be read as
-	// a field is refused rather than dropped.
-	test("a bulleted or blockquoted Blocked by is read, not dropped", () => {
+	// Per ADR-0008 the accepted grammar is closed: an unindented, undecorated line, plain or bold.
+	// A decorated Blocked by is refused rather than read, so no shape is silently dropped without
+	// the parser having to understand every way markdown can dress a line.
+	test("a decorated Blocked by is refused, not read and not dropped", () => {
 		const repo = tempRepo();
-		for (const line of ["- Blocked by: 2", "* Blocked by: 2", "> Blocked by: 2"]) {
-			const ticket = oneTicket(repo, "01-a.md", `# 01 — A\n\nStatus: open\n${line}\n`);
-			expect(ticket.blockers.map((ref) => ref.key)).toEqual(["2"]);
+		const decorated = ["- Blocked by: 2", "* Blocked by: 2", "> Blocked by: 2", "1. Blocked by: 2"];
+		for (const line of decorated) {
+			const effort = writeEffort(repo, "effort", {
+				"01-a.md": `# 01 — A\n\nStatus: open\n${line}\n`,
+			});
+			expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
 		}
 	});
 
