@@ -22,11 +22,19 @@ Two things are inherited rather than chosen, and both are the price of the above
   the term.
 
 `GraphStore` and `buildGraph` are a different case, and `src/graph-store.ts` is a **port, not a
-verbatim copy** — it is re-indented, its two declarations are exported rather than file-private, and
-it gains an `emptyGraphStore()` constructor. Diffing it against the source therefore proves nothing,
-which is why its trimmed doc comments cost nothing either. What stayed behind is the fetch layer they
-were private to: board enumeration, board-status reconciliation, and tier handling, all deleted
-outright. Only the tracker-agnostic accessor construction came across.
+verbatim copy** — it is re-indented and reshaped. Diffing it against the source therefore proves
+nothing, which is why its trimmed doc comments cost nothing either. What stayed behind is the fetch
+layer they were private to: board enumeration, board-status reconciliation, and tier handling, all
+deleted outright. Only the tracker-agnostic accessor construction came across.
+
+Both stay **file-private**, as they were upstream. The module's whole surface is `GraphSeed` and
+`seedGraph`, which every adapter goes through, and that is deliberate: an adapter reaching the store
+directly can write `openness.set(id, ticket.state === "open")` — which reads a blocker closed without
+its dependency being met as satisfied, and prunes it — or `blockers.set(id, [])` for blockers it never
+read, which type-checks and reports a confident `unblocked`. Both are the collapse `CONTEXT.md`
+forbids, and the markdown adapter shipped the first of them. `GraphSeed` makes `"unknown"` a value an
+adapter must spell rather than a key it can omit, so the mapping from unknown to an absent key exists
+once for all four trackers instead of being rewritten, slightly differently, per adapter.
 
 ## Consequences
 

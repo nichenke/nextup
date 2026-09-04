@@ -232,12 +232,17 @@ function readTicketFiles(issuesDir: string): ParsedFile[] {
 // `readdirSync` and throws ENOTDIR; a symlink loop reaches `statSync` and throws ELOOP; an unreadable
 // file reaches `readFileSync` and throws EACCES. A caller catching `MarkdownEffortError` to report
 // "not an effort" sees any of those escape as an unhandled errno instead.
-function listDirectory(dir: string): string[] {
+function onFilesystem<T>(path: string, verb: string, read: () => T): T {
 	try {
-		return readdirSync(dir);
+		return read();
 	} catch (cause) {
-		throw new MarkdownEffortError(`${dir} could not be listed as a directory: ${describe(cause)}`);
+		const detail = cause instanceof Error ? cause.message : String(cause);
+		throw new MarkdownEffortError(`${path} could not be ${verb}: ${detail}`);
 	}
+}
+
+function listDirectory(dir: string): string[] {
+	return onFilesystem(dir, "listed as a directory", () => readdirSync(dir));
 }
 
 /**
@@ -247,23 +252,11 @@ function listDirectory(dir: string): string[] {
  * failure is refused, because it says the effort cannot be read rather than that an entry is absent.
  */
 function isReadableFile(path: string): boolean {
-	try {
-		return statSync(path, { throwIfNoEntry: false })?.isFile() === true;
-	} catch (cause) {
-		throw new MarkdownEffortError(`${path} could not be inspected: ${describe(cause)}`);
-	}
+	return onFilesystem(path, "inspected", () => statSync(path, { throwIfNoEntry: false })?.isFile() === true);
 }
 
 function readTicketText(path: string): string {
-	try {
-		return readFileSync(path, "utf8");
-	} catch (cause) {
-		throw new MarkdownEffortError(`${path} could not be read: ${describe(cause)}`);
-	}
-}
-
-function describe(cause: unknown): string {
-	return cause instanceof Error ? cause.message : String(cause);
+	return onFilesystem(path, "read", () => readFileSync(path, "utf8"));
 }
 
 function parseTicketFile(text: string, path: string, number: string): ParsedFile {
@@ -273,7 +266,10 @@ function parseTicketFile(text: string, path: string, number: string): ParsedFile
 	}
 
 	const status = readStatus(fields.get("status"), path);
-	const ref = requireTicketNumber(number, path);
+	const ref = resolveMarkdownRef(
+		number,
+		() => `${path} is numbered ${number}, which is not a valid ticket number`,
+	);
 	// A ticket blocking itself, and a cycle between several, are deliberately not refused here. The
 	// shared traversal tolerates both by design — its visited set guards them — so refusing them in
 	// one adapter would make markdown disagree with the other three about which graphs are legal, and
@@ -304,14 +300,19 @@ function parseTicketFile(text: string, path: string, number: string): ParsedFile
 	};
 }
 
-// A filename number the reference grammar rejects — "0-a.md" — is still a malformed effort rather
-// than a malformed reference, so it fails as this module's error like every other file-shape defect.
-function requireTicketNumber(number: string, path: string): TicketRef {
+/**
+ * What counts as a markdown ticket number is `resolveTicketRef`'s to define, so both the filename and
+ * the `Blocked by:` paths resolve through it rather than through a local copy of the rule. A number
+ * it rejects — "0-a.md" — is still a malformed effort rather than a malformed reference, so the
+ * refusal is translated to this module's error; the two call sites once translated it separately and
+ * one of them was missed for a release.
+ */
+function resolveMarkdownRef(token: string, describeRefusal: () => string): TicketRef {
 	try {
-		return resolveTicketRef(`md:${number}`);
+		return resolveTicketRef(`md:${token}`);
 	} catch (cause) {
 		if (!(cause instanceof TicketRefError)) throw cause;
-		throw new MarkdownEffortError(`${path} is numbered ${number}, which is not a valid ticket number`);
+		throw new MarkdownEffortError(describeRefusal());
 	}
 }
 
@@ -403,13 +404,11 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 }
 
 function readStatus(value: string | undefined, path: string): StatusReading {
-	// The wayfinder convention records only `claimed` and `resolved`, so an absent Status line is
-	// how an open, unclaimed ticket is written.
-	if (value === undefined || value === "") {
-		return { state: "open", claimed: false, met: false, label: null };
-	}
-
-	const known = STATUS_VOCABULARY.get(value.toLowerCase());
+	// The wayfinder convention records only `claimed` and `resolved`, so an absent Status line is how
+	// an open, unclaimed ticket is written — which is `open`'s own entry rather than a second literal
+	// spelling out the same four fields, where a change to one would silently not reach the other.
+	const absent = value === undefined || value === "";
+	const known = STATUS_VOCABULARY.get(absent ? "open" : value.toLowerCase());
 	if (known === undefined) {
 		throw new MarkdownEffortError(
 			`${path} has Status: ${value}, which is not a recognised status (${[...STATUS_VOCABULARY.keys()].join(", ")})`,
@@ -443,13 +442,9 @@ function parseBlockers(value: string | undefined, path: string): TicketRef[] {
 	if (NO_BLOCKERS.test(value)) return [];
 	return value.split(",").map((entry) => {
 		const token = entry.trim();
-		try {
-			return resolveTicketRef(`md:${token}`);
-		} catch (cause) {
-			if (!(cause instanceof TicketRefError)) throw cause;
-			throw new MarkdownEffortError(
-				`${path} has Blocked by listing "${token}", which is not a ticket number in this effort`,
-			);
-		}
+		return resolveMarkdownRef(
+			token,
+			() => `${path} has Blocked by listing "${token}", which is not a ticket number in this effort`,
+		);
 	});
 }

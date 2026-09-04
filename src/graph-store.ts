@@ -7,7 +7,7 @@ import type { DependencyGraph, IssueId } from "./effective-blockedness";
  * that id, which every accessor reports as `"unknown"`; a present key carries a confirmed value,
  * including a falsy one.
  */
-export interface GraphStore {
+interface GraphStore {
 	/** `null` is a confirmed absence of a parent, distinct from an unread one. */
 	parents: Map<IssueId, IssueId | null>;
 	blockers: Map<IssueId, IssueId[]>;
@@ -15,7 +15,7 @@ export interface GraphStore {
 }
 
 /** Wrap a populated `GraphStore` as the `DependencyGraph` port. */
-export function buildGraph(store: GraphStore): DependencyGraph {
+function buildGraph(store: GraphStore): DependencyGraph {
 	return {
 		parent(id: IssueId): IssueId | null | "unknown" {
 			return store.parents.has(id) ? store.parents.get(id)! : "unknown";
@@ -29,7 +29,7 @@ export function buildGraph(store: GraphStore): DependencyGraph {
 	};
 }
 
-export function emptyGraphStore(): GraphStore {
+function emptyGraphStore(): GraphStore {
 	return { parents: new Map(), blockers: new Map(), openness: new Map() };
 }
 
