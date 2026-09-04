@@ -37,6 +37,7 @@ https://example.com/group/-/issues/1
 https://example.com/project/-/issues/1
 https://example.com/group//project/-/issues/1
 https://example.com/?next=/group/project/-/issues/1
+https://alice@example.com/group/project/-/issues/1
 https://example.com/group/subgroup/project/issues/1
 https://example.com/browse/TEST-42
 https://example.com/jira/browse/TEST-42
