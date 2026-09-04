@@ -74,6 +74,15 @@ describe("discoverEfforts", () => {
 		expect(discoverEfforts(repo)).toEqual([]);
 	});
 
+	// A non-directory in `.scratch` made `statSync("<file>/map.md")` throw ENOTDIR, which the filesystem
+	// wrapper turned into a domain error — so one stray file aborted discovery for every effort.
+	test("a stray file in the scratch directory does not abort discovery", () => {
+		const repo = tempRepo();
+		const effort = writeEffort(repo, "real", { "01-a.md": "# 01 — A\n\nStatus: open\n" });
+		writeFileSync(join(repo, ".scratch", "README.md"), "notes about these efforts\n");
+		expect(discoverEfforts(repo)).toEqual([effort]);
+	});
+
 	test("returns nothing when the repo has no scratch directory at all", () => {
 		expect(discoverEfforts(tempRepo())).toEqual([]);
 	});
@@ -490,6 +499,33 @@ describe("readEffort: content outside the grammar is body", () => {
 			expect(ticket.state).toBe("open");
 		});
 	}
+
+	// Only the two forms the producers write are fields: plain, and bold. Flattening every inline token
+	// let any emphasis through, and a link's text too — so `[Status](url): resolved` became authoritative
+	// metadata. Per ADR-0010 a shape no producer emits should not be accepted, not just untested.
+	test("a field wearing an inline form no producer emits is not a field", () => {
+		const repo = tempRepo();
+		const notFields = ["_Status_: resolved", "*Status*: resolved", "`Status`: resolved"];
+		for (const line of notFields) {
+			const ticket = oneTicket(repo, "01-a.md", `# 01 — A\n\n${line}\n`);
+			expect(ticket.state).toBe("open");
+		}
+	});
+
+	test("a link whose text ends in a field name is not a field", () => {
+		const ticket = oneTicket(
+			tempRepo(),
+			"01-a.md",
+			"# 01 — A\n\n[Status](https://example.com/issues/1): resolved\n",
+		);
+		expect(ticket.state).toBe("open");
+	});
+
+	test("plain and bold are both still read", () => {
+		const repo = tempRepo();
+		expect(oneTicket(repo, "01-a.md", "# 01 — A\n\nStatus: resolved\n").state).toBe("closed");
+		expect(oneTicket(repo, "01-a.md", "# 01 — A\n\n**Status:** resolved\n").state).toBe("closed");
+	});
 
 	test("the grammar itself is still read, and still validated", () => {
 		const repo = tempRepo();

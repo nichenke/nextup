@@ -123,9 +123,14 @@ interface StatusReading {
  * `readEffort` refuses it, so the two cannot come to disagree about what they are looking at.
  */
 function isEffortRoot(root: string): boolean {
-	// The entry types matter, not just existence: a `map.md` that is a directory passed an existence
-	// check and then read as a valid effort holding no tickets, which a caller cannot tell apart from a
-	// real effort with nothing takeable.
+	// The candidate has to be a directory before anything is looked for inside it. Asking about
+	// `<file>/map.md` throws ENOTDIR rather than reporting absence, and the filesystem wrapper turns
+	// that into a domain error — so one stray file in `.scratch` aborted discovery for every effort.
+	//
+	// The entry types matter beyond that, not just existence: a `map.md` that is a directory passed an
+	// existence check and then read as a valid effort holding no tickets, which a caller cannot tell
+	// apart from a real effort with nothing takeable.
+	if (!entryIs(root, "directory")) return false;
 	return entryIs(join(root, MAP_FILE), "file") && entryIs(join(root, ISSUES_DIR), "directory");
 }
 
@@ -389,12 +394,35 @@ function addFields(lines: readonly string[], fields: Map<string, string>, path: 
 	}
 }
 
-/** A block's own lines as rendered text, with soft line breaks kept so a run of fields stays separable. */
+/** A block's own lines, with line breaks kept so a run of fields stays separable. */
 function blockLines(token: Token): string[] {
 	const inline = (token as { tokens?: Token[] }).tokens;
-	if (inline !== undefined && inline.length > 0) return renderedText(inline).split("\n");
+	if (inline !== undefined && inline.length > 0) return fieldText(inline).split("\n");
 	if ("text" in token && typeof token.text === "string") return token.text.split("\n");
 	return [];
+}
+
+/**
+ * A line as the field grammar sees it: plain text and bold unwrapped, every other inline form left as
+ * the source wrote it. Only those two are what the producers emit, so an emphasis, a code span or a
+ * link keeps its markers and fails `FIELD_LINE` rather than flattening into a field.
+ *
+ * Flattening everything was accepting shapes no producer writes, which ADR-0010's rule rules out — and
+ * a link was the sharp case, since `[Status](destination): resolved` would otherwise have become
+ * authoritative metadata off the back of its link text.
+ */
+function fieldText(tokens: readonly Token[]): string {
+	return tokens
+		.map((token) => {
+			if (token.type === "br") return "\n";
+			if (token.type !== "text" && token.type !== "strong" && token.type !== "escape") {
+				return "raw" in token && typeof token.raw === "string" ? token.raw : "";
+			}
+			const nested = (token as { tokens?: Token[] }).tokens;
+			if (nested !== undefined && nested.length > 0) return fieldText(nested);
+			return "text" in token && typeof token.text === "string" ? token.text : "";
+		})
+		.join("");
 }
 
 /**
