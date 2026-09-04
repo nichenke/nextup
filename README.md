@@ -12,20 +12,27 @@ treated as unblocked.
 
 ## Status
 
-The selector works, on local markdown ticket sets. It reads an effort, ranks what is startable, and
-prints which ticket to start next and why. Nothing writes yet — no claim, no worktree, no launch — and
-the GitHub, GitLab and Jira adapters are not built.
+The selector works on local markdown ticket sets, and the launcher claims. A run reads an effort, ranks
+what is startable, claims the winner in the tracker, and prints the command that would start work on it.
+Nothing local is created yet — no worktree and no session — and the GitHub, GitLab and Jira adapters are
+not built.
 
 ```sh
-bun bin/nextup.ts            # the ticket to start next, and why
-bun bin/nextup.ts --json     # the same selection, as JSON
-bun bin/nextup.ts --help     # every flag
+bun bin/nextup.ts                   # claim the ticket to start next, and print how to start it
+bun bin/nextup.ts --print-command   # the same answer, claiming nothing
+bun bin/nextup.ts --json            # the selection, the claim, and the command, as JSON
+bun bin/nextup.ts --help            # every flag
 ```
 
 It reads the single effort under `<cwd>/.scratch`, or the one `--effort <path>` names. `--help` has the
 label-filter semantics and the exit codes. A degraded answer — a truncated fetch, or a pick whose
 blockers nothing could confirm — carries one `degraded: ` line per reason, which is the sentinel to
 grep for.
+
+**The confirmation gate is not built yet.** A plain run claims as soon as it has picked, so
+`--print-command` is the way to look without writing: it prints the command on stdout and the reasoning
+on stderr, and `--json --print-command` is the whole answer with nothing claimed. The gate, `--yes`, and
+the launch itself arrive with the launcher.
 
 - [The spec](https://github.com/nichenke/nextup/issues/2) — problem, solution, user stories, and the
   phased delivery
@@ -45,6 +52,13 @@ Two layers, deliberately separate:
   asserted exactly against a fixture.
 - **The launcher is a thin shell over it.** It claims the ticket, ensures a worktree, and starts a
   session. It is the only part that writes anything, and the only part that cannot be sandboxed.
+
+The claim comes first, before anything exists locally, so a failure leaves a visible wrong state in the
+tracker rather than an orphan on a disk nobody is looking at. A claim that cannot land aborts having
+changed nothing; a failure after the claim but before a worktree exists gives the claim back. Once a
+worktree exists the claim is kept, so a ticket carrying a half-finished branch is never advertised as
+available. Claiming is best-effort by design — no compare-and-swap and no expiry — and for markdown it
+overwrites the `Status:` line, which ADR-0012 explains.
 
 Ranking is a fixed ladder, each rung skipped when its signal is absent, with the last rung guaranteeing
 a total order:
@@ -78,6 +92,17 @@ A scenario may also carry a `<name>.expected.txt`, holding the human rendering r
 Only a couple do: the JSON pins which ticket wins, and these pin the shape of what a person reads —
 line order, the blank line, the sentinel last — so a wording change arrives as a diff to approve
 instead of passing unnoticed. Add one by creating the file empty and regenerating.
+
+## The command contract
+
+Every external command is built by a typed builder in `src/command-builders.ts`, and each builder's
+output is captured under `fixtures/commands/` alongside the input that produced it. A change to what
+this tool invokes therefore arrives as a diff to read rather than as a behaviour to discover.
+
+Add a case by declaring it in `src/command-builders.test.ts` and running
+`UPDATE_COMMANDS=1 bun test src/command-builders.test.ts`, which writes the golden and, like the
+scenario suite, refuses to regenerate under `CI`. Cases are declared rather than discovered, so a
+deleted golden fails instead of quietly dropping its assertion.
 
 ## Development
 

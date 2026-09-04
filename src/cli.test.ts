@@ -1,9 +1,23 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { run } from "./cli";
+import { type CliDeps, run } from "./cli";
+import type { Runner } from "./runner";
 import { DEGRADED_PREFIX } from "./selection-output";
+
+/**
+ * The whole tool driven with no external binary reachable at all. Markdown asks for no process, and a
+ * runner that refuses every command is how that is asserted rather than assumed — every test below
+ * runs through it, so a call that started shelling out would fail loudly here first.
+ */
+const refuseToRun: Runner = (argv) => {
+	throw new Error(`nothing may run an external process here: ${argv.join(" ")}`);
+};
+
+function deps(cwd: string): CliDeps {
+	return { cwd, runner: refuseToRun };
+}
 
 const roots: string[] = [];
 
@@ -39,7 +53,7 @@ describe("run", () => {
 	test("names the ticket to start next, and why, from the one effort it finds", () => {
 		const repo = tempRepo();
 		chainedEffort(repo);
-		const result = run([], { cwd: repo });
+		const result = run([], deps(repo));
 		expect(result.code).toBe(0);
 		expect(result.stdout).toContain("md:1 — Settle the format");
 		expect(result.stdout).toContain("unblocks 1");
@@ -49,7 +63,7 @@ describe("run", () => {
 	test("emits the selection as JSON on request", () => {
 		const repo = tempRepo();
 		chainedEffort(repo);
-		const result = run(["--json"], { cwd: repo });
+		const result = run(["--json"], deps(repo));
 		expect(result.code).toBe(0);
 		expect(JSON.parse(result.stdout).pick.ref).toBe("md:1");
 	});
@@ -58,7 +72,7 @@ describe("run", () => {
 		const repo = tempRepo();
 		chainedEffort(repo, "one");
 		const other = writeEffort(repo, "two", { "05-only.md": "# 05 — Something else\n\nStatus: open\n" });
-		const result = run(["--effort", other], { cwd: repo });
+		const result = run(["--effort", other], deps(repo));
 		expect(result.code).toBe(0);
 		expect(result.stdout).toContain("md:5 — Something else");
 	});
@@ -67,7 +81,7 @@ describe("run", () => {
 		const repo = tempRepo();
 		chainedEffort(repo, "one");
 		chainedEffort(repo, "two");
-		const result = run([], { cwd: repo });
+		const result = run([], deps(repo));
 		expect(result.code).toBe(2);
 		expect(result.stderr).toContain("--effort");
 		expect(result.stderr).toContain("one");
@@ -75,14 +89,14 @@ describe("run", () => {
 	});
 
 	test("says plainly when there is no effort to read", () => {
-		const result = run([], { cwd: tempRepo() });
+		const result = run([], deps(tempRepo()));
 		expect(result.code).toBe(2);
 		expect(result.stderr).toContain(".scratch");
 	});
 
 	test("reports a refused effort as an error rather than an errno", () => {
 		const repo = tempRepo();
-		const result = run(["--effort", join(repo, "nowhere")], { cwd: repo });
+		const result = run(["--effort", join(repo, "nowhere")], deps(repo));
 		expect(result.code).toBe(2);
 		expect(result.stderr).toContain("not an effort");
 	});
@@ -93,7 +107,7 @@ describe("run", () => {
 			"01-first.md": "# 01 — Migrate the store\n\nStatus: open\nBlocked by: 02\n",
 			"02-second.md": "# 02 — Cut over the reads\n\nStatus: open\nBlocked by: 01\n",
 		});
-		const result = run([], { cwd: repo });
+		const result = run([], deps(repo));
 		expect(result.code).toBe(1);
 		expect(result.stdout).toContain("no candidate to recommend");
 		expect(result.stderr).toBe("");
@@ -106,10 +120,10 @@ describe("run", () => {
 		const effort = writeEffort(repo, "partial", { "09-chore.md": "# 09 — Low priority chore\n\nStatus: open\n" });
 		symlinkSync("/nonexistent/gone.md", join(effort, "issues", "01-critical.md"));
 
-		const result = run([], { cwd: repo });
+		const result = run([], deps(repo));
 		expect(result.code).toBe(0);
 		expect(result.stdout.split("\n").some((line) => line.startsWith(DEGRADED_PREFIX))).toBe(true);
-		expect(JSON.parse(run(["--json"], { cwd: repo }).stdout).degraded).toEqual(["truncated"]);
+		expect(JSON.parse(run(["--json", "--print-command"], deps(repo)).stdout).degraded).toEqual(["truncated"]);
 	});
 
 	test("reads an effort with only real ticket files as complete", () => {
@@ -118,7 +132,7 @@ describe("run", () => {
 			"01-a.md": "# 01 — First\n\nStatus: open\n",
 			"README.md": "Not a ticket, and not a gap.\n",
 		});
-		expect(JSON.parse(run(["--json"], { cwd: repo }).stdout).degraded).toEqual([]);
+		expect(JSON.parse(run(["--json"], deps(repo)).stdout).degraded).toEqual([]);
 	});
 
 	test("carries the degraded sentinel into the human rendering", () => {
@@ -127,7 +141,7 @@ describe("run", () => {
 			"01-first.md": "# 01 — Support the legacy format\n\nStatus: wontfix\n",
 			"02-second.md": "# 02 — Read a legacy archive\n\nStatus: open\nBlocked by: 01\n",
 		});
-		const result = run([], { cwd: repo });
+		const result = run([], deps(repo));
 		expect(result.code).toBe(0);
 		expect(result.stdout.split("\n").some((line) => line.startsWith(DEGRADED_PREFIX))).toBe(true);
 	});
@@ -144,19 +158,19 @@ describe("the label filter flags", () => {
 	test("drops an excluded label", () => {
 		const repo = tempRepo();
 		triageEffort(repo);
-		expect(run(["--exclude", "ready-for-human"], { cwd: repo }).stdout).toContain("md:2");
+		expect(run(["--exclude", "ready-for-human"], deps(repo)).stdout).toContain("md:2");
 	});
 
 	test("keeps only an included label", () => {
 		const repo = tempRepo();
 		triageEffort(repo);
-		expect(run(["--include", "ready-for-human"], { cwd: repo }).stdout).toContain("md:1");
+		expect(run(["--include", "ready-for-human"], deps(repo)).stdout).toContain("md:1");
 	});
 
 	test("takes both flags more than once", () => {
 		const repo = tempRepo();
 		triageEffort(repo);
-		const result = run(["--exclude", "ready-for-human", "--exclude", "ready-for-agent"], { cwd: repo });
+		const result = run(["--exclude", "ready-for-human", "--exclude", "ready-for-agent"], deps(repo));
 		expect(result.code).toBe(1);
 		expect(result.stdout).toContain("no candidate to recommend");
 	});
@@ -164,21 +178,17 @@ describe("the label filter flags", () => {
 	test("keeps the wayfinder exclusion under a filter flag that never mentioned wayfinder", () => {
 		const repo = tempRepo();
 		chainedEffort(repo);
-		expect(JSON.parse(run(["--json"], { cwd: repo }).stdout).filter.exclude).toEqual(["wayfinder:*"]);
-		expect(JSON.parse(run(["--json", "--include", "ready-for-agent"], { cwd: repo }).stdout).filter).toEqual({
-			include: ["ready-for-agent"],
-			exclude: ["wayfinder:*"],
-		});
-		expect(JSON.parse(run(["--json", "--exclude", "needs-info"], { cwd: repo }).stdout).filter).toEqual({
-			include: [],
-			exclude: ["wayfinder:*", "needs-info"],
-		});
+		expect(JSON.parse(run(["--json", "--print-command"], deps(repo)).stdout).filter.exclude).toEqual(["wayfinder:*"]);
+		const included = run(["--json", "--print-command", "--include", "ready-for-agent"], deps(repo));
+		expect(JSON.parse(included.stdout).filter).toEqual({ include: ["ready-for-agent"], exclude: ["wayfinder:*"] });
+		const excluded = run(["--json", "--print-command", "--exclude", "needs-info"], deps(repo));
+		expect(JSON.parse(excluded.stdout).filter).toEqual({ include: [], exclude: ["wayfinder:*", "needs-info"] });
 	});
 
 	test("refuses a pattern the grammar does not accept", () => {
 		const repo = tempRepo();
 		chainedEffort(repo);
-		const result = run(["--exclude", "way*er"], { cwd: repo });
+		const result = run(["--exclude", "way*er"], deps(repo));
 		expect(result.code).toBe(2);
 		expect(result.stderr).toContain("way*er");
 	});
@@ -202,8 +212,8 @@ describe("bin/nextup.ts", () => {
 
 	test("delivers the whole JSON document to a reader slower than itself", () => {
 		const effort = largeEffort(tempRepo());
-		const piped = Bun.spawnSync(["sh", "-c", `bun ${BIN} --json --effort ${effort} | (sleep 1; cat)`]);
-		const direct = Bun.spawnSync(["bun", BIN, "--json", "--effort", effort]);
+		const piped = Bun.spawnSync(["sh", "-c", `bun ${BIN} --json --print-command --effort ${effort} | (sleep 1; cat)`]);
+		const direct = Bun.spawnSync(["bun", BIN, "--json", "--print-command", "--effort", effort]);
 
 		expect(direct.stdout.length).toBeGreaterThan(65536);
 		expect(piped.stdout.toString()).toBe(direct.stdout.toString());
@@ -215,7 +225,7 @@ describe("bin/nextup.ts", () => {
 		const piped = Bun.spawnSync([
 			"bash",
 			"-c",
-			`bun ${BIN} --json --effort ${effort} | head -c 200 > /dev/null; echo \${PIPESTATUS[0]}`,
+			`bun ${BIN} --json --print-command --effort ${effort} | head -c 200 > /dev/null; echo \${PIPESTATUS[0]}`,
 		]);
 		expect(piped.stdout.toString().trim()).toBe("0");
 		expect(piped.stderr.toString()).not.toContain("EPIPE");
@@ -237,27 +247,122 @@ describe("bin/nextup.ts", () => {
 
 describe("the command line itself", () => {
 	test("prints usage on request", () => {
-		const result = run(["--help"], { cwd: tempRepo() });
+		const result = run(["--help"], deps(tempRepo()));
 		expect(result.code).toBe(0);
 		expect(result.stdout).toContain("--effort");
 		expect(result.stdout).toContain("--json");
 	});
 
 	test("refuses an unrecognised flag rather than ignoring it", () => {
-		const result = run(["--rank-by", "size"], { cwd: tempRepo() });
+		const result = run(["--rank-by", "size"], deps(tempRepo()));
 		expect(result.code).toBe(2);
 		expect(result.stderr).toContain("--rank-by");
 	});
 
 	test("refuses a flag whose value is missing", () => {
-		const result = run(["--effort"], { cwd: tempRepo() });
+		const result = run(["--effort"], deps(tempRepo()));
 		expect(result.code).toBe(2);
 		expect(result.stderr).toContain("--effort");
 	});
 
 	test("refuses a bare argument, which no flag takes yet", () => {
-		const result = run(["md:1"], { cwd: tempRepo() });
+		const result = run(["md:1"], deps(tempRepo()));
 		expect(result.code).toBe(2);
 		expect(result.stderr).toContain("md:1");
+	});
+});
+
+describe("claiming the pick", () => {
+	function ticketPath(effortRoot: string, name: string): string {
+		return join(effortRoot, "issues", name);
+	}
+
+	test("claims the winner in the tracker, and says what it would run on it", () => {
+		const repo = tempRepo();
+		const effort = chainedEffort(repo);
+		const result = run([], deps(repo));
+
+		expect(result.code).toBe(0);
+		expect(readFileSync(ticketPath(effort, "01-first.md"), "utf8")).toContain("Status: claimed");
+		expect(result.stdout).toContain("claimed md:1");
+		expect(result.stdout).toContain("would run: claude '/implement md:1'");
+	});
+
+	// The claim is the whole point of running this: a second run has to see the first one's work, or
+	// two agents start on the same ticket.
+	test("hands the next run a different ticket, because the first one is claimed", () => {
+		const repo = tempRepo();
+		writeEffort(repo, "two-ready", {
+			"01-first.md": "# 01 — Settle the format\n\nStatus: open\n",
+			"02-second.md": "# 02 — Write the reader\n\nStatus: open\n",
+		});
+
+		expect(run([], deps(repo)).stdout).toContain("claimed md:1");
+		expect(run([], deps(repo)).stdout).toContain("claimed md:2");
+		expect(run([], deps(repo)).code).toBe(1);
+	});
+
+	test("reports a claim that could not be written as its own exit status, distinct from a bad flag", () => {
+		const repo = tempRepo();
+		const effort = chainedEffort(repo);
+		chmodSync(ticketPath(effort, "01-first.md"), 0o444);
+
+		const result = run([], deps(repo));
+		expect(result.code).toBe(3);
+		expect(result.stderr).toContain("01-first.md");
+	});
+
+	test("carries the claim and the command in the JSON, so a caller needs no second invocation", () => {
+		const repo = tempRepo();
+		chainedEffort(repo);
+		const document = JSON.parse(run(["--json"], deps(repo)).stdout);
+
+		expect(document.claimed).toBe(true);
+		expect(document.command).toEqual(["claude", "/implement md:1"]);
+	});
+});
+
+describe("--print-command", () => {
+	test("emits the launch command and claims nothing", () => {
+		const repo = tempRepo();
+		const effort = chainedEffort(repo);
+		const result = run(["--print-command"], deps(repo));
+
+		expect(result.code).toBe(0);
+		expect(result.stdout).toBe("claude '/implement md:1'\n");
+		expect(readFileSync(join(effort, "issues", "01-first.md"), "utf8")).not.toContain("claimed");
+	});
+
+	// Piping the command into a shell has to stay possible, so the reasoning cannot share stdout with it.
+	test("keeps why the ticket won off the stream carrying the command", () => {
+		const repo = tempRepo();
+		chainedEffort(repo);
+		const result = run(["--print-command"], deps(repo));
+
+		expect(result.stderr).toContain("md:1 — Settle the format");
+		expect(result.stdout).not.toContain("Settle the format");
+	});
+
+	test("says so on stderr, and prints no command, when there is nothing to start", () => {
+		const repo = tempRepo();
+		writeEffort(repo, "stuck", {
+			"01-first.md": "# 01 — Migrate the store\n\nStatus: open\nBlocked by: 02\n",
+			"02-second.md": "# 02 — Cut over the reads\n\nStatus: open\nBlocked by: 01\n",
+		});
+		const result = run(["--print-command"], deps(repo));
+
+		expect(result.code).toBe(1);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("no candidate to recommend");
+	});
+
+	test("reports the selection as JSON without claiming, which is the whole read-only answer", () => {
+		const repo = tempRepo();
+		const effort = chainedEffort(repo);
+		const document = JSON.parse(run(["--json", "--print-command"], deps(repo)).stdout);
+
+		expect(document.claimed).toBe(false);
+		expect(document.command).toEqual(["claude", "/implement md:1"]);
+		expect(readFileSync(join(effort, "issues", "01-first.md"), "utf8")).not.toContain("claimed");
 	});
 });

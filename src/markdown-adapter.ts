@@ -1,10 +1,10 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { type Token, type Tokens, marked } from "marked";
 import { type BlockedState, type DependencyGraph, deriveEffectiveBlockedness } from "./effective-blockedness";
 import { seedGraph } from "./graph-store";
 import { type Claim, type Ticket, ticketId } from "./ticket";
-import { type TicketRef, TicketRefError, resolveTicketRef } from "./ticket-ref";
+import { type ResolveDeps, type TicketRef, TicketRefError, resolveTicketRef } from "./ticket-ref";
 
 export class MarkdownEffortError extends Error {}
 
@@ -42,7 +42,11 @@ export interface MarkdownEffort {
 	readonly truncated: boolean;
 }
 
-type UnresolvedTicket = Omit<MarkdownTicket, "blocked">;
+/**
+ * One ticket file's own contents. `blocked` is absent because blockedness is derived against a whole
+ * effort's graph and means nothing beside it.
+ */
+export type MarkdownTicketFile = Omit<MarkdownTicket, "blocked">;
 
 /**
  * One parsed file: the ticket, and what its `Status:` says about its openness *to a dependent*. That
@@ -50,7 +54,7 @@ type UnresolvedTicket = Omit<MarkdownTicket, "blocked">;
  * met?" rather than anything a consumer of the ticket asks.
  */
 interface ParsedFile {
-	readonly ticket: UnresolvedTicket;
+	readonly ticket: MarkdownTicketFile;
 	readonly openness: boolean | "unknown";
 }
 
@@ -165,14 +169,20 @@ export function discoverEfforts(repoRoot: string): string[] {
 		.filter(isEffortRoot);
 }
 
-export function readEffort(effortRoot: string): MarkdownEffort {
+/**
+ * `deps` reaches reference resolution, which is where a tracker that resolves a short form against a
+ * git remote runs a process. Markdown resolves numbers and runs none, so nothing here uses it today —
+ * it is threaded so that no path from the command line can fall back to `resolveTicketRef`'s default
+ * runner, which is a real one.
+ */
+export function readEffort(effortRoot: string, deps: ResolveDeps = {}): MarkdownEffort {
 	if (!isEffortRoot(effortRoot)) {
 		throw new MarkdownEffortError(
 			`${effortRoot} is not an effort: it must hold both ${MAP_FILE} and an ${ISSUES_DIR}/ directory`,
 		);
 	}
 
-	const { parsed, truncated } = readTicketFiles(join(effortRoot, ISSUES_DIR));
+	const { parsed, truncated } = readTicketFiles(join(effortRoot, ISSUES_DIR), deps);
 	parsed.sort((a, b) => Number(a.ticket.ref.key) - Number(b.ticket.ref.key));
 
 	const identified = parsed.map((file) => ({ ...file, id: ticketId(file.ticket.ref) }));
@@ -202,7 +212,23 @@ export function readEffort(effortRoot: string): MarkdownEffort {
 	};
 }
 
-function readTicketFiles(issuesDir: string): { parsed: ParsedFile[]; truncated: boolean } {
+/**
+ * One ticket file, read on its own. The claim step's verification path: it re-reads what it just wrote
+ * through the same parser the selector was fed, so a claim counts as landed only if it is one the
+ * reader can see.
+ *
+ * @throws MarkdownEffortError when the path is not named like a ticket file, or the file does not
+ * parse.
+ */
+export function readTicketFile(path: string, deps: ResolveDeps = {}): MarkdownTicketFile {
+	const named = TICKET_FILENAME.exec(basename(path));
+	if (named?.[1] === undefined) {
+		throw new MarkdownEffortError(`${path} is not named like a ticket file`);
+	}
+	return parseTicketFile(readTicketText(path), path, named[1], deps).ticket;
+}
+
+function readTicketFiles(issuesDir: string, deps: ResolveDeps): { parsed: ParsedFile[]; truncated: boolean } {
 	const parsed: ParsedFile[] = [];
 	const seen = new Map<string, string>();
 	let truncated = false;
@@ -226,7 +252,7 @@ function readTicketFiles(issuesDir: string): { parsed: ParsedFile[]; truncated: 
 			truncated = true;
 			continue;
 		}
-		const file = parseTicketFile(readTicketText(path), path, named[1]);
+		const file = parseTicketFile(readTicketText(path), path, named[1], deps);
 		const collision = seen.get(file.ticket.ref.key);
 		if (collision !== undefined) {
 			throw new MarkdownEffortError(`${path} and ${collision} are both ticket ${file.ticket.ref.key}`);
@@ -288,7 +314,7 @@ function stripTitleNumber(title: string, key: string, path: string): string {
 	return title.slice(prefixed[0].length);
 }
 
-function parseTicketFile(text: string, path: string, number: string): ParsedFile {
+function parseTicketFile(text: string, path: string, number: string, deps: ResolveDeps): ParsedFile {
 	const { title: rawTitle, fields } = readHeader(text, path);
 	if (rawTitle === null) {
 		throw new MarkdownEffortError(`${path} has no H1 title`);
@@ -298,6 +324,7 @@ function parseTicketFile(text: string, path: string, number: string): ParsedFile
 	const ref = resolveMarkdownRef(
 		number,
 		() => `${path} is numbered ${number}, which is not a valid ticket number`,
+		deps,
 	);
 	const title = stripTitleNumber(rawTitle, ref.key, path);
 	// A ticket blocking itself, and a cycle between several, are deliberately not refused here: the
@@ -311,7 +338,7 @@ function parseTicketFile(text: string, path: string, number: string): ParsedFile
 	// is missing is only the diagnostic: nothing yet distinguishes a deadlocked effort from a backlog
 	// that happens to be entirely blocked, and that needs the whole graph, so it belongs to the
 	// selector rather than to one adapter's file parsing.
-	const blockers = parseBlockers(fields.get("blocked by"), path);
+	const blockers = parseBlockers(fields.get("blocked by"), path, deps);
 
 	const type = fields.get("type");
 	return {
@@ -342,9 +369,9 @@ function parseTicketFile(text: string, path: string, number: string): ParsedFile
  * refusal is translated to this module's error; the two call sites once translated it separately and
  * one of them was missed for a release.
  */
-function resolveMarkdownRef(token: string, describeRefusal: () => string): TicketRef {
+function resolveMarkdownRef(token: string, describeRefusal: () => string, deps: ResolveDeps): TicketRef {
 	try {
-		return resolveTicketRef(`md:${token}`);
+		return resolveTicketRef(`md:${token}`, deps);
 	} catch (cause) {
 		if (!(cause instanceof TicketRefError)) throw cause;
 		throw new MarkdownEffortError(describeRefusal());
@@ -364,10 +391,86 @@ function resolveMarkdownRef(token: string, describeRefusal: () => string): Ticke
  * silently dropped blocker or an effort refused over a sentence.
  */
 function readHeader(text: string, path: string): { title: string | null; fields: Map<string, string> } {
+	const region = walkHeader(text);
+	return { title: region.title, fields: readFields(region, path) };
+}
+
+/**
+ * The `Status:` field as source, in the forms ADR-0008 accepts: plain, or with the whole line or
+ * either half in bold. Splitting it into prefix, value and suffix is what lets the value be replaced
+ * while the author's own form survives — `**Status:** open` stays bold, and `Status: **open**` keeps
+ * the emphasis on the value it was written around.
+ */
+const STATUS_FIELD_LINE = /^(\s*(?:\*\*|__)?\s*Status\s*(?:\*\*|__)?\s*:\s*(?:\*\*|__)?\s*)(.*?)((?:\*\*|__)?\s*)$/i;
+
+/**
+ * `text` with its `Status:` field set to `value`, adding the field where the file has none. Returns
+ * the whole file rather than writing it, so the claim step owns every side effect and can put the
+ * original back.
+ *
+ * The field is located through the reader's own header-region walk, so this cannot rewrite a line the
+ * reader would treat as body text — a `Status:` under a later heading, or one inside a fenced snippet,
+ * is neither read nor written.
+ *
+ * @throws MarkdownEffortError when the file has no title to write a field under, or carries a Status
+ * field on a line whose source form this does not recognise. Refusing beats adding a second field,
+ * which the reader rejects as a duplicate.
+ */
+export function withStatus(text: string, value: string, path: string): string {
+	const region = walkHeader(text);
+	if (region.title === null) throw new MarkdownEffortError(`${path} has no H1 title`);
+	const lines = text.split("\n");
+
+	for (const paragraph of region.paragraphs) {
+		const raw = paragraph.token.raw.split("\n");
+		for (const [offset, line] of raw.entries()) {
+			const field = STATUS_FIELD_LINE.exec(line);
+			if (field === null) continue;
+			lines[paragraph.line + offset] = `${field[1]}${value}${field[3]}`;
+			return lines.join("\n");
+		}
+	}
+
+	if (readFields(region, path).has("status")) {
+		throw new MarkdownEffortError(`${path} has a Status field this cannot rewrite; set it to ${value} by hand`);
+	}
+	lines.splice(region.afterTitle, 0, "", `Status: ${value}`);
+	return lines.join("\n");
+}
+
+function readFields(region: HeaderRegion, path: string): Map<string, string> {
 	const fields = new Map<string, string>();
+	for (const paragraph of region.paragraphs) addFields(blockLines(paragraph.token), fields, path);
+	return fields;
+}
+
+/**
+ * The header region as source: the title, the paragraphs under it, and where each of those starts in
+ * the file.
+ *
+ * The line numbers are here so that `withStatus` can rewrite the `Status:` field in place. Reader and
+ * writer have to agree on which line is a field — a writer with its own idea of where the region ends
+ * would edit a line the reader treats as body text, and the claim would read back as never written —
+ * so there is one traversal rather than two sets of rules free to drift apart.
+ */
+interface HeaderRegion {
+	readonly title: string | null;
+	/** The line a field is added on when the file has none: the first line past the title's own. */
+	readonly afterTitle: number;
+	readonly paragraphs: readonly { readonly token: Token; readonly line: number }[];
+}
+
+function walkHeader(text: string): HeaderRegion {
+	const paragraphs: { token: Token; line: number }[] = [];
 	let title: string | null = null;
+	let afterTitle = 0;
+	let line = 0;
 
 	for (const token of marked.lexer(text)) {
+		const start = line;
+		// Concatenating every token's `raw` reproduces the source exactly, so counting newlines through
+		// them is what keeps this on the line the next token starts on.
+		line += (token.raw.match(/\n/g) ?? []).length;
 		if (token.type === "space") continue;
 		if (token.type === "heading") {
 			// The first heading is the title, and any heading after it ends the header region whatever its
@@ -376,12 +479,15 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 			// that section's body was read as this ticket's metadata.
 			if (title !== null || (token as Tokens.Heading).depth > 1) break;
 			title = renderedText((token as Tokens.Heading).tokens);
+			// A setext title's raw carries the newline ending its underline and an ATX title's does not,
+			// so only the second has a line still to step over.
+			afterTitle = token.raw.endsWith("\n") ? line : line + 1;
 			continue;
 		}
 		// Only paragraphs *under* the title are the header region. Reading one above it made a preamble
 		// line authoritative metadata for a ticket whose title had not been seen yet.
 		if (token.type === "paragraph") {
-			if (title !== null) addFields(blockLines(token), fields, path);
+			if (title !== null) paragraphs.push({ token, line: start });
 			continue;
 		}
 		// A code block does not end the region: `to-tickets` inlines a snippet where one encodes a
@@ -392,7 +498,7 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 		if (title === null) continue;
 		break;
 	}
-	return { title, fields };
+	return { title, afterTitle, paragraphs };
 }
 
 function addFields(lines: readonly BlockLine[], fields: Map<string, string>, path: string): void {
@@ -529,7 +635,7 @@ function opennessOf(status: StatusReading): boolean | "unknown" {
 // What counts as a markdown ticket number is `resolveTicketRef`'s to define, so a blocker token is
 // validated by trying to resolve it rather than by a second regex here. A local copy of that rule
 // drifted from it silently: the two agreed only for as long as someone remembered both.
-function parseBlockers(value: string | undefined, path: string): TicketRef[] {
+function parseBlockers(value: string | undefined, path: string, deps: ResolveDeps): TicketRef[] {
 	// No field states no blockers. A field with nothing after the colon states nothing, and is how a
 	// declaration whose numbers were written on the following lines presents — those lines match no
 	// field, so treating the empty value as "none" discards a payload the parser plainly saw.
@@ -551,6 +657,7 @@ function parseBlockers(value: string | undefined, path: string): TicketRef[] {
 		return resolveMarkdownRef(
 			token,
 			() => `${path} has Blocked by listing "${token}", which is not a ticket number in this effort`,
+			deps,
 		);
 	});
 }

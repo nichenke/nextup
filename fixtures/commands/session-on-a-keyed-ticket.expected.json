@@ -1,0 +1,16 @@
+{
+	"description": "A tracker keyed by a project prefix rather than a number, standing in for Jira.",
+	"input": {
+		"ref": {
+			"tracker": "jira",
+			"repo": null,
+			"host": null,
+			"key": "ABC-7"
+		},
+		"slashCommand": "/implement"
+	},
+	"argv": [
+		"claude",
+		"/implement jira:ABC-7"
+	]
+}

@@ -1,0 +1,16 @@
+{
+	"description": "A tracker whose reference carries a repository, so the short form the session receives holds one.",
+	"input": {
+		"ref": {
+			"tracker": "github",
+			"repo": "an-owner/a-repo",
+			"host": null,
+			"key": "123"
+		},
+		"slashCommand": "/implement"
+	},
+	"argv": [
+		"claude",
+		"/implement gh:an-owner/a-repo#123"
+	]
+}

@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { run } from "../src/cli";
+import { defaultRunner } from "../src/runner";
 
 // A reader that closes early — `nextup --json | head`, or a pager the user quits — makes the next
 // write raise EPIPE. Unhandled, that crashes with exit 1, which this command defines as "nothing to
@@ -11,7 +12,7 @@ for (const stream of [process.stdout, process.stderr]) {
 	});
 }
 
-const result = run(process.argv.slice(2), { cwd: process.cwd() });
+const result = run(process.argv.slice(2), { cwd: process.cwd(), runner: defaultRunner });
 if (result.stdout !== "") process.stdout.write(result.stdout);
 if (result.stderr !== "") process.stderr.write(result.stderr);
 // Setting the code and letting the process end, rather than `process.exit`, which tears the process
