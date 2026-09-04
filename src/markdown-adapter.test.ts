@@ -129,8 +129,24 @@ describe("readEffort: the observed plain-field format", () => {
 		expect(oneTicket(repo, "01-a.md", "# 01 - Hyphenated\n").title).toBe("Hyphenated");
 	});
 
-	test("a bare Blocked by field with no value reads as no blockers", () => {
-		const ticket = oneTicket(tempRepo(), "01-a.md", "# 01 — A\n\nStatus: open\nBlocked by:\n");
+	// An absent field states no blockers; a present but empty one states nothing, and is how a
+	// declaration whose numbers sit on following lines presents — the payload having been dropped.
+	test("a Blocked by field present but empty is refused, unlike an absent one", () => {
+		const effort = writeEffort(tempRepo(), "effort", {
+			"01-a.md": "# 01 — A\n\nStatus: open\nBlocked by:\n",
+		});
+		expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
+	});
+
+	test("blockers listed on the lines below a Blocked by field are not read as no blockers", () => {
+		const effort = writeEffort(tempRepo(), "effort", {
+			"01-a.md": "# 01 — A\n\nStatus: open\nBlocked by:\n- 2\n",
+		});
+		expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
+	});
+
+	test("a ticket with no Blocked by field at all is unblocked", () => {
+		const ticket = oneTicket(tempRepo(), "01-a.md", "# 01 — A\n\nStatus: open\n");
 		expect(ticket.blockers).toEqual([]);
 		expect(ticket.blocked).toBe("unblocked");
 	});
@@ -147,6 +163,27 @@ describe("readEffort: the observed plain-field format", () => {
 		expect(ticket.blockers).toEqual([
 			{ tracker: "markdown", repo: null, host: null, key: "1" },
 		]);
+	});
+
+	// Only ATX `##` ended the header, so a setext-underlined heading left the whole body inside it and
+	// body prose became the ticket's own Status — which, read as resolved, prunes its dependents.
+	test("a setext-underlined heading ends the header region, like an ATX one", () => {
+		const effort = writeEffort(tempRepo(), "effort", {
+			"01-blocker.md": "# 01 — Blocker\n\nNotes\n-----\n\nStatus: resolved\n",
+			"02-dependent.md": "# 02 — Dependent\n\nStatus: open\nBlocked by: 1\n",
+		});
+		const tickets = byKey(readEffort(effort).tickets);
+		expect(tickets.get("1")!.state).toBe("open");
+		expect(tickets.get("2")!.blocked).toBe("blocked");
+	});
+
+	test("a thematic break ends the header region too", () => {
+		const ticket = oneTicket(
+			tempRepo(),
+			"01-a.md",
+			"# 01 — A\n\nStatus: open\n\n---\n\nStatus: resolved was the old value.\n",
+		);
+		expect(ticket.state).toBe("open");
 	});
 
 	// The counterpart to the Blocked by rule: a Status line below a heading stays prose, because an
@@ -328,6 +365,40 @@ describe("readEffort: malformed input fails loudly", () => {
 			const ticket = oneTicket(repo, "01-a.md", `# 01 — A\n\nStatus: open\n${line}\n`);
 			expect(ticket.blockers.map((ref) => ref.key)).toEqual(["2"]);
 		}
+	});
+
+	// `/^none\b/i` matched on its first word alone, so a blocker appended to an existing "None" line
+	// was discarded and the ticket read a confident unblocked.
+	test("a blocker stated after a leading None clause is not discarded", () => {
+		const repo = tempRepo();
+		for (const value of ["none, 1", "None directly, but 2 must land first", "None known yet"]) {
+			const effort = writeEffort(repo, "effort", {
+				"01-a.md": `# 01 — A\n\nStatus: open\nBlocked by: ${value}\n`,
+			});
+			expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
+		}
+	});
+
+	test("the skill's None prose is still read as no blockers", () => {
+		const repo = tempRepo();
+		for (const value of ["None — can start immediately", "none", "None – nothing to wait on"]) {
+			const ticket = oneTicket(repo, "01-a.md", `# 01 — A\n\nStatus: open\nBlocked by: ${value}\n`);
+			expect(ticket.blockers).toEqual([]);
+		}
+	});
+
+	test("a blocker field under a name this parser does not read is refused, not dropped", () => {
+		const repo = tempRepo();
+		for (const line of ["Blocked-by: 2", "Blockers: 2", "Depends on: 2", "Blocked by 2"]) {
+			const effort = writeEffort(repo, "effort", {
+				"01-a.md": `# 01 — A\n\nStatus: open\n${line}\n`,
+			});
+			expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
+		}
+	});
+
+	test("a second H1 in the header is refused, like every other duplicated field", () => {
+		expectRejected("# 01 — A\n\n# 01 — A again\n\nStatus: open\n", /title/);
 	});
 
 	test("a Blocked by naming ticket numbers in a shape that cannot be read as a field", () => {

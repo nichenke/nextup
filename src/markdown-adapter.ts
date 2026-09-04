@@ -55,16 +55,25 @@ const TITLE_LINE = /^#\s+(.*\S)\s*$/;
 // a number — "3-way merge conflict resolution" became "way merge conflict resolution".
 const TITLE_NUMBER_PREFIX = /^\d+(?:\s+[—–-]\s*|\s*[—–-]\s+)/;
 const SECTION_HEADING = /^#{2,}\s/;
+// A setext underline makes the line above it a heading, and a thematic break divides sections just as
+// visibly. Recognising only ATX `##` left a whole body inside the header region, where prose reading
+// `Status: resolved` became the ticket's own state and pruned its dependents. Only applied once the
+// title is in hand, so a leading `---` frontmatter fence cannot end the header before it begins.
+const SETEXT_OR_BREAK = /^(?:={3,}|-{3,}|\*{3,}|_{3,})$/;
 const CODE_FENCE = /^(?:```|~~~)/;
 const FIELD_LINE = /^(Type|Status|Blocked by)\s*:\s*(.*?)\s*$/i;
 // A field is commonly written as a list item or inside a blockquote; the anchored FIELD_LINE misses
 // both, and a missed `Blocked by:` reads as no blockers at all.
 const LINE_DECORATION = /^(?:[-*+]|\d+\.|>)\s+/;
-// Any remaining shape that names ticket numbers after "blocked by" — a table row, say. Requiring a
-// digit is what separates a declaration from prose merely mentioning being blocked by something.
-const BLOCKED_BY_DECLARATION = /blocked\s*by\b[^A-Za-z0-9]*\d/i;
-// `to-tickets` writes "None — can start immediately" where a ticket has no blockers.
-const NO_BLOCKERS = /^none\b/i;
+// Any remaining shape that names ticket numbers as a dependency — a table row, a hyphenated or
+// renamed field, a missing colon. Requiring a digit is what separates a declaration from prose
+// merely mentioning being blocked by something. Each alternative here was a silent drop: the shape
+// matched no field, so the blockers were neither read nor refused.
+const BLOCKED_BY_DECLARATION = /(?:blocked[\s-]*by|blockers?|depends[\s-]*on)\b[^A-Za-z0-9]*\d/i;
+// `to-tickets` writes "None — can start immediately" where a ticket has no blockers, so the trailing
+// commentary is allowed — but only after a dash. Matching the bare `none` prefix instead swallowed
+// the rest of the value, so "None directly, but 2 must land first" read as no blockers at all.
+const NO_BLOCKERS = /^none\s*(?:[—–-].*)?$/i;
 
 /**
  * The two `Status:` vocabularies that reach this adapter, mapped onto the one open/closed truth.
@@ -216,7 +225,7 @@ function parseTicketFile(text: string, path: string, number: string): ParsedFile
 
 	const status = readStatus(fields.get("status"), path);
 	const ref = requireTicketNumber(number, path);
-	const blockers = parseBlockers(fields.get("blocked by") ?? "", path);
+	const blockers = parseBlockers(fields.get("blocked by"), path);
 	if (blockers.some((blocker) => blocker.key === ref.key)) {
 		throw new MarkdownEffortError(`${path} lists itself as its own blocker, which can never resolve`);
 	}
@@ -277,7 +286,7 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 			continue;
 		}
 		if (inFence) continue;
-		if (SECTION_HEADING.test(line)) {
+		if (SECTION_HEADING.test(line) || (title !== null && SETEXT_OR_BREAK.test(line))) {
 			pastHeader = true;
 			continue;
 		}
@@ -309,7 +318,10 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 
 		const heading = TITLE_LINE.exec(line);
 		if (heading?.[1] !== undefined) {
-			title ??= heading[1].replace(TITLE_NUMBER_PREFIX, "");
+			if (title !== null) {
+				throw new MarkdownEffortError(`${path} has more than one H1 title`);
+			}
+			title = heading[1].replace(TITLE_NUMBER_PREFIX, "");
 			continue;
 		}
 
@@ -356,8 +368,17 @@ function opennessOf(status: StatusReading): boolean | null {
 // What counts as a markdown ticket number is `resolveTicketRef`'s to define, so a blocker token is
 // validated by trying to resolve it rather than by a second regex here. A local copy of that rule
 // drifted from it silently: the two agreed only for as long as someone remembered both.
-function parseBlockers(value: string, path: string): TicketRef[] {
-	if (value === "" || NO_BLOCKERS.test(value)) return [];
+function parseBlockers(value: string | undefined, path: string): TicketRef[] {
+	// No field states no blockers. A field with nothing after the colon states nothing, and is how a
+	// declaration whose numbers were written on the following lines presents — those lines match no
+	// field, so treating the empty value as "none" discards a payload the parser plainly saw.
+	if (value === undefined) return [];
+	if (value === "") {
+		throw new MarkdownEffortError(
+			`${path} has an empty Blocked by field; list the ticket numbers on that line, or write "None" if there are none`,
+		);
+	}
+	if (NO_BLOCKERS.test(value)) return [];
 	return value.split(",").map((entry) => {
 		const token = entry.trim();
 		try {

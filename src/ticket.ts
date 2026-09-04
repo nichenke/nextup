@@ -13,11 +13,10 @@ export interface Claim {
 }
 
 /**
- * One unit of work in a tracker, normalized to a common shape regardless of which tracker it
- * came from. `state` is the tracker's own per-ticket open/closed truth, never a denormalized or
+ * One unit of work in a tracker, normalized to a common shape regardless of which tracker it came
+ * from. `state` is the tracker's own per-ticket open/closed truth, never a denormalized or
  * board-cached status.
- */
-/**
+ *
  * Every property is `readonly` so that an adapter narrowing one in a subtype cannot be widened back
  * through a `Ticket`-typed alias. Without it, TypeScript's mutable properties make such a narrowing
  * unsound: `(md as Ticket).blockers = "unknown"` type-checks and puts the string into a field the
