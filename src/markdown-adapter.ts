@@ -66,10 +66,15 @@ const FIELD_LINE = /^(Type|Status|Blocked by)\s*:\s*(.*?)\s*$/i;
 // both, and a missed `Blocked by:` reads as no blockers at all.
 const LINE_DECORATION = /^(?:[-*+]|\d+\.|>)\s+/;
 // Any remaining shape that names ticket numbers as a dependency — a table row, a hyphenated or
-// renamed field, a missing colon. Requiring a digit is what separates a declaration from prose
-// merely mentioning being blocked by something. Each alternative here was a silent drop: the shape
-// matched no field, so the blockers were neither read nor refused.
-const BLOCKED_BY_DECLARATION = /(?:blocked[\s-]*by|blockers?|depends[\s-]*on)\b[^A-Za-z0-9]*\d/i;
+// renamed field, a missing colon. Each was a silent drop: the shape matched no field, so its blockers
+// were neither read nor refused.
+//
+// Anchored, and applied only after a title has been claimed, because matching the phrase anywhere on
+// any line made ordinary prose ("we were blocked by 3 teams") and ordinary titles ("Blocked by 3
+// upstream changes") abort the whole effort — the mirror of the bug it exists to prevent, presenting
+// as the same "no work available".
+const UNREADABLE_BLOCKER_FIELD = /^(?:blocked[\s-]*by|blockers?|depends[\s-]*on)\b[^A-Za-z0-9]*\d/i;
+const TABLE_CELL = /^\|\s*/;
 // `to-tickets` writes "None — can start immediately" where a ticket has no blockers, so the trailing
 // commentary is allowed — but only after a dash. Matching the bare `none` prefix instead swallowed
 // the rest of the value, so "None directly, but 2 must land first" read as no blockers at all.
@@ -84,8 +89,7 @@ const NO_BLOCKERS = /^none\s*(?:[—–-].*)?$/i;
  * them, `ready-for-agent`, on every actionable ticket it generates. Recognising only the first
  * vocabulary would classify a whole to-tickets-generated effort as unrecognised and yield no
  * candidates at all, a failure that presents as "no work available".
- */
-/**
+ *
  * A `Map`, not an object literal, because the lookup key is arbitrary file content. Indexing an
  * object literal with `Status: constructor` or `Status: __proto__` answers from `Object.prototype`,
  * so the value read as recognised, `state` came back `undefined`, and a blocker seeded as confirmed
@@ -103,9 +107,11 @@ const STATUS_VOCABULARY = new Map<string, StatusReading>([
 	["wontfix", { state: "closed", claimed: false, met: false, label: "wontfix" }],
 ]);
 
+// `readStatus` hands back the object stored in the vocabulary rather than a copy, so a caller
+// assigning to a field would rewrite the vocabulary for the rest of the process.
 interface StatusReading {
-	state: "open" | "closed";
-	claimed: boolean;
+	readonly state: "open" | "closed";
+	readonly claimed: boolean;
 	/**
 	 * Whether closing this way tells a dependent that what it was waiting for actually happened.
 	 * Not the negation of `state`: the convention keys blocking on `resolved` specifically — "a
@@ -114,14 +120,14 @@ interface StatusReading {
 	 * this from `state` prunes an abandoned blocker as satisfied and reports work as ready to start
 	 * on a foundation never built.
 	 */
-	met: boolean;
+	readonly met: boolean;
 	/**
 	 * The triage label this value maps to, per `docs/agents/triage-labels.md`, or `null` where it is
 	 * a wayfinder state rather than a triage role. Without it the role is consumed into open/closed
 	 * and lost, leaving `needs-info` indistinguishable from `open` and the candidate-set label
 	 * filter with nothing to act on.
 	 */
-	label: string | null;
+	readonly label: string | null;
 }
 
 /**
@@ -152,9 +158,12 @@ export function readEffort(effortRoot: string): MarkdownEffort {
 	const parsed = readTicketFiles(join(effortRoot, ISSUES_DIR));
 	parsed.sort((a, b) => Number(a.ticket.ref.key) - Number(b.ticket.ref.key));
 
+	requireNoBlockingCycle(parsed, effortRoot);
+
+	const identified = parsed.map((file) => ({ ...file, id: ticketId(file.ticket.ref) }));
+
 	const store = emptyGraphStore();
-	for (const { ticket, openness } of parsed) {
-		const id = ticketId(ticket.ref);
+	for (const { ticket, openness, id } of identified) {
 		// Markdown has no containment relation, so every ticket is a confirmed root. Leaving the key
 		// absent instead would read as "unknown", and no ticket here could then ever read
 		// "unblocked" — a confirmed open blocker would still win, so the damage is silent.
@@ -170,11 +179,39 @@ export function readEffort(effortRoot: string): MarkdownEffort {
 	return {
 		root: effortRoot,
 		graph,
-		tickets: parsed.map(({ ticket }) => ({
+		tickets: identified.map(({ ticket, id }) => ({
 			...ticket,
-			blocked: deriveEffectiveBlockedness(ticketId(ticket.ref), graph),
+			blocked: deriveEffectiveBlockedness(id, graph),
 		})),
 	};
+}
+
+/**
+ * A blocking cycle can never resolve, so every ticket in it reads `blocked` forever. The traversal
+ * handles that safely — it errs toward blocked, not toward unblocked — but nothing downstream can
+ * tell a deadlock apart from a backlog that is merely all blocked, so it surfaces as "no work
+ * available" with no explanation. Naming it here is the only place the whole effort is in view.
+ */
+function requireNoBlockingCycle(parsed: readonly ParsedFile[], effortRoot: string): void {
+	const edges = new Map(parsed.map(({ ticket }) => [ticket.ref.key, ticket.blockers.map((b) => b.key)]));
+	const settled = new Set<string>();
+	const onPath = new Set<string>();
+
+	const walk = (key: string, path: readonly string[]): void => {
+		if (settled.has(key)) return;
+		if (onPath.has(key)) {
+			const cycle = [...path.slice(path.indexOf(key)), key].join(" -> ");
+			throw new MarkdownEffortError(`${effortRoot} has a blocking cycle that can never resolve: ${cycle}`);
+		}
+		onPath.add(key);
+		// A reference to a number no file carries is a dangling edge, not a cycle; it is left to
+		// resolve as unknown in the graph.
+		for (const blocker of edges.get(key) ?? []) walk(blocker, [...path, key]);
+		onPath.delete(key);
+		settled.add(key);
+	};
+
+	for (const key of edges.keys()) walk(key, []);
 }
 
 function readTicketFiles(issuesDir: string): ParsedFile[] {
@@ -291,6 +328,18 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 			continue;
 		}
 
+		// The title is claimed before the declaration guard runs, so a title that happens to read
+		// "Blocked by 3 upstream changes" is a title rather than a malformed field.
+		const heading = TITLE_LINE.exec(line);
+		if (heading?.[1] !== undefined) {
+			if (pastHeader) continue;
+			if (title !== null) {
+				throw new MarkdownEffortError(`${path} has more than one H1 title`);
+			}
+			title = heading[1].replace(TITLE_NUMBER_PREFIX, "");
+			continue;
+		}
+
 		const undecorated = line.replace(LINE_DECORATION, "");
 		const field = FIELD_LINE.exec(undecorated);
 		const isBlockedBy = field?.[1]?.toLowerCase() === "blocked by";
@@ -301,7 +350,7 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 		// and unclaimed, which a human sees at the confirmation gate, and an Answer or Comments
 		// section legitimately quotes a past `Status:` value as prose. Fencing a line is the escape
 		// hatch for genuinely quoting either.
-		if (!isBlockedBy && BLOCKED_BY_DECLARATION.test(undecorated)) {
+		if (!isBlockedBy && UNREADABLE_BLOCKER_FIELD.test(undecorated.replace(TABLE_CELL, ""))) {
 			throw new MarkdownEffortError(
 				`${path} names blockers in a shape this parser cannot read ("${line}"); write it as a "Blocked by: <numbers>" line above the first section heading, or fence it if it is prose`,
 			);
@@ -313,15 +362,6 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 					`${path} has a Blocked by line below a section heading, where it would be read as no blockers at all; move it above the first heading, or fence it if it is prose`,
 				);
 			}
-			continue;
-		}
-
-		const heading = TITLE_LINE.exec(line);
-		if (heading?.[1] !== undefined) {
-			if (title !== null) {
-				throw new MarkdownEffortError(`${path} has more than one H1 title`);
-			}
-			title = heading[1].replace(TITLE_NUMBER_PREFIX, "");
 			continue;
 		}
 

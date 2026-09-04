@@ -405,6 +405,60 @@ describe("readEffort: malformed input fails loudly", () => {
 		expectRejected("# 01 — A\n\nStatus: open\n\n| Blocked by | 2 |\n", /Blocked by/);
 	});
 
+	// The refusal must not become the mirror of the bug it prevents. Matching the phrase anywhere on
+	// a line made ordinary prose and ordinary titles abort the whole effort, which presents as the
+	// same "no work available" the unrecognised-Status failure was written to avoid.
+	test("a title that reads like a blocker declaration is a title", () => {
+		const repo = tempRepo();
+		for (const title of ["Blocked by 3 upstream changes", "Remove the depends-on 2 workaround"]) {
+			const ticket = oneTicket(repo, "01-a.md", `# 01 — ${title}\n\nStatus: open\n`);
+			expect(ticket.title).toBe(title);
+			expect(ticket.blockers).toEqual([]);
+		}
+	});
+
+	test("body prose that mentions being blocked by a number is prose", () => {
+		const repo = tempRepo();
+		const bodies = [
+			"## Answer\n\nWe were blocked by 3 teams before this landed.",
+			"## Notes\n\nThis depends on 2 things landing upstream first.",
+			"## Notes\n\nThere were 0 blockers, so we shipped.",
+		];
+		for (const body of bodies) {
+			const ticket = oneTicket(repo, "01-a.md", `# 01 — A\n\nStatus: open\n\n${body}\n`);
+			expect(ticket.blockers).toEqual([]);
+			expect(ticket.blocked).toBe("unblocked");
+		}
+	});
+
+	test("a mutual blocking cycle is named, not left as an unexplained absence of work", () => {
+		const effort = writeEffort(tempRepo(), "effort", {
+			"01-a.md": "# 01 — A\n\nStatus: open\nBlocked by: 2\n",
+			"02-b.md": "# 02 — B\n\nStatus: open\nBlocked by: 1\n",
+		});
+		expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
+		expect(() => readEffort(effort)).toThrow(/cycle/i);
+	});
+
+	test("a longer blocking cycle is named too", () => {
+		const effort = writeEffort(tempRepo(), "effort", {
+			"01-a.md": "# 01 — A\n\nStatus: open\nBlocked by: 3\n",
+			"02-b.md": "# 02 — B\n\nStatus: open\nBlocked by: 1\n",
+			"03-c.md": "# 03 — C\n\nStatus: open\nBlocked by: 2\n",
+		});
+		expect(() => readEffort(effort)).toThrow(/cycle/i);
+	});
+
+	test("a diamond is not a cycle", () => {
+		const effort = writeEffort(tempRepo(), "effort", {
+			"01-root.md": "# 01 — Root\n\nStatus: open\n",
+			"02-left.md": "# 02 — Left\n\nStatus: open\nBlocked by: 1\n",
+			"03-right.md": "# 03 — Right\n\nStatus: open\nBlocked by: 1\n",
+			"04-join.md": "# 04 — Join\n\nStatus: open\nBlocked by: 2, 3\n",
+		});
+		expect(byKey(readEffort(effort).tickets).get("4")!.blocked).toBe("blocked");
+	});
+
 	test("prose merely mentioning being blocked is not mistaken for a declaration", () => {
 		const ticket = oneTicket(
 			tempRepo(),
@@ -549,16 +603,6 @@ describe("readEffort: blockedness", () => {
 			"02-a.md": "# 02 — A\n\nStatus: open\nBlocked by: 1, 99\n",
 		});
 		expect(byKey(readEffort(effort).tickets).get("2")!.blocked).toBe("blocked");
-	});
-
-	test("a blocking cycle terminates rather than hanging", () => {
-		const effort = writeEffort(tempRepo(), "effort", {
-			"01-a.md": "# 01 — A\n\nStatus: open\nBlocked by: 2\n",
-			"02-b.md": "# 02 — B\n\nStatus: open\nBlocked by: 1\n",
-		});
-		const tickets = byKey(readEffort(effort).tickets);
-		expect(tickets.get("1")!.blocked).toBe("blocked");
-		expect(tickets.get("2")!.blocked).toBe("blocked");
 	});
 
 	test("a resolved ticket's own blockedness is still reported, not skipped", () => {
