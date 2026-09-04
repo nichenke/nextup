@@ -58,6 +58,13 @@ for a proposed shape is "which tracker behaviour does this stand in for?" — an
 the shape belongs to markdown's syntax rather than to this tool's contract, and it should be neither
 accepted nor tested.
 
+One conflict with a producer falls out of the table, and is resolved in the table's favour. The
+`to-tickets` local template says `Blocked by:` lists "the numbers/**titles**" of the gating tickets. A
+title is refused here, loudly. A tracker hands back a *reference* — an issue dependency, a link — never
+a title, and a title cannot be resolved to an identity without a lookup this adapter does not do. So the
+grammar takes numbers, and a ticket set we generate has to use them; the fix for a title belongs on the
+producer side rather than in a resolver here.
+
 This cuts in the direction of deletion. Where a case exists only because markdown is text — an
 emphasis form, a line-break form, a padding form — it buys nothing for the three adapters that follow
 and should go, unless one of the two authored producers actually emits it.

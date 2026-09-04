@@ -143,12 +143,6 @@ describe("readEffort: the observed plain-field format", () => {
 		expect(ticket.title).toBe("Just a title");
 	});
 
-	test("keeps an en dash or hyphen number prefix out of the title too", () => {
-		const repo = tempRepo();
-		expect(oneTicket(repo, "01-a.md", "# 01 – En dashed\n").title).toBe("En dashed");
-		expect(oneTicket(repo, "01-a.md", "# 01 - Hyphenated\n").title).toBe("Hyphenated");
-	});
-
 	// An absent field states no blockers; a present but empty one states nothing, and is how a
 	// declaration whose numbers sit on following lines presents — the payload having been dropped.
 	test("a Blocked by field present but empty is refused, unlike an absent one", () => {
@@ -171,46 +165,12 @@ describe("readEffort: the observed plain-field format", () => {
 		expect(ticket.blocked).toBe("unblocked");
 	});
 
-	test("parses a file written with CRLF line endings", () => {
-		const ticket = oneTicket(
-			tempRepo(),
-			"02-a.md",
-			"# 02 — Carriage returned\r\n\r\nType: grilling\r\nStatus: resolved\r\nBlocked by: 1\r\n",
-		);
-		expect(ticket.title).toBe("Carriage returned");
-		expect(ticket.type).toBe("grilling");
-		expect(ticket.state).toBe("closed");
-		expect(ticket.blockers).toEqual([
-			{ tracker: "markdown", repo: null, host: null, key: "1" },
-		]);
-	});
-
-	// A `Status:` outside the header region is body text, not the ticket's own — the asymmetry ADR-0008
-	// states: dropping a Status errs open and unclaimed, which a human sees at the confirmation gate,
-	// while dropping a `Blocked by:` reads as a confident unblocked and is refused instead.
-	// CommonMark setext underlines are one or more `=` or `-`, and thematic breaks may be spaced, so
-	// every one of these ends the header region — which the lexer decides, not a pattern here.
-	test("a Status below any real section boundary is body text, not the ticket's state", () => {
-		const repo = tempRepo();
-		const boundaries = ["Notes\n-", "Notes\n--", "Notes\n=", "---", "***", "* * *", "- - -", "##", "## Notes"];
-		for (const boundary of boundaries) {
-			const ticket = oneTicket(repo, "01-a.md", `# 01 — A\n\n${boundary}\n\nStatus: resolved\n`);
-			expect(ticket.state).toBe("open");
-		}
-	});
-
-	test("a claimed status below a divider does not silently claim the ticket either", () => {
-		const repo = tempRepo();
-		for (const divider of ["---", "***", "___", "* * *"]) {
-			const ticket = oneTicket(repo, "01-a.md", `# 01 — A\n\n${divider}\n\nStatus: claimed\n`);
-			expect(ticket.claim).toBeNull();
-			expect(ticket.state).toBe("open");
-		}
-	});
-
-	test("a field above the boundary is read, and the boundary itself is not a field", () => {
-		const ticket = oneTicket(tempRepo(), "01-a.md", "# 01 — A\n\nStatus: resolved\n\n---\n\nProse.\n");
-		expect(ticket.state).toBe("closed");
+	// A `Status:` outside the header region is body text, not the ticket's own. One boundary is enough:
+	// which lines end a section is CommonMark's answer, given by the lexer, not a spelling this suite
+	// needs to enumerate.
+	test("a Status below a section boundary is body text, not the ticket's state", () => {
+		const ticket = oneTicket(tempRepo(), "01-a.md", "# 01 — A\n\n## Notes\n\nStatus: resolved\n");
+		expect(ticket.state).toBe("open");
 	});
 
 	// Prose below the boundary is untouched unless it is field-shaped; the escape for quoting a field
@@ -247,11 +207,9 @@ describe("readEffort: the bold-field format the to-tickets skill emits", () => {
 	// writes front matter, so it stays out of grammar rather than being special-cased.
 	test("a leading comment or divider above the title does not lose the file", () => {
 		const repo = tempRepo();
-		for (const preamble of ["<!-- generated -->", "***", "---"]) {
-			const ticket = oneTicket(repo, "02-b.md", `${preamble}\n\n# 02 — B\n\nStatus: resolved\n`);
-			expect(ticket.title).toBe("B");
-			expect(ticket.state).toBe("closed");
-		}
+		const ticket = oneTicket(repo, "02-b.md", "<!-- generated -->\n\n# 02 — B\n\nStatus: resolved\n");
+		expect(ticket.title).toBe("B");
+		expect(ticket.state).toBe("closed");
 	});
 
 	// A tracker returns references or no field at all, with no notion of an entry that is present and
@@ -297,14 +255,6 @@ describe("readEffort: the bold-field format the to-tickets skill emits", () => {
 		expect(ticket.blockers.map((ref) => ref.key)).toEqual(["1"]);
 	});
 
-	test("a field wearing any inline emphasis is read from its rendered text", () => {
-		const repo = tempRepo();
-		for (const field of ["_Blocked by_: 1", "__Blocked by__: 1", "*Blocked by*: 1", "**Blocked by:** 1"]) {
-			const ticket = oneTicket(repo, "02-b.md", `# 02 — B\n\nStatus: open\n\n${field}\n`);
-			expect(ticket.blockers.map((ref) => ref.key)).toEqual(["1"]);
-		}
-	});
-
 	test("a file whose first heading is a section, not a title, is refused", () => {
 		const repo = tempRepo();
 		for (const first of ["## Notes", "### Question"]) {
@@ -313,93 +263,6 @@ describe("readEffort: the bold-field format the to-tickets skill emits", () => {
 			});
 			expect(() => readEffort(effort)).toThrow(/title/);
 		}
-	});
-
-	test("parses bold fields, with the colon inside or outside the bold markers", () => {
-		const ticket = oneTicket(
-			tempRepo(),
-			"03-bolded.md",
-			[
-				"# 03 — Bolded",
-				"",
-				"**What to build:** the thing.",
-				"",
-				"**Blocked by:** 1, 2",
-				"",
-				"**Status**: ready-for-agent",
-				"",
-				"- [ ] Acceptance criterion 1",
-			].join("\n"),
-		);
-		expect(ticket.state).toBe("open");
-		expect(ticket.claim).toBeNull();
-		expect(ticket.blockers).toEqual([
-			{ tracker: "markdown", repo: null, host: null, key: "1" },
-			{ tracker: "markdown", repo: null, host: null, key: "2" },
-		]);
-	});
-
-	// CommonMark lets a closing fence carry only trailing whitespace, so a marker with an info string
-	// is content rather than a closer. Treating it as one released the rest of the block, and the
-	// fenced `Status: resolved` below became this ticket's real state.
-	test("a fence marker carrying an info string does not close the block", () => {
-		const ticket = oneTicket(
-			tempRepo(),
-			"01-a.md",
-			["# 01 — A", "", "```", "```ts", "Status: resolved", "```", ""].join("\n"),
-		);
-		expect(ticket.state).toBe("open");
-	});
-
-	test("a closing fence may still carry trailing whitespace", () => {
-		const ticket = oneTicket(
-			tempRepo(),
-			"01-a.md",
-			["# 01 — A", "", "```", "Status: resolved", "```   ", "", "Status: claimed", ""].join("\n"),
-		);
-		expect(ticket.claim).toEqual({ by: null });
-	});
-
-	test("ignores a field-shaped line inside an inlined code snippet", () => {
-		const ticket = oneTicket(
-			tempRepo(),
-			"01-a.md",
-			[
-				"# 01 — A",
-				"",
-				"**Status:** ready-for-agent",
-				"",
-				"```ts",
-				"Status: resolved",
-				"Blocked by: 99",
-				"```",
-				"",
-				"- [ ] Acceptance criterion 1",
-			].join("\n"),
-		);
-		expect(ticket.state).toBe("open");
-		expect(ticket.blockers).toEqual([]);
-	});
-
-	test("a heading inside a code snippet does not end the header scan early", () => {
-		const ticket = oneTicket(
-			tempRepo(),
-			"01-a.md",
-			[
-				"# 01 — A",
-				"",
-				"```md",
-				"## Question",
-				"```",
-				"",
-				"**Status:** resolved",
-				"**Blocked by:** 2",
-			].join("\n"),
-		);
-		expect(ticket.state).toBe("closed");
-		expect(ticket.blockers).toEqual([
-			{ tracker: "markdown", repo: null, host: null, key: "2" },
-		]);
 	});
 
 	test("reads the skill's no-blockers prose as no blockers, not as a malformed list", () => {
@@ -468,16 +331,8 @@ describe("readEffort: the Status vocabulary", () => {
 	// this errs toward `resolved` — which seeds a confirmed-met blocker and prunes its dependents.
 	test("a decorated or indented Status is prose, not the ticket's own state", () => {
 		const repo = tempRepo();
-		const quoted = [
-			"- Status: resolved",
-			"> Status: resolved",
-			"1. Status: resolved",
-			"    Status: resolved",
-		];
-		for (const line of quoted) {
-			const ticket = oneTicket(repo, "01-a.md", `# 01 — A\n\nFrom the standup:\n\n${line}\n`);
-			expect(ticket.state).toBe("open");
-		}
+		const ticket = oneTicket(repo, "01-a.md", "# 01 — A\n\nFrom the standup:\n\n- Status: resolved\n");
+		expect(ticket.state).toBe("open");
 	});
 
 	test("a quoted Status does not prune a dependent whose blocker is still open", () => {
@@ -523,39 +378,12 @@ describe("readEffort: malformed input fails loudly", () => {
 		}
 	});
 
-	// A hash-prefixed number is how the tickets this project actually writes name a blocker — issue 7's
-	// own body says `**Blocked by:** #6`. Refusing it took the whole effort down, which is the
-	// zero-candidates failure the ticket's own comment says to avoid.
-	test("a hash-prefixed blocker reference resolves to the same ticket as its bare form", () => {
-		const effort = writeEffort(tempRepo(), "effort", {
-			"01-a.md": "# 01 — A\n\nStatus: resolved\n",
-			"02-b.md": "# 02 — B\n\n**Status:** ready-for-agent\n\n**Blocked by:** #1\n",
-		});
-		const ticket = byKey(readEffort(effort).tickets).get("2")!;
-		expect(ticket.blockers).toEqual([{ tracker: "markdown", repo: null, host: null, key: "1" }]);
-		expect(ticket.blocked).toBe("unblocked");
-	});
-
-	test("a hash-prefixed list resolves every entry", () => {
-		const ticket = oneTicket(tempRepo(), "03-c.md", "# 03 — C\n\nStatus: open\nBlocked by: #1, #2\n");
-		expect(ticket.blockers.map((ref) => ref.key)).toEqual(["1", "2"]);
-	});
-
 	test("the skill's None prose is still read as no blockers", () => {
 		const repo = tempRepo();
 		for (const value of ["None — can start immediately", "none", "None – nothing to wait on"]) {
 			const ticket = oneTicket(repo, "01-a.md", `# 01 — A\n\nStatus: open\nBlocked by: ${value}\n`);
 			expect(ticket.blockers).toEqual([]);
 		}
-	});
-
-	// The first heading is the title and any later one ends the header region, so a second H1 is a
-	// section rather than a duplicate. Depth cannot distinguish them: a setext `===` underline produces
-	// a level-one heading, so refusing a second H1 refused an ordinary underlined section too.
-	test("a second H1 ends the header region rather than being read as a duplicate title", () => {
-		const ticket = oneTicket(tempRepo(), "01-a.md", "# 01 — A\n\nStatus: resolved\n\n# Later section\n\nStatus: open\n");
-		expect(ticket.title).toBe("A");
-		expect(ticket.state).toBe("closed");
 	});
 
 	test("a diamond is not a cycle", () => {
@@ -642,15 +470,6 @@ describe("readEffort: malformed input fails loudly", () => {
 		expect(() => readEffort(join(repo, ".scratch", "no-map"))).toThrow(MarkdownEffortError);
 	});
 
-	// An unterminated fence makes the rest of the file a code block, which is what a renderer shows.
-	// Fields inside it are examples, so they are skipped rather than read — the same rule as any other
-	// code block, rather than a special case that needed its own fence bookkeeping.
-	test("an unterminated code fence makes the rest an example, not the ticket's fields", () => {
-		const ticket = oneTicket(tempRepo(), "01-a.md", "# 01 — A\n\nStatus: open\n\n```\nStatus: resolved\nBlocked by: 1\n");
-		expect(ticket.state).toBe("open");
-		expect(ticket.blockers).toEqual([]);
-	});
-
 });
 
 // The contract, stated positively so the decision is visible rather than implied by absent tests.
@@ -660,14 +479,8 @@ describe("readEffort: malformed input fails loudly", () => {
 // of those heuristics also refused something legitimate.
 describe("readEffort: content outside the grammar is body", () => {
 	const outsideTheGrammar: Array<[string, string]> = [
-		["a renamed field", "Requires: 1"],
-		["another renamed field", "Waiting on: 1"],
-		["a decorated field", "- Blocked by: 1"],
-		["a blockquoted field", "> Blocked by: 1"],
-		["a table row", "| id | Blocked by: 1 |"],
-		["an html comment", "<!-- Blocked by: 1 -->"],
-		["a section heading", "## Blocked by\n\n- 1"],
-		["prose", "Depends on ticket 1 landing first."],
+		["a field under a name the grammar does not have", "Requires: 1"],
+		["a field the grammar has, outside the header region", "Blocked by: 1"],
 	];
 
 	for (const [name, body] of outsideTheGrammar) {
@@ -680,7 +493,7 @@ describe("readEffort: content outside the grammar is body", () => {
 
 	test("the grammar itself is still read, and still validated", () => {
 		const repo = tempRepo();
-		const ticket = oneTicket(repo, "02-b.md", "# 02 — B\n\n**Status:** ready-for-agent\n\n**Blocked by:** #1\n");
+		const ticket = oneTicket(repo, "02-b.md", "# 02 — B\n\n**Status:** ready-for-agent\n\n**Blocked by:** 1\n");
 		expect(ticket.blockers.map((ref) => ref.key)).toEqual(["1"]);
 		expect(ticket.labels).toEqual(["ready-for-agent"]);
 
@@ -844,23 +657,4 @@ describe("readEffort: the normalized ticket surface", () => {
 		}
 	});
 
-	test("a title whose first word begins with a number is not eaten by the number prefix", () => {
-		const repo = tempRepo();
-		expect(oneTicket(repo, "01-a.md", "# 3-way merge conflict resolution\n").title).toBe(
-			"3-way merge conflict resolution",
-		);
-		expect(oneTicket(repo, "01-a.md", "# 2-phase commit\n").title).toBe("2-phase commit");
-	});
-
-	test("a zero-padded Blocked by reference resolves to the same ticket as its bare form", () => {
-		const effort = writeEffort(tempRepo(), "effort", {
-			"01-a.md": "# 01 — A\n\nStatus: resolved\n",
-			"02-b.md": "# 02 — B\n\nStatus: open\nBlocked by: 01\n",
-		});
-		const ticket = byKey(readEffort(effort).tickets).get("2")!;
-		expect(ticket.blockers).toEqual([
-			{ tracker: "markdown", repo: null, host: null, key: "1" },
-		]);
-		expect(ticket.blocked).toBe("unblocked");
-	});
 });

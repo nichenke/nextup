@@ -53,12 +53,12 @@ const MAP_FILE = "map.md";
 const ISSUES_DIR = "issues";
 
 const TICKET_FILENAME = /^(\d+)-.*\.md$/;
-// The number already comes from the filename, so a title repeating it is a duplicate rather than
-// part of the title. `to-tickets` writes the em dash form; the en dash and hyphen are accepted
-// because nothing constrains a hand-written title to match it. Whitespace is required on at least
-// one side of the dash, or the pattern eats the first word of a title that legitimately starts with
-// a number — "3-way merge conflict resolution" became "way merge conflict resolution".
-const TITLE_NUMBER_PREFIX = /^(\d+)(?:\s+[—–-]\s*|\s*[—–-]\s+)/;
+// The number already comes from the filename, so a title repeating it is a duplicate rather than part
+// of the title. Only the em dash form the local ticket template writes — `# <NN> — <Title>`. Accepting
+// an en dash or hyphen too was invented tolerance, and the hyphen form then needed its own guard against
+// eating the first word of a title that legitimately starts with a number ("3-way merge conflict
+// resolution"). Requiring the spacing the template uses removes both the variants and the guard.
+const TITLE_NUMBER_PREFIX = /^(\d+)\s+—\s+/;
 // The whole accepted field grammar, per ADR-0008: a `Name: value` line, plain or bold, inside a
 // paragraph of the header region. Deliberately narrow — the only producers writing these files are the
 // wayfinder local-markdown convention and the `to-tickets` skill.
@@ -459,11 +459,11 @@ function parseBlockers(value: string | undefined, path: string): TicketRef[] {
 	// of an entry that is present and blank.
 	return value.split(",").map((entry) => {
 		const token = entry.trim();
-		// `#6` is how the tickets this project writes name a blocker — issue 7's own body says
-		// `**Blocked by:** #6` — so the prefix is accepted per ADR-0008's clause for a shape an authored
-		// producer emits. Refusing it took the whole effort down and yielded no candidates at all.
+		// No `#` prefix: that is GitHub's rendering syntax, and a tracker's API hands back a dependency
+		// object rather than the text a reader sees. The local ticket template writes bare numbers, so a
+		// `#` here fails loudly rather than being quietly stripped.
 		return resolveMarkdownRef(
-			token.replace(/^#/, ""),
+			token,
 			() => `${path} has Blocked by listing "${token}", which is not a ticket number in this effort`,
 		);
 	});
