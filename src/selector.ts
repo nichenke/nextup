@@ -54,14 +54,10 @@ export type Decision =
 
 /**
  * A reason the answer is worth less than a confident one. Kept apart rather than folded into one
- * boolean because they call for different actions: a truncated fetch wants a narrower query, unknown
- * blocking on the pick wants a look at the tracker, and a partial unblocks count says the second rung
- * ranked on numbers that are floors.
+ * boolean because they call for different actions: a truncated fetch wants a narrower query, and
+ * unknown blocking on the pick wants a look at the tracker.
  */
-export type Degrade =
-	| { readonly kind: "truncated" }
-	| { readonly kind: "unknown-blocking" }
-	| { readonly kind: "partial-unblocks" };
+export type Degrade = { readonly kind: "truncated" } | { readonly kind: "unknown-blocking" };
 
 /**
  * Where every ticket went. `closed + claimed + filtered + candidates === tickets` and
@@ -93,7 +89,7 @@ export interface Selection {
 export function select(input: SelectionInput): Selection {
 	const ids = identify(input.tickets);
 	const unblocks = countUnblocks(input.tickets, ids, input.graph);
-	const placements = input.tickets.map((ticket) => place(ticket, ids.get(ticket)!, unblocks.counts, input));
+	const placements = input.tickets.map((ticket) => place(ticket, ids.get(ticket)!, unblocks, input));
 
 	const confirmed: Candidate[] = [];
 	const unknown: Candidate[] = [];
@@ -114,13 +110,7 @@ export function select(input: SelectionInput): Selection {
 		counts: tally(placements),
 		// A floor for the unblocks count only costs something once two candidates were ordered against
 		// each other, which is when a missing edge can put them the wrong way round.
-		degraded: degradesOf({
-			truncated: input.truncated,
-			unknownBlocking: consulted === "unknown",
-			// A floor for the unblocks count only costs something once two candidates were ordered against
-			// each other, which is when a missing edge can put them the wrong way round.
-			partialUnblocks: unblocks.partial && ranked.length > 1,
-		}),
+		degraded: degradesOf({ truncated: input.truncated, unknownBlocking: consulted === "unknown" }),
 		filter: input.filter.spec,
 	};
 }
@@ -209,33 +199,19 @@ function countUnblocks(
 	tickets: readonly Ticket[],
 	ids: Map<Ticket, IssueId>,
 	graph: DependencyGraph,
-): UnblocksCount {
+): Map<IssueId, number> {
 	const counts = new Map<IssueId, number>();
-	let partial = false;
 	for (const ticket of tickets) {
 		if (ticket.state !== "open") continue;
 		const dependent = ids.get(ticket)!;
 		const blockers = graph.blockers(dependent);
-		if (blockers === "unknown") {
-			// This ticket's edges are unreadable, so whichever candidates it depends on are undercounted.
-			// Every count below is therefore a floor, and the rung can rank two candidates the wrong way
-			// round without any of them looking uncertain — the ticket carrying the missing edges is the
-			// one that degrades, and it need not be a candidate at all.
-			partial = true;
-			continue;
-		}
+		if (blockers === "unknown") continue;
 		for (const blocker of new Set(blockers)) {
 			if (blocker === dependent) continue;
 			counts.set(blocker, (counts.get(blocker) ?? 0) + 1);
 		}
 	}
-	return { counts, partial };
-}
-
-/** `partial` marks every count in `counts` as a lower bound rather than a total. */
-interface UnblocksCount {
-	readonly counts: Map<IssueId, number>;
-	readonly partial: boolean;
+	return counts;
 }
 
 function candidateOf(
@@ -303,15 +279,10 @@ function decidingRung(pick: Candidate, runnerUp: Candidate): Rung {
 	return LADDER[LADDER.length - 1]!.rung;
 }
 
-/** Named rather than positional: three booleans in a row are silently transposable at the call site. */
-function degradesOf(reasons: {
-	truncated: boolean;
-	unknownBlocking: boolean;
-	partialUnblocks: boolean;
-}): Degrade[] {
+/** Named rather than positional: two booleans in a row are silently transposable at the call site. */
+function degradesOf(reasons: { truncated: boolean; unknownBlocking: boolean }): Degrade[] {
 	const degrades: Degrade[] = [];
 	if (reasons.truncated) degrades.push({ kind: "truncated" });
 	if (reasons.unknownBlocking) degrades.push({ kind: "unknown-blocking" });
-	if (reasons.partialUnblocks) degrades.push({ kind: "partial-unblocks" });
 	return degrades;
 }

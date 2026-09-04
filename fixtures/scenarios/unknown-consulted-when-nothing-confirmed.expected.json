@@ -52,8 +52,7 @@
 		"blocked": 0
 	},
 	"degraded": [
-		"unknown-blocking",
-		"partial-unblocks"
+		"unknown-blocking"
 	],
 	"filter": {
 		"include": [],

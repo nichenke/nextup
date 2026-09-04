@@ -54,7 +54,6 @@ function candidateJson(candidate: Candidate): CandidateJson {
 const DEGRADE_REASON: Record<Degrade["kind"], string> = {
 	truncated: "the ticket set was truncated, so a better candidate may not have been read",
 	"unknown-blocking": "no candidate's blockers could be confirmed closed, so this pick may be blocked",
-	"partial-unblocks": "some tickets' blockers could not be read, so every unblocks count is a floor",
 };
 
 export function renderSelection(selection: Selection): string {
