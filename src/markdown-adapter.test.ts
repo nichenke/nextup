@@ -177,6 +177,18 @@ describe("readEffort: the observed plain-field format", () => {
 		expect(tickets.get("2")!.blocked).toBe("blocked");
 	});
 
+	// The bold-marker strip runs first and collapses `**` pairs, so an asterisk break reached the
+	// break pattern as one stray `*` and never matched — leaving body prose inside the header region.
+	test("an asterisk thematic break ends the header region, like a dashed one", () => {
+		const effort = writeEffort(tempRepo(), "effort", {
+			"01-blocker.md": "# 01 — Blocker\n\nType: decision\n\n***\n\nStatus: resolved\n",
+			"02-dependent.md": "# 02 — Dependent\n\nStatus: open\nBlocked by: 1\n",
+		});
+		const tickets = byKey(readEffort(effort).tickets);
+		expect(tickets.get("1")!.state).toBe("open");
+		expect(tickets.get("2")!.blocked).toBe("blocked");
+	});
+
 	test("a thematic break ends the header region too", () => {
 		const ticket = oneTicket(
 			tempRepo(),
@@ -429,6 +441,48 @@ describe("readEffort: malformed input fails loudly", () => {
 
 	test("a second H1 in the header is refused, like every other duplicated field", () => {
 		expectRejected("# 01 — A\n\n# 01 — A again\n\nStatus: open\n", /title/);
+	});
+
+	// The refusal detector is anchored after stripping markdown markers, so its completeness rests on
+	// the marker set being closed rather than on enumerating declaration shapes. Each of these got
+	// through by wearing a marker the strip did not know, or two where it stripped one.
+	test("a blocker declaration wearing any combination of markdown markers is refused", () => {
+		const repo = tempRepo();
+		const decorated = [
+			"- [ ] Blocked by: 2",
+			"- [x] Blocked by: 2",
+			"> - Blocked by: 2",
+			"- > Blocked by: 2",
+			"1. - Blocked by: 2",
+			"- - Blocked by: 2",
+			"| - Blocked by | 2 |",
+		];
+		for (const line of decorated) {
+			const effort = writeEffort(repo, "effort", {
+				"01-a.md": `# 01 — A\n\nStatus: open\n${line}\n`,
+			});
+			expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
+		}
+	});
+
+	test("a blocker field under any separator or near-miss name is refused", () => {
+		const repo = tempRepo();
+		for (const line of ["Blocked_by: 2", "Dependencies: 2", "Depends: 2", "Blocker: 2"]) {
+			const effort = writeEffort(repo, "effort", {
+				"01-a.md": `# 01 — A\n\nStatus: open\n${line}\n`,
+			});
+			expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
+		}
+	});
+
+	test("a blocker heading is refused at every level, not just below the first", () => {
+		const repo = tempRepo();
+		for (const heading of ["# Blocked by", "## Blocked by", "### Dependencies"]) {
+			const effort = writeEffort(repo, "effort", {
+				"01-a.md": `# 01 — A\n\nStatus: open\n\n## Notes\n\ntext\n\n${heading}\n\n- 2\n`,
+			});
+			expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
+		}
 	});
 
 	test("a Blocked by naming ticket numbers in a shape that cannot be read as a field", () => {

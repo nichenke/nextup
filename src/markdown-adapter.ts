@@ -76,8 +76,23 @@ const INDENTED = /^[ \t]/;
 // reads as no blockers at all. Anchoring after the strip is what keeps prose out — a sentence
 // mentioning being blocked does not begin with the field's name — and no digit is required, since a
 // declaration whose numbers sit on the lines below it has none on its own line.
-const LEADING_MARKERS = /^(?:[-*+>|]|#{1,6}|\d+\.)\s*/;
-const UNREADABLE_BLOCKER_FIELD = /^(?:blocked[\s-]*by|blockers?|depends[\s-]*on)\b/i;
+//
+// The set is markdown's own line markers, which is what makes it closed: task-list boxes and nested
+// prefixes each got a declaration through while the set was guessed from the shapes review happened
+// to find. Stripped repeatedly, because `> - Blocked by: 2` wears two and one pass left a marker on.
+const LEADING_MARKER = /^(?:[-*+>|]|#{1,6}|\d+\.|\[[ xX]?\])\s*/;
+// Any separator between the words, and the near-miss names, for the same reason: `Blocked_by` and
+// `Dependencies` were dropped because the pattern spelled the separators and suffixes it had seen.
+const UNREADABLE_BLOCKER_FIELD = /^(?:blocked?[\s_-]*by|blockers?|depend(?:s|encies|ency)?)\b/i;
+
+function undecorate(line: string): string {
+	let stripped = line;
+	for (let previous = ""; stripped !== previous; ) {
+		previous = stripped;
+		stripped = stripped.replace(LEADING_MARKER, "");
+	}
+	return stripped;
+}
 // `to-tickets` writes "None — can start immediately" where a ticket has no blockers, so the trailing
 // commentary is allowed — but only after a dash. Matching the bare `none` prefix instead swallowed
 // the rest of the value, so "None directly, but 2 must land first" read as no blockers at all.
@@ -318,6 +333,10 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 	for (const raw of text.split("\n")) {
 		const bare = raw.replace(/\*\*/g, "");
 		const line = bare.trim();
+		// Tested before the bold strip above has a say: that strip collapses `**` pairs, so `***`
+		// reached the pattern as a single stray `*` and an asterisk break never ended the header
+		// region — leaving body prose to be read as this ticket's own fields.
+		const isBreak = SETEXT_OR_BREAK.test(raw.trim());
 		// A `to-tickets` ticket has no section heading at all, so its whole body is header region, and
 		// that skill inlines a code snippet where one encodes a decision. A field-shaped line in a
 		// snippet is not this ticket's field. A fenced `##` is not a section heading either, so the
@@ -329,10 +348,11 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 		if (inFence) continue;
 
 		// The title is claimed before the declaration guard runs, so a title that happens to read
-		// "Blocked by 3 upstream changes" is a title rather than a malformed field.
+		// "Blocked by 3 upstream changes" is a title rather than a malformed field. A level-1 heading
+		// below the header region is a section heading rather than a title, though, so it must reach
+		// the guard — `# Blocked by` with its numbers listed underneath was dropped by returning here.
 		const heading = TITLE_LINE.exec(line);
-		if (heading?.[1] !== undefined) {
-			if (pastHeader) continue;
+		if (heading?.[1] !== undefined && !pastHeader) {
 			if (title !== null) {
 				throw new MarkdownEffortError(`${path} has more than one H1 title`);
 			}
@@ -347,13 +367,13 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 		// Runs before the section-heading branch, because `## Blocked by` with its numbers listed
 		// underneath is a declaration too, and a branch that skipped headings first left it silently
 		// reading as no blockers.
-		if (!isBlockedBy && UNREADABLE_BLOCKER_FIELD.test(line.replace(LEADING_MARKERS, ""))) {
+		if (!isBlockedBy && UNREADABLE_BLOCKER_FIELD.test(undecorate(line))) {
 			throw new MarkdownEffortError(
 				`${path} names blockers in a shape this parser cannot read ("${line}"); write it as an unindented "Blocked by: <numbers>" line above the first section heading, or fence it if it is prose`,
 			);
 		}
 
-		if (SECTION_HEADING.test(line) || (title !== null && SETEXT_OR_BREAK.test(line))) {
+		if (SECTION_HEADING.test(line) || (title !== null && isBreak)) {
 			pastHeader = true;
 			continue;
 		}
