@@ -161,7 +161,16 @@ interface StatusReading {
  * `readEffort` refuses it, so the two cannot come to disagree about what they are looking at.
  */
 function isEffortRoot(root: string): boolean {
-	return existsSync(join(root, MAP_FILE)) && existsSync(join(root, ISSUES_DIR));
+	// The entry types matter, not just existence: a `map.md` that is a directory passed an existence
+	// check and then read as a valid effort holding no tickets, which a caller cannot tell apart from a
+	// real effort with nothing takeable.
+	return entryIs(join(root, MAP_FILE), "file") && entryIs(join(root, ISSUES_DIR), "directory");
+}
+
+function entryIs(path: string, kind: "file" | "directory"): boolean {
+	const entry = onFilesystem(path, "inspected", () => statSync(path, { throwIfNoEntry: false }));
+	if (entry === undefined) return false;
+	return kind === "file" ? entry.isFile() : entry.isDirectory();
 }
 
 /** Effort directories under `<repoRoot>/.scratch`. */

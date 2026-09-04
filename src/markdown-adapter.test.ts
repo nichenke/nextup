@@ -77,6 +77,18 @@ describe("discoverEfforts", () => {
 	test("returns nothing when the repo has no scratch directory at all", () => {
 		expect(discoverEfforts(tempRepo())).toEqual([]);
 	});
+
+	// Existence is not enough: a `map.md` that is a directory passed discovery and then read as a valid
+	// effort with no tickets, which is indistinguishable from a real effort with nothing takeable.
+	test("skips a directory whose map file is not a file, or whose issues is not a directory", () => {
+		const repo = tempRepo();
+		mkdirSync(join(repo, ".scratch", "map-is-a-dir", "issues"), { recursive: true });
+		mkdirSync(join(repo, ".scratch", "map-is-a-dir", "map.md"), { recursive: true });
+		mkdirSync(join(repo, ".scratch", "issues-is-a-file"), { recursive: true });
+		writeFileSync(join(repo, ".scratch", "issues-is-a-file", "map.md"), "## Destination\n");
+		writeFileSync(join(repo, ".scratch", "issues-is-a-file", "issues"), "not a directory\n");
+		expect(discoverEfforts(repo)).toEqual([]);
+	});
 });
 
 describe("readEffort: the observed plain-field format", () => {
