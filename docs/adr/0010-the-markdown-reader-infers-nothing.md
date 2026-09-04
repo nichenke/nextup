@@ -36,6 +36,32 @@ Jira issue links. None of them expresses a blocker as prose that has to be recog
 inferring intent from markdown text buys nothing for the three adapters still to come, and the risk it
 was buying down is a risk only markdown has.
 
+## The rule this generalises to
+
+**Only create and test markdown shapes that another tracker could produce.**
+
+Markdown is the fixture substrate for the contract, so a shape earns its place by standing in for
+something GitHub, GitLab or Jira can hand back. Those three express the ticket surface as structured
+data, and that fixes what the shapes are:
+
+| The contract needs | A tracker gives | So markdown needs |
+| --- | --- | --- |
+| blockers | a list of references, no links at all, or a failed read | a list, an explicit none, or nothing |
+| open/closed | a state, plus a resolution that says whether it was completed | `open`, `resolved`, `wontfix` |
+| claim | an assignee, or none | `claimed`, or its absence |
+| title, labels, kind | a title, labels, an issue type | an H1, the triage roles, `Type:` |
+
+Anything outside that table is text-shape variance, and text-shape variance is the thing that produced
+seven review rounds. A new markdown case is worth writing when it exercises a column of the contract
+that no existing case reaches; it is not worth writing because markdown happens to permit it. The test
+for a proposed shape is "which tracker behaviour does this stand in for?" — and if the answer is none,
+the shape belongs to markdown's syntax rather than to this tool's contract, and it should be neither
+accepted nor tested.
+
+This cuts in the direction of deletion. Where a case exists only because markdown is text — an
+emphasis form, a line-break form, a padding form — it buys nothing for the three adapters that follow
+and should go, unless one of the two authored producers actually emits it.
+
 ## Consequences
 
 A blocker written outside the grammar is not read, and the ticket reads unblocked. That is a real
