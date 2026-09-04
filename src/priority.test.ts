@@ -21,8 +21,6 @@ describe("readPriority", () => {
 		expect(readPriority(["P3", "priority:1"])).toEqual({ rank: 1, unread: [] });
 	});
 
-	// A named value has no order this tool can supply, and guessing one silently reorders the backlog.
-	// Reporting it is what lets a bad pick be traced to a label the ladder never read.
 	test("reads no rank from a named priority, and reports it as unread", () => {
 		expect(readPriority(["priority:high"])).toEqual({ rank: null, unread: ["priority:high"] });
 	});

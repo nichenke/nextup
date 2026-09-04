@@ -33,14 +33,11 @@ export function formatTicketRef(ref: TicketRef): string {
 
 /**
  * Orders two references, ascending. This is the ranking ladder's terminal rung, so it must be a total
- * order over distinct references — ADR-0003 records why: a rung that returns equality hands the
- * decision to whatever order the tracker's response happened to arrive in, which is the
- * non-determinism the fixed ladder exists to remove.
+ * order over distinct references; ADR-0003 says why.
  *
- * Every part of the reference participates, in the order tracker, host, repository, key. Comparing
- * only the number ties two projects that each have a ticket 1. Strings are compared by code unit
- * rather than through `localeCompare`, whose result depends on the runtime's locale data and so
- * cannot be pinned by a fixture.
+ * Every part of the reference participates, in the order tracker, host, repository, key. Strings are
+ * compared by code unit rather than through `localeCompare`, whose result depends on the runtime's
+ * locale data and so cannot be pinned by a fixture.
  */
 export function compareTicketRefs(a: TicketRef, b: TicketRef): number {
 	return (

@@ -270,8 +270,6 @@ describe("compareTicketRefs", () => {
 		expect(compareTicketRefs({ tracker: "jira", repo: null, host: null, key: "1" }, md("1"))).toBeLessThan(0);
 	});
 
-	// Nothing may tie except a reference identical in every part, or the ladder's terminal rung stops
-	// being terminal and hands the decision to the order the tickets arrived in.
 	test("ties only on a reference identical in every part", () => {
 		expect(compareTicketRefs(md("7"), md("7"))).toBe(0);
 		expect(compareTicketRefs(md("07"), md("7"))).toBeLessThan(0);

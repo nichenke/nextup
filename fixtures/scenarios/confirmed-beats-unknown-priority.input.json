@@ -1,5 +1,5 @@
 {
-	"description": "A GitHub repository with the dependencies API disabled and no `Blocked by:` line reports its P0 ticket's blockers as unknown. The confirmed-unblocked P1 wins outright, because the partition is applied before the ladder — sorting unknown last within its rung would hand this to the P0.",
+	"description": "A GitHub repository with the dependencies API disabled and no `Blocked by:` line reports its P0 ticket's blockers as unknown. The confirmed-unblocked P1 wins outright.",
 	"truncated": false,
 	"filter": { "include": [], "exclude": ["wayfinder:*"] },
 	"tickets": [

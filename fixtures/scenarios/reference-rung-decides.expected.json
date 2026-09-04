@@ -6,6 +6,7 @@
 		"labels": [],
 		"blocked": "unblocked",
 		"priority": null,
+		"unreadPriority": [],
 		"unblocks": 0
 	},
 	"decision": {
@@ -22,6 +23,7 @@
 			"labels": [],
 			"blocked": "unblocked",
 			"priority": null,
+			"unreadPriority": [],
 			"unblocks": 0
 		},
 		{
@@ -31,6 +33,7 @@
 			"labels": [],
 			"blocked": "unblocked",
 			"priority": null,
+			"unreadPriority": [],
 			"unblocks": 0
 		}
 	],

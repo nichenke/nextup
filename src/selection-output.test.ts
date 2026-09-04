@@ -58,6 +58,7 @@ describe("selectionJson", () => {
 			labels: ["P1"],
 			blocked: "unblocked",
 			priority: 1,
+			unreadPriority: [],
 			unblocks: 1,
 		});
 	});
@@ -100,7 +101,6 @@ describe("renderSelection", () => {
 		expect(text).toContain("https://example.com/issues/1");
 	});
 
-	// The sentinel is what a script greps for, so it leads its own line and every degrade gets one.
 	test("carries one greppable sentinel line per degrade", () => {
 		const text = renderSelection(selectionOf([{ key: "1", blockers: "unknown" }], true));
 		const sentinels = text.split("\n").filter((line) => line.startsWith(DEGRADED_PREFIX));
@@ -120,9 +120,15 @@ describe("renderSelection", () => {
 		expect(text).toContain("2 blocked");
 	});
 
-	test("names a priority label the ladder did not read", () => {
+	test("names a priority label the ladder did not read, on the candidate that carried it", () => {
 		const text = renderSelection(selectionOf([{ key: "1", labels: ["priority:high"] }]));
-		expect(text).toContain("priority:high");
+		expect(text).toContain("priority unread: priority:high");
+	});
+
+	test("separates a candidate carrying no priority from one whose priority went unread", () => {
+		const text = renderSelection(selectionOf([{ key: "1", labels: ["priority:high"] }, { key: "2" }]));
+		expect(text).toContain("priority unread: priority:high");
+		expect(text).toContain("priority none");
 	});
 
 	test("names a handful of runners-up and counts the rest", () => {

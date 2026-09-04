@@ -17,9 +17,8 @@ export interface LabelFilterSpec {
 export const DEFAULT_LABEL_FILTER: LabelFilterSpec = { include: [], exclude: ["wayfinder:*"] };
 
 /**
- * A validated filter. Only `compileLabelFilter` produces one, so a pattern the grammar rejects cannot
- * reach a decision — a malformed pattern that quietly matched nothing is indistinguishable from a
- * filter that found nothing to exclude.
+ * A filter whose patterns `compileLabelFilter` has already checked. `spec` is what ran, for output to
+ * echo back; `admits` is the decision.
  */
 export interface LabelFilter {
 	readonly spec: LabelFilterSpec;
@@ -30,9 +29,12 @@ export interface LabelFilter {
  * The whole pattern grammar: a label, matched case-insensitively, optionally ending in `*` to match a
  * prefix. A `*` anywhere else is refused rather than read literally.
  *
- * Case-insensitivity is deliberate and wider than any one tracker's rule: GitHub and GitLab both
- * refuse two labels differing only in case, so folding case cannot merge two distinct labels there,
- * and typing `--exclude Wayfinder:*` against a lowercase label is otherwise a silent miss.
+ * Case is folded on both sides, which deliberately over-matches. A pattern is typed by hand where a
+ * label is not, so `--exclude Wayfinder:*` against a lowercase label is otherwise a silent miss — and
+ * the cost is that two labels differing only in case cannot be told apart. Nothing here prevents such a
+ * pair: GitLab's label uniqueness is a plain `validates :title, uniqueness:` with no case handling, so
+ * Postgres' case-sensitive collation admits both (gitlab-org/gitlab-foss issue 14909), and a markdown
+ * effort enforces no uniqueness at all.
  */
 interface Pattern {
 	readonly prefix: string;

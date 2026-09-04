@@ -86,10 +86,7 @@ describe("the candidate set", () => {
 		).toBe("md:2");
 	});
 
-	// The label filter narrows candidates only; the blocking graph reads every ticket. Without this,
-	// excluding the wayfinder track would silently make everything waiting on an open decision look
-	// ready to start.
-	test("reports a candidate blocked solely by an excluded ticket as blocked, not as ready", () => {
+	test("reports a candidate blocked solely by an excluded ticket as blocked, not as startable", () => {
 		const selection = select(
 			inputOf(
 				[
@@ -104,9 +101,6 @@ describe("the candidate set", () => {
 		expect(selection.counts.filtered).toBe(1);
 	});
 
-	// Two tickets on one graph node read each other's blocking state, so the second silently overwrites
-	// the first. `seedGraph` refuses this for the same reason; the selector cannot rely on that, because
-	// its graph arrives already built.
 	test("refuses a ticket set in which two tickets share one graph id", () => {
 		const input = inputOf([{ key: "1" }]);
 		expect(() => select({ ...input, tickets: [...input.tickets, ...input.tickets] })).toThrow(SelectionError);
@@ -124,8 +118,6 @@ describe("the ranking ladder", () => {
 		});
 	});
 
-	// "Skipped when its signal is absent" means skipped when neither ticket carries one — not that a
-	// ticket without a priority ties with one that has it.
 	test("takes a ticket carrying a priority over one carrying none", () => {
 		expect(pickOf([{ key: "1" }, { key: "2", labels: ["P3"] }])).toBe("md:2");
 	});
@@ -173,8 +165,6 @@ describe("the ranking ladder", () => {
 });
 
 describe("the confirmed and unknown partition", () => {
-	// The partition is applied before the ladder: sorting unknown "last within its rung" would let this
-	// unknown P0 win on the first rung, which is the opposite of the intent.
 	test("takes a confirmed-unblocked P1 over an unknown-blocking P0", () => {
 		const selection = select(
 			inputOf([{ key: "1", labels: ["P0"], blockers: "unknown" }, { key: "2", labels: ["P1"] }]),
@@ -202,8 +192,6 @@ describe("the confirmed and unknown partition", () => {
 		expect(formatTicketRef(selection.pick!.ref)).toBe("md:2");
 	});
 
-	// A blocker closed in a way that does not tell its dependent the dependency was met — a wontfix —
-	// leaves the dependent unknown rather than ready.
 	test("holds back a candidate whose blocker closed without meeting the dependency", () => {
 		const selection = select(
 			inputOf([

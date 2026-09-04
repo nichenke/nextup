@@ -8,6 +8,7 @@
 		],
 		"blocked": "unblocked",
 		"priority": 1,
+		"unreadPriority": [],
 		"unblocks": 0
 	},
 	"decision": {
@@ -24,6 +25,7 @@
 			],
 			"blocked": "unblocked",
 			"priority": 1,
+			"unreadPriority": [],
 			"unblocks": 0
 		}
 	],

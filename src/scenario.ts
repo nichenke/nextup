@@ -8,23 +8,15 @@ import { type TicketRef, resolveTicketRef } from "./ticket-ref";
 export class ScenarioError extends Error {}
 
 /**
- * One golden-file scenario: a ticket set and the filter applied to it, as written on disk.
- *
- * This is the documented way to fix a bad pick — add the ticket set that produced it, watch the
- * expected output disagree with what the ladder does, and change the ladder. It is deliberately data
- * rather than a test body: a scenario is a claim about what the answer should be, and a reader must be
- * able to check that claim without reading TypeScript.
+ * One golden-file scenario: a ticket set and the filter applied to it, as written on disk. Data rather
+ * than a test body, so that a reader can check what the answer should be without reading TypeScript.
  */
 export interface Scenario {
 	readonly description: string;
 	readonly input: SelectionInput;
 }
 
-/**
- * Parses a scenario file. Every field is validated and an unrecognised key is refused, because a
- * misspelled key in a fixture reads as a scenario that passes while asserting nothing — which is worse
- * than no scenario at all, since it also looks like coverage.
- */
+/** Parses a scenario file, refusing an unrecognised key. README's "Fixing a bad pick" says why. */
 export function loadScenario(path: string): Scenario {
 	const raw = parseJson(path);
 	const file = object(raw, path, "the scenario");
@@ -86,8 +78,7 @@ function readTicket(raw: unknown, path: string, where: string): TicketSpec {
 					),
 	};
 
-	// Stated rather than derived, because closed and satisfied are not the same claim: a `wontfix`
-	// blocker is closed while telling its dependent nothing about whether the dependency was met.
+	// Stated rather than derived from `state`; see `GraphSeed.open` for why the two differ.
 	const openness =
 		entry.openness === undefined
 			? state === "open"

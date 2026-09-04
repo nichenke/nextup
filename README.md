@@ -22,15 +22,10 @@ bun bin/nextup.ts --json     # the same selection, as JSON
 bun bin/nextup.ts --help     # every flag
 ```
 
-It reads the single effort under `<cwd>/.scratch`, or the one `--effort <path>` names. `--include` and
-`--exclude` take label patterns, repeatably, and a pattern may end in `*` to match a prefix. Naming
-either replaces the default, `--exclude 'wayfinder:*'` — so `--include 'wayfinder:*'` drives the
-wayfinder track instead of the backlog. Either way the filter narrows only what may be recommended: the
-blocking graph reads every ticket, so an excluded ticket still blocks.
-
-Exit status is 0 for a ticket to start, 1 for nothing to recommend, and 2 for a bad invocation or a
-ticket set that could not be read. A degraded answer — a truncated fetch, or a pick whose blockers
-nothing could confirm — carries one `degraded: ` line per reason, which is the sentinel to grep for.
+It reads the single effort under `<cwd>/.scratch`, or the one `--effort <path>` names. `--help` has the
+label-filter semantics and the exit codes. A degraded answer — a truncated fetch, or a pick whose
+blockers nothing could confirm — carries one `degraded: ` line per reason, which is the sentinel to
+grep for.
 
 - [The spec](https://github.com/nichenke/nextup/issues/2) — problem, solution, user stories, and the
   phased delivery

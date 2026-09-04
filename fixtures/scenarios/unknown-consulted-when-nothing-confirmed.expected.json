@@ -8,6 +8,7 @@
 		],
 		"blocked": "unknown",
 		"priority": 1,
+		"unreadPriority": [],
 		"unblocks": 0
 	},
 	"decision": {
@@ -26,6 +27,7 @@
 			],
 			"blocked": "unknown",
 			"priority": 1,
+			"unreadPriority": [],
 			"unblocks": 0
 		},
 		{
@@ -35,6 +37,7 @@
 			"labels": [],
 			"blocked": "unknown",
 			"priority": null,
+			"unreadPriority": [],
 			"unblocks": 0
 		}
 	],

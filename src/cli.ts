@@ -21,23 +21,23 @@ export interface CliResult {
 	readonly stderr: string;
 }
 
-const USAGE = `nextup — picks the best unclaimed, unblocked ticket and says why
+const USAGE = `nextup — picks the ticket to start next, and says why
 
 usage: nextup [--effort <path>] [--include <label>]... [--exclude <label>]... [--json]
 
   --effort <path>    the effort to read; defaults to the single effort under <cwd>/.scratch
-  --include <label>  consider only tickets carrying this label; repeatable
-  --exclude <label>  never consider a ticket carrying this label; repeatable
+  --include <label>  consider only tickets carrying one of these labels; repeatable
+  --exclude <label>  never consider a ticket carrying one of these labels; repeatable
   --json             emit the selection as JSON rather than the human rendering
   --help             print this
 
 A label may end in "*" to match a prefix. Naming either filter replaces the default, which is
 --exclude 'wayfinder:*' — so --include 'wayfinder:*' drives the wayfinder track instead of the
-backlog. Either way the filter narrows what may be recommended; the blocking graph still reads
+backlog. Either way the filter narrows only what may be recommended: the blocking graph still reads
 every ticket, so an excluded ticket still blocks.
 
 Exit status: 0 a ticket to start, 1 nothing to recommend, 2 a bad invocation or a ticket set that
-could not be read. This command reads only — nothing it does writes anything.
+could not be read. This command only reads — it claims nothing and changes nothing.
 `;
 
 export function run(argv: readonly string[], deps: CliDeps): CliResult {

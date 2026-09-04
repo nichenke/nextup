@@ -8,9 +8,15 @@ reading that looks obvious and is wrong.
 number is more urgent. A `priority:` label carrying a name — `priority:high`, `priority:urgent` — is
 *not* read, because ordering names needs a vocabulary no tracker supplies. Jira ships one and GitHub
 and GitLab do not, so a vocabulary written here would be this tool's opinion applied to somebody else's
-labels, and a wrong guess reorders a backlog silently. Those labels are reported instead, in the
-selection's `unreadPrioritySignals` and in the human rendering, so a pick somebody disagrees with can
-be traced to a label the ladder never read rather than looking like a label it read and overruled.
+labels, and a wrong guess reorders a backlog silently. Those labels are reported instead — against the
+candidate that carried one, and as a set-wide summary — so a pick somebody disagrees with can be traced
+to a label the ladder never read rather than looking like a label it read and overruled. A candidate
+whose only priority label went unread is therefore distinguishable from one carrying no priority label
+at all, which the ladder treats identically but a reader should not.
+
+Only the candidates that reached the ladder are read for one. A ticket that was closed, claimed,
+filtered out or confirmed blocked could not have won whatever its priority, and the selection's counts
+already say why it did not.
 
 A candidate carrying no priority at all sorts after every candidate that carries one. "Each rung is
 skipped when its signal is absent" means skipped when *neither* candidate carries it, which is the

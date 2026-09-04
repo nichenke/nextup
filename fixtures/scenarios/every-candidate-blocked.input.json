@@ -1,5 +1,5 @@
 {
-	"description": "Every candidate is confirmed blocked, so there is nothing to recommend and the answer says so rather than reaching into the blocked set. Two of the three block each other, which the traversal terminates on rather than refusing.",
+	"description": "Every candidate is confirmed blocked, so there is nothing to recommend and the answer says so rather than reaching into the blocked set for something to start.",
 	"truncated": false,
 	"filter": { "include": [], "exclude": ["wayfinder:*"] },
 	"tickets": [

@@ -1,5 +1,5 @@
 {
-	"description": "A wayfinder decision the default filter drops from the candidate set, and a backlog ticket waiting on it. The filter narrows candidates only, so the backlog ticket is reported blocked rather than ready — the excluded ticket still blocks.",
+	"description": "A wayfinder decision the default filter drops from the candidate set, and a backlog ticket waiting on it. The backlog ticket is reported blocked, and a third unrelated ticket is what gets recommended.",
 	"truncated": false,
 	"filter": { "include": [], "exclude": ["wayfinder:*"] },
 	"tickets": [

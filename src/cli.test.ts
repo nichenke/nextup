@@ -63,8 +63,6 @@ describe("run", () => {
 		expect(result.stdout).toContain("md:5 — Something else");
 	});
 
-	// Picking one for the user would be a decision made on directory order, which is exactly the
-	// non-determinism the fixed ladder exists to remove.
 	test("refuses to guess which of several efforts was meant, and names them", () => {
 		const repo = tempRepo();
 		chainedEffort(repo, "one");
@@ -141,8 +139,6 @@ describe("the label filter flags", () => {
 		expect(result.stdout).toContain("no candidate to recommend");
 	});
 
-	// The default exclusion is a default, not a floor: naming a filter replaces it, which is what lets
-	// `--include wayfinder:*` drive the wayfinder track rather than being cancelled by the default.
 	test("replaces the whole default filter as soon as either flag is given", () => {
 		const repo = tempRepo();
 		chainedEffort(repo);

@@ -8,6 +8,7 @@
 		],
 		"blocked": "unblocked",
 		"priority": 3,
+		"unreadPriority": [],
 		"unblocks": 0
 	},
 	"decision": {
@@ -26,6 +27,7 @@
 			],
 			"blocked": "unblocked",
 			"priority": 3,
+			"unreadPriority": [],
 			"unblocks": 0
 		},
 		{
@@ -35,18 +37,19 @@
 			"labels": [],
 			"blocked": "unblocked",
 			"priority": null,
-			"unblocks": 0
+			"unreadPriority": [],
+			"unblocks": 1
 		}
 	],
 	"counts": {
-		"tickets": 2,
+		"tickets": 3,
 		"closed": 0,
 		"claimed": 0,
 		"filtered": 0,
-		"candidates": 2,
+		"candidates": 3,
 		"confirmed": 2,
 		"unconfirmed": 0,
-		"blocked": 0
+		"blocked": 1
 	},
 	"degraded": [],
 	"unreadPrioritySignals": [],

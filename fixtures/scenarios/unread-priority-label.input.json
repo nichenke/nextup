@@ -1,5 +1,5 @@
 {
-	"description": "A project whose priority labels are named rather than numbered, which Jira and a hand-rolled GitHub label scheme both produce. The ladder orders neither, falls through to the next rung, and names the labels it did not read so a pick can be traced to them.",
+	"description": "A project whose priority labels are named rather than numbered, which Jira and a hand-rolled GitHub label scheme both produce. Neither of the first two rungs can order these, so the terminal rung settles it, and the labels the ladder did not read are named against the candidates that carried them.",
 	"truncated": false,
 	"filter": { "include": [], "exclude": ["wayfinder:*"] },
 	"tickets": [

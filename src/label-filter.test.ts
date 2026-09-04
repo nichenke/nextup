@@ -39,8 +39,6 @@ describe("compileLabelFilter", () => {
 		expect(admits({ include: ["p1"] }, ["P1"])).toBe(true);
 	});
 
-	// A star anywhere but the end is refused rather than read as a literal: a pattern that silently
-	// matches nothing looks exactly like a filter that found nothing to exclude.
 	test("refuses a star that is not the last character", () => {
 		expect(() => admits({ exclude: ["way*er"] }, [])).toThrow(LabelFilterError);
 		expect(() => admits({ exclude: ["*finder"] }, [])).toThrow(LabelFilterError);

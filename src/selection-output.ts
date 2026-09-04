@@ -16,6 +16,7 @@ export interface CandidateJson {
 	readonly labels: readonly string[];
 	readonly blocked: "unblocked" | "unknown";
 	readonly priority: number | null;
+	readonly unreadPriority: readonly string[];
 	readonly unblocks: number;
 }
 
@@ -65,6 +66,7 @@ function candidateJson(candidate: Candidate): CandidateJson {
 		labels: candidate.labels,
 		blocked: candidate.blocked,
 		priority: candidate.priority,
+		unreadPriority: candidate.unreadPriority,
 		unblocks: candidate.unblocks,
 	};
 }
@@ -107,9 +109,19 @@ function renderDecision(selection: Selection): string {
 }
 
 function renderSignals(candidate: Candidate): string {
-	const priority = candidate.priority === null ? "priority none" : `priority P${candidate.priority}`;
 	const blocking = candidate.blocked === "unblocked" ? "blocking confirmed" : "blocking unconfirmed";
-	return `${priority}, unblocks ${candidate.unblocks}, ${blocking}`;
+	return `${renderPriority(candidate)}, unblocks ${candidate.unblocks}, ${blocking}`;
+}
+
+/**
+ * A candidate carrying only an unread priority label says so here rather than reading "priority none",
+ * which is what a candidate carrying no priority label at all says. The two are different situations
+ * and ADR-0011 turns on telling them apart.
+ */
+function renderPriority(candidate: Candidate): string {
+	if (candidate.priority !== null) return `priority P${candidate.priority}`;
+	if (candidate.unreadPriority.length > 0) return `priority unread: ${candidate.unreadPriority.join(", ")}`;
+	return "priority none";
 }
 
 /** What the pick beat, which is the only answer to "why not that other one" the ladder can give. */
@@ -129,7 +141,7 @@ function renderCounts(counts: SelectionCounts): string {
 		`${counts.closed} closed`,
 		`${counts.claimed} claimed`,
 		`${counts.filtered} filtered out`,
-		`${counts.candidates} candidates (${counts.confirmed} ready, ${counts.unconfirmed} unconfirmed, ${counts.blocked} blocked)`,
+		`${counts.candidates} candidates (${counts.confirmed} unblocked, ${counts.unconfirmed} unconfirmed, ${counts.blocked} blocked)`,
 	];
 	return `${counts.tickets} tickets: ${aside.join(", ")}`;
 }

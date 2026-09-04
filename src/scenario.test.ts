@@ -10,11 +10,7 @@ const SCENARIOS = join(dirname(import.meta.dir), "fixtures", "scenarios");
 const INPUT = ".input.json";
 const EXPECTED = ".expected.json";
 
-/**
- * Rewrites every expected file from what the selector currently answers. Use it only after deciding
- * the new answer is the right one — the point of a golden is that a changed answer shows up as a diff
- * to read, and regenerating without reading is how a bad pick becomes the recorded expectation.
- */
+/** Rewrites every expected file from what the selector currently answers; see README's "Fixing a bad pick". */
 const UPDATING = process.env.UPDATE_SCENARIOS === "1";
 
 function scenarioNames(): string[] {
@@ -74,8 +70,6 @@ describe("loadScenario", () => {
 		expect(scenario.input.truncated).toBe(false);
 	});
 
-	// A misspelled key reads as a scenario that passes while asserting nothing, which looks like
-	// coverage rather than like a gap.
 	test("refuses an unrecognised key", () => {
 		expect(() => loadScenario(scenarioFile({ ...ONE_TICKET, filtr: {} }))).toThrow(ScenarioError);
 		expect(() =>
