@@ -1,0 +1,9 @@
+{
+	"description": "The same disabled dependencies API, but now nothing at all is confirmed unblocked. The unknown set is ranked by the same ladder and consulted, and the answer says it is degraded rather than presenting the pick as ready.",
+	"truncated": false,
+	"filter": { "include": [], "exclude": ["wayfinder:*"] },
+	"tickets": [
+		{ "ref": "md:1", "title": "Replace the auth shim", "state": "open", "blockers": "unknown", "labels": [] },
+		{ "ref": "md:2", "title": "Retry a timed-out fetch", "state": "open", "blockers": "unknown", "labels": ["P1"] }
+	]
+}

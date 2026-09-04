@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { CommandResult } from "./runner";
 import { routedRunner } from "./test-support";
-import { TicketRefError, resolveTicketRef } from "./ticket-ref";
+import { type TicketRef, TicketRefError, compareTicketRefs, formatTicketRef, resolveTicketRef } from "./ticket-ref";
 
 const GIT_REMOTE = { "git remote get-url origin": { code: 0, stdout: "https://example.com/example/repo.git\n", stderr: "" } };
 const GIT_REMOTE_NO_OWNER = { "git remote get-url origin": { code: 0, stdout: "https://example.com/justrepo.git\n", stderr: "" } };
@@ -213,5 +213,67 @@ describe("resolveTicketRef: pasted URLs", () => {
 				resolveTicketRef("https://example.com/example/repo/issues/1", { runner: routedRunner({}) }),
 			).toThrow(TicketRefError);
 		});
+	});
+});
+
+describe("formatTicketRef", () => {
+	test("writes the short form each tracker's scheme accepts", () => {
+		expect(formatTicketRef({ tracker: "markdown", repo: null, host: null, key: "7" })).toBe("md:7");
+		expect(formatTicketRef({ tracker: "github", repo: "example/repo", host: null, key: "1" })).toBe(
+			"gh:example/repo#1",
+		);
+		expect(formatTicketRef({ tracker: "gitlab", repo: "group/project", host: null, key: "8" })).toBe(
+			"glab:group/project#8",
+		);
+		expect(formatTicketRef({ tracker: "jira", repo: null, host: null, key: "TEST-42" })).toBe("jira:TEST-42");
+	});
+
+	test("omits a known host, which no short form can carry", () => {
+		expect(formatTicketRef({ tracker: "github", repo: "example/repo", host: "example.com", key: "1" })).toBe(
+			"gh:example/repo#1",
+		);
+	});
+});
+
+describe("compareTicketRefs", () => {
+	const md = (key: string): TicketRef => ({ tracker: "markdown", repo: null, host: null, key });
+
+	function sorted(refs: TicketRef[]): string[] {
+		return [...refs].sort(compareTicketRefs).map(formatTicketRef);
+	}
+
+	test("orders a ticket number numerically rather than lexicographically", () => {
+		expect(sorted([md("10"), md("9"), md("100")])).toEqual(["md:9", "md:10", "md:100"]);
+	});
+
+	test("orders a jira key's numeric tail numerically, and its project part as text", () => {
+		const jira = (key: string): TicketRef => ({ tracker: "jira", repo: null, host: null, key });
+		expect(sorted([jira("TEST-10"), jira("TEST-9"), jira("APP-9")])).toEqual([
+			"jira:APP-9",
+			"jira:TEST-9",
+			"jira:TEST-10",
+		]);
+	});
+
+	test("separates two projects that share a ticket number", () => {
+		const gh = (repo: string): TicketRef => ({ tracker: "github", repo, host: null, key: "1" });
+		expect(compareTicketRefs(gh("example/repo"), gh("group/project"))).toBeLessThan(0);
+	});
+
+	test("separates two hosts that share a repository and a number", () => {
+		const at = (host: string | null): TicketRef => ({ tracker: "github", repo: "example/repo", host, key: "1" });
+		expect(compareTicketRefs(at(null), at("example.com"))).toBeLessThan(0);
+		expect(compareTicketRefs(at("example.com"), at(null))).toBeGreaterThan(0);
+	});
+
+	test("separates two trackers, by the tracker name", () => {
+		expect(compareTicketRefs({ tracker: "jira", repo: null, host: null, key: "1" }, md("1"))).toBeLessThan(0);
+	});
+
+	// Nothing may tie except a reference identical in every part, or the ladder's terminal rung stops
+	// being terminal and hands the decision to the order the tickets arrived in.
+	test("ties only on a reference identical in every part", () => {
+		expect(compareTicketRefs(md("7"), md("7"))).toBe(0);
+		expect(compareTicketRefs(md("07"), md("7"))).toBeLessThan(0);
 	});
 });

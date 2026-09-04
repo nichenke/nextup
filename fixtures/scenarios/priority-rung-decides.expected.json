@@ -1,0 +1,61 @@
+{
+	"pick": {
+		"ref": "md:2",
+		"title": "Fix the crash on an empty ticket set",
+		"url": null,
+		"labels": [
+			"P0"
+		],
+		"blocked": "unblocked",
+		"priority": 0,
+		"unblocks": 0
+	},
+	"decision": {
+		"kind": "rung",
+		"rung": "priority",
+		"over": "md:1"
+	},
+	"consulted": "confirmed",
+	"ranked": [
+		{
+			"ref": "md:2",
+			"title": "Fix the crash on an empty ticket set",
+			"url": null,
+			"labels": [
+				"P0"
+			],
+			"blocked": "unblocked",
+			"priority": 0,
+			"unblocks": 0
+		},
+		{
+			"ref": "md:1",
+			"title": "Rename the config key",
+			"url": null,
+			"labels": [
+				"P2"
+			],
+			"blocked": "unblocked",
+			"priority": 2,
+			"unblocks": 0
+		}
+	],
+	"counts": {
+		"tickets": 2,
+		"closed": 0,
+		"claimed": 0,
+		"filtered": 0,
+		"candidates": 2,
+		"confirmed": 2,
+		"unconfirmed": 0,
+		"blocked": 0
+	},
+	"degraded": [],
+	"unreadPrioritySignals": [],
+	"filter": {
+		"include": [],
+		"exclude": [
+			"wayfinder:*"
+		]
+	}
+}

@@ -1,0 +1,9 @@
+{
+	"description": "Two tickets a tracker reports as open, unclaimed and unblocked, one carrying the P0 label GitHub and GitLab both express priority with. The first rung decides.",
+	"truncated": false,
+	"filter": { "include": [], "exclude": ["wayfinder:*"] },
+	"tickets": [
+		{ "ref": "md:1", "title": "Rename the config key", "state": "open", "blockers": [], "labels": ["P2"] },
+		{ "ref": "md:2", "title": "Fix the crash on an empty ticket set", "state": "open", "blockers": [], "labels": ["P0"] }
+	]
+}

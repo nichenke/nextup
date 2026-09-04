@@ -1,0 +1,55 @@
+{
+	"pick": {
+		"ref": "md:9",
+		"title": "Add the first adapter",
+		"url": null,
+		"labels": [],
+		"blocked": "unblocked",
+		"priority": null,
+		"unblocks": 0
+	},
+	"decision": {
+		"kind": "rung",
+		"rung": "reference",
+		"over": "md:10"
+	},
+	"consulted": "confirmed",
+	"ranked": [
+		{
+			"ref": "md:9",
+			"title": "Add the first adapter",
+			"url": null,
+			"labels": [],
+			"blocked": "unblocked",
+			"priority": null,
+			"unblocks": 0
+		},
+		{
+			"ref": "md:10",
+			"title": "Add the second adapter",
+			"url": null,
+			"labels": [],
+			"blocked": "unblocked",
+			"priority": null,
+			"unblocks": 0
+		}
+	],
+	"counts": {
+		"tickets": 2,
+		"closed": 0,
+		"claimed": 0,
+		"filtered": 0,
+		"candidates": 2,
+		"confirmed": 2,
+		"unconfirmed": 0,
+		"blocked": 0
+	},
+	"degraded": [],
+	"unreadPrioritySignals": [],
+	"filter": {
+		"include": [],
+		"exclude": [
+			"wayfinder:*"
+		]
+	}
+}

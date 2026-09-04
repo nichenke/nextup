@@ -15,6 +15,91 @@ export interface TicketRef {
 
 export class TicketRefError extends Error {}
 
+const SCHEME_OF: Record<Tracker, string> = { github: "gh", gitlab: "glab", jira: "jira", markdown: "md" };
+
+/**
+ * The short form of a reference, for display and for a user to paste back as an argument.
+ *
+ * A known host is deliberately dropped, because no short form carries one: `resolveTicketRef` reads
+ * everything before the `#` as the repository path, so a host folded in there parses back as a
+ * different repository. Two references differing only in host therefore render alike, which is why
+ * this is display and never identity — `ticketId` is identity, and `compareTicketRefs` orders on the
+ * whole structure including the host.
+ */
+export function formatTicketRef(ref: TicketRef): string {
+	const scheme = SCHEME_OF[ref.tracker];
+	return ref.repo === null ? `${scheme}:${ref.key}` : `${scheme}:${ref.repo}#${ref.key}`;
+}
+
+/**
+ * Orders two references, ascending. This is the ranking ladder's terminal rung, so it must be a total
+ * order over distinct references — ADR-0003 records why: a rung that returns equality hands the
+ * decision to whatever order the tracker's response happened to arrive in, which is the
+ * non-determinism the fixed ladder exists to remove.
+ *
+ * Every part of the reference participates, in the order tracker, host, repository, key. Comparing
+ * only the number ties two projects that each have a ticket 1. Strings are compared by code unit
+ * rather than through `localeCompare`, whose result depends on the runtime's locale data and so
+ * cannot be pinned by a fixture.
+ */
+export function compareTicketRefs(a: TicketRef, b: TicketRef): number {
+	return (
+		compareText(a.tracker, b.tracker) ||
+		compareOptional(a.host, b.host) ||
+		compareOptional(a.repo, b.repo) ||
+		compareKeys(a.key, b.key)
+	);
+}
+
+function compareText(a: string, b: string): number {
+	if (a < b) return -1;
+	return a > b ? 1 : 0;
+}
+
+/** A known value sorts after an unknown one, so that the absence itself is a stable position. */
+function compareOptional(a: string | null, b: string | null): number {
+	if (a === null) return b === null ? 0 : -1;
+	if (b === null) return 1;
+	return compareText(a, b);
+}
+
+/**
+ * Compares two keys with their digit runs read as numbers, so ticket 9 precedes ticket 10 and
+ * `TEST-9` precedes `TEST-10`. A whole-string comparison breaks the tie that digit runs leave —
+ * `07` and `7` are numerically equal and are different tickets.
+ */
+function compareKeys(a: string, b: string): number {
+	const left = keyChunks(a);
+	const right = keyChunks(b);
+	for (let i = 0; i < Math.min(left.length, right.length); i++) {
+		const one = left[i]!;
+		const other = right[i]!;
+		const ordered =
+			isDigits(one) && isDigits(other) ? compareNumerals(one, other) : compareText(one, other);
+		if (ordered !== 0) return ordered;
+	}
+	return left.length - right.length || compareText(a, b);
+}
+
+function keyChunks(key: string): string[] {
+	return key.match(/\d+|\D+/g) ?? [];
+}
+
+function isDigits(chunk: string): boolean {
+	return /^\d+$/.test(chunk);
+}
+
+/**
+ * Two digit runs as numbers, without converting them to `Number` — a key long enough to exceed the
+ * safe integer range would compare equal to its neighbours, and nothing about a ticket key bounds
+ * its length.
+ */
+function compareNumerals(a: string, b: string): number {
+	const left = a.replace(/^0+(?=\d)/, "");
+	const right = b.replace(/^0+(?=\d)/, "");
+	return left.length - right.length || compareText(left, right);
+}
+
 export interface ResolveDeps {
 	runner?: Runner;
 }

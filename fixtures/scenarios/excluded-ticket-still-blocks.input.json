@@ -1,0 +1,10 @@
+{
+	"description": "A wayfinder decision the default filter drops from the candidate set, and a backlog ticket waiting on it. The filter narrows candidates only, so the backlog ticket is reported blocked rather than ready — the excluded ticket still blocks.",
+	"truncated": false,
+	"filter": { "include": [], "exclude": ["wayfinder:*"] },
+	"tickets": [
+		{ "ref": "md:1", "title": "Decide the on-disk format", "state": "open", "blockers": [], "labels": ["wayfinder:decision"] },
+		{ "ref": "md:2", "title": "Write the reader", "state": "open", "blockers": ["md:1"], "labels": [] },
+		{ "ref": "md:3", "title": "Add a --version flag", "state": "open", "blockers": [], "labels": [] }
+	]
+}

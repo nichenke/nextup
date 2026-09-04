@@ -1,0 +1,9 @@
+{
+	"description": "Both earlier rungs are silent, so the terminal rung decides. Ticket 9 precedes ticket 10 because the numeric part is compared as a number — a lexicographic order would answer 10 and would be stable while being wrong.",
+	"truncated": false,
+	"filter": { "include": [], "exclude": ["wayfinder:*"] },
+	"tickets": [
+		{ "ref": "md:10", "title": "Add the second adapter", "state": "open", "blockers": [], "labels": [] },
+		{ "ref": "md:9", "title": "Add the first adapter", "state": "open", "blockers": [], "labels": [] }
+	]
+}

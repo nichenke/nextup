@@ -1,0 +1,44 @@
+{
+	"pick": {
+		"ref": "md:4",
+		"title": "Land the writer",
+		"url": null,
+		"labels": [],
+		"blocked": "unblocked",
+		"priority": null,
+		"unblocks": 0
+	},
+	"decision": {
+		"kind": "only-candidate"
+	},
+	"consulted": "confirmed",
+	"ranked": [
+		{
+			"ref": "md:4",
+			"title": "Land the writer",
+			"url": null,
+			"labels": [],
+			"blocked": "unblocked",
+			"priority": null,
+			"unblocks": 0
+		}
+	],
+	"counts": {
+		"tickets": 4,
+		"closed": 1,
+		"claimed": 2,
+		"filtered": 0,
+		"candidates": 1,
+		"confirmed": 1,
+		"unconfirmed": 0,
+		"blocked": 0
+	},
+	"degraded": [],
+	"unreadPrioritySignals": [],
+	"filter": {
+		"include": [],
+		"exclude": [
+			"wayfinder:*"
+		]
+	}
+}

@@ -1,0 +1,11 @@
+{
+	"description": "No ticket carries a priority, so the first rung is skipped and the ticket two others are waiting on wins. This is the critical path falling out of the blocking edges rather than out of a chain diagram.",
+	"truncated": false,
+	"filter": { "include": [], "exclude": ["wayfinder:*"] },
+	"tickets": [
+		{ "ref": "md:1", "title": "Write the release notes", "state": "open", "blockers": [], "labels": [] },
+		{ "ref": "md:2", "title": "Settle the storage format", "state": "open", "blockers": [], "labels": [] },
+		{ "ref": "md:3", "title": "Write the reader", "state": "open", "blockers": ["md:2"], "labels": [] },
+		{ "ref": "md:4", "title": "Write the writer", "state": "open", "blockers": ["md:2"], "labels": [] }
+	]
+}
