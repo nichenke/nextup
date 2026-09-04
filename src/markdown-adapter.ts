@@ -63,8 +63,11 @@ const SETEXT_OR_BREAK = /^(?:={3,}|-{3,}|\*{3,}|_{3,})$/;
 const CODE_FENCE = /^(?:```|~~~)/;
 const FIELD_LINE = /^(Type|Status|Blocked by)\s*:\s*(.*?)\s*$/i;
 // A field is commonly written as a list item or inside a blockquote; the anchored FIELD_LINE misses
-// both, and a missed `Blocked by:` reads as no blockers at all.
+// both, and a missed `Blocked by:` reads as no blockers at all. Only `Blocked by:` is read through
+// this, never `Status:` or `Type:` — see readHeader for why the asymmetry runs that way.
 const LINE_DECORATION = /^(?:[-*+]|\d+\.|>)\s+/;
+// A markdown indented code block. Four spaces or a tab, before the line is trimmed.
+const INDENTED_CODE = /^(?: {4,}|\t)/;
 // Any remaining shape that names ticket numbers as a dependency — a table row, a hyphenated or
 // renamed field, a missing colon. Each was a silent drop: the shape matched no field, so its blockers
 // were neither read nor refused.
@@ -73,8 +76,13 @@ const LINE_DECORATION = /^(?:[-*+]|\d+\.|>)\s+/;
 // any line made ordinary prose ("we were blocked by 3 teams") and ordinary titles ("Blocked by 3
 // upstream changes") abort the whole effort — the mirror of the bug it exists to prevent, presenting
 // as the same "no work available".
-const UNREADABLE_BLOCKER_FIELD = /^(?:blocked[\s-]*by|blockers?|depends[\s-]*on)\b[^A-Za-z0-9]*\d/i;
-const TABLE_CELL = /^\|\s*/;
+// No digit is required: a declaration whose numbers sit on the lines below it ("Blocked by the
+// tickets listed below:", or a `## Blocked by` heading) has none on its own line, and those read as
+// no blockers at all. The anchor is what keeps prose out — a sentence merely mentioning being
+// blocked does not begin with the field's name.
+const UNREADABLE_BLOCKER_FIELD = /^(?:blocked[\s-]*by|blockers?|depends[\s-]*on)\b/i;
+// Stripped before the guard so a table row and a heading are both reachable by it.
+const GUARD_PREFIX = /^(?:\||#{1,6})\s*/;
 // `to-tickets` writes "None — can start immediately" where a ticket has no blockers, so the trailing
 // commentary is allowed — but only after a dash. Matching the bare `none` prefix instead swallowed
 // the rest of the value, so "None directly, but 2 must land first" read as no blockers at all.
@@ -142,7 +150,7 @@ function isEffortRoot(root: string): boolean {
 export function discoverEfforts(repoRoot: string): string[] {
 	const scratch = join(repoRoot, SCRATCH_DIR);
 	if (!existsSync(scratch)) return [];
-	return readdirSync(scratch)
+	return listDirectory(scratch)
 		.sort()
 		.map((name) => join(scratch, name))
 		.filter(isEffortRoot);
@@ -222,15 +230,13 @@ function readTicketFiles(issuesDir: string): ParsedFile[] {
 		// macOS writes .DS_Store into any directory the Finder has opened, unbidden.
 		if (name.startsWith(".")) continue;
 		const path = join(issuesDir, name);
-		// A dangling symlink, or a file removed between the listing and this call, throws from
-		// `statSync` — `throwIfNoEntry` turns that into something this loop can skip.
-		if (!statSync(path, { throwIfNoEntry: false })?.isFile()) continue;
+		if (!isReadableFile(path)) continue;
 
 		const named = TICKET_FILENAME.exec(name);
 		if (named?.[1] === undefined) {
 			throw new MarkdownEffortError(`${path} is not a numbered ticket file (expected <NN>-<slug>.md)`);
 		}
-		const file = parseTicketFile(readFileSync(path, "utf8"), path, named[1]);
+		const file = parseTicketFile(readTicketText(path), path, named[1]);
 		const collision = seen.get(file.ticket.ref.key);
 		if (collision !== undefined) {
 			throw new MarkdownEffortError(`${path} and ${collision} are both ticket ${file.ticket.ref.key}`);
@@ -241,17 +247,43 @@ function readTicketFiles(issuesDir: string): ParsedFile[] {
 	return parsed;
 }
 
-// `existsSync` is true for a plain file, so a `.scratch` or `issues` that is a file rather than a
-// directory reaches `readdirSync` and throws ENOTDIR. A caller catching this module's own error would
-// see that escape as an unhandled exception.
+// Everything below converts a filesystem failure into this module's own error. `existsSync` is true
+// for a plain file, so a `.scratch` or `issues` that is a file rather than a directory reaches
+// `readdirSync` and throws ENOTDIR; a symlink loop reaches `statSync` and throws ELOOP; an unreadable
+// file reaches `readFileSync` and throws EACCES. A caller catching `MarkdownEffortError` to report
+// "not an effort" sees any of those escape as an unhandled errno instead.
 function listDirectory(dir: string): string[] {
 	try {
 		return readdirSync(dir);
 	} catch (cause) {
-		throw new MarkdownEffortError(
-			`${dir} could not be listed as a directory: ${cause instanceof Error ? cause.message : String(cause)}`,
-		);
+		throw new MarkdownEffortError(`${dir} could not be listed as a directory: ${describe(cause)}`);
 	}
+}
+
+/**
+ * Whether this entry is a file worth parsing. A missing entry is skipped rather than refused — a
+ * dangling symlink, or a file removed between the listing and this call, is directory junk, and a
+ * ticket that vanishes is at worst a dangling blocker reference, which resolves as unknown. Any other
+ * failure is refused, because it says the effort cannot be read rather than that an entry is absent.
+ */
+function isReadableFile(path: string): boolean {
+	try {
+		return statSync(path, { throwIfNoEntry: false })?.isFile() === true;
+	} catch (cause) {
+		throw new MarkdownEffortError(`${path} could not be inspected: ${describe(cause)}`);
+	}
+}
+
+function readTicketText(path: string): string {
+	try {
+		return readFileSync(path, "utf8");
+	} catch (cause) {
+		throw new MarkdownEffortError(`${path} could not be read: ${describe(cause)}`);
+	}
+}
+
+function describe(cause: unknown): string {
+	return cause instanceof Error ? cause.message : String(cause);
 }
 
 function parseTicketFile(text: string, path: string, number: string): ParsedFile {
@@ -312,7 +344,8 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 	let pastHeader = false;
 
 	for (const raw of text.split("\n")) {
-		const line = raw.replace(/\*\*/g, "").trim();
+		const bare = raw.replace(/\*\*/g, "");
+		const line = bare.trim();
 		// A `to-tickets` ticket has no section heading at all, so its whole body is header region, and
 		// that skill inlines a code snippet where one encodes a decision. A field-shaped line in a
 		// fenced snippet is not this ticket's field. A fenced `##` is not a section heading either, so
@@ -323,10 +356,6 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 			continue;
 		}
 		if (inFence) continue;
-		if (SECTION_HEADING.test(line) || (title !== null && SETEXT_OR_BREAK.test(line))) {
-			pastHeader = true;
-			continue;
-		}
 
 		// The title is claimed before the declaration guard runs, so a title that happens to read
 		// "Blocked by 3 upstream changes" is a title rather than a malformed field.
@@ -341,19 +370,31 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 		}
 
 		const undecorated = line.replace(LINE_DECORATION, "");
+		const decorated = undecorated !== line;
+		const indentedCode = INDENTED_CODE.test(bare);
 		const field = FIELD_LINE.exec(undecorated);
 		const isBlockedBy = field?.[1]?.toLowerCase() === "blocked by";
 
-		// A `Blocked by:` declaration this parser would not read is refused rather than dropped,
-		// wherever it sits: a missed one reads a confident `unblocked`, the state `CONTEXT.md` forbids
-		// ever inferring. `Status:` is deliberately not policed the same way — a missed one reads open
-		// and unclaimed, which a human sees at the confirmation gate, and an Answer or Comments
-		// section legitimately quotes a past `Status:` value as prose. Fencing a line is the escape
-		// hatch for genuinely quoting either.
-		if (!isBlockedBy && UNREADABLE_BLOCKER_FIELD.test(undecorated.replace(TABLE_CELL, ""))) {
+		// An indented block is markdown's other code block, so a field in one is an example, not this
+		// ticket's. `Status:` is ignored in that case; `Blocked by:` cannot be, so it is refused.
+		if (isBlockedBy && indentedCode) {
+			throw new MarkdownEffortError(
+				`${path} has an indented Blocked by line; markdown reads that as a code block, and a blocker declaration must not sit in one — unindent it, or fence it if it is an example`,
+			);
+		}
+
+		// The guard runs before the section-heading branch, because `## Blocked by` with its numbers
+		// listed underneath is a declaration too, and a branch that skipped headings first left it
+		// silently reading as no blockers.
+		if (!isBlockedBy && UNREADABLE_BLOCKER_FIELD.test(line.replace(GUARD_PREFIX, "").replace(LINE_DECORATION, ""))) {
 			throw new MarkdownEffortError(
 				`${path} names blockers in a shape this parser cannot read ("${line}"); write it as a "Blocked by: <numbers>" line above the first section heading, or fence it if it is prose`,
 			);
+		}
+
+		if (SECTION_HEADING.test(line) || (title !== null && SETEXT_OR_BREAK.test(line))) {
+			pastHeader = true;
+			continue;
 		}
 
 		if (pastHeader) {
@@ -367,6 +408,15 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 
 		if (field?.[1] === undefined) continue;
 		const key = field[1].toLowerCase();
+
+		// The asymmetry, and the direction matters. A `Blocked by:` is read through a list marker or a
+		// blockquote, because dropping one reads a confident `unblocked` — the state `CONTEXT.md`
+		// forbids ever inferring — and it is refused above if the shape is unreadable. A `Status:` gets
+		// no such allowance: people quote a status when recording that something *completed*, so a
+		// decorated or indented `Status: resolved` read as the ticket's own would seed a confirmed-met
+		// blocker and prune its dependents. Ignoring it instead leaves the ticket open and unclaimed,
+		// which a human sees at the confirmation gate.
+		if (key !== "blocked by" && (decorated || indentedCode)) continue;
 		if (fields.has(key)) {
 			throw new MarkdownEffortError(`${path} has more than one ${field[1]} field`);
 		}

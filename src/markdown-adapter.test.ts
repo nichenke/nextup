@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -335,6 +335,33 @@ describe("readEffort: the Status vocabulary", () => {
 		expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
 	});
 
+	// The decoration allowance exists for `Blocked by:`, and applying it to `Status:` too meant a
+	// quoted or listed status became the ticket's own. Quoting a *completion* is the likely case, so
+	// this errs toward `resolved` — which seeds a confirmed-met blocker and prunes its dependents.
+	test("a decorated or indented Status is prose, not the ticket's own state", () => {
+		const repo = tempRepo();
+		const quoted = [
+			"- Status: resolved",
+			"> Status: resolved",
+			"1. Status: resolved",
+			"    Status: resolved",
+		];
+		for (const line of quoted) {
+			const ticket = oneTicket(repo, "01-a.md", `# 01 — A\n\nFrom the standup:\n\n${line}\n`);
+			expect(ticket.state).toBe("open");
+		}
+	});
+
+	test("a quoted Status does not prune a dependent whose blocker is still open", () => {
+		const effort = writeEffort(tempRepo(), "effort", {
+			"01-blocker.md": "# 01 — Blocker\n\nQuoting the form:\n\n- Status: resolved\n",
+			"02-dependent.md": "# 02 — Dependent\n\nStatus: open\nBlocked by: 1\n",
+		});
+		const tickets = byKey(readEffort(effort).tickets);
+		expect(tickets.get("1")!.state).toBe("open");
+		expect(tickets.get("2")!.blocked).toBe("blocked");
+	});
+
 	test("an unrecognised Status fails loudly naming the value, rather than yielding no candidates", () => {
 		const repo = tempRepo();
 		const effort = writeEffort(repo, "effort", {
@@ -431,6 +458,28 @@ describe("readEffort: malformed input fails loudly", () => {
 		}
 	});
 
+	// A heading branch that `continue`d before the guard, plus a digit requirement on the same line,
+	// left every declaration whose numbers sit below it silently reading as no blockers.
+	test("a Blocked by heading with its numbers listed below is refused", () => {
+		const repo = tempRepo();
+		const bodies = [
+			"## Blocked by\n\n- 2",
+			"## Blocked by: 2",
+			"Blocked by the tickets listed below:\n\n- 2",
+			"Blocked by\n: 2",
+		];
+		for (const body of bodies) {
+			const effort = writeEffort(repo, "effort", {
+				"01-a.md": `# 01 — A\n\nStatus: open\n\n${body}\n`,
+			});
+			expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
+		}
+	});
+
+	test("an indented Blocked by is refused rather than dropped as a code block", () => {
+		expectRejected("# 01 — A\n\nStatus: open\n\nExample:\n\n    Blocked by: 2\n", /blocker/i);
+	});
+
 	test("a mutual blocking cycle is named, not left as an unexplained absence of work", () => {
 		const effort = writeEffort(tempRepo(), "effort", {
 			"01-a.md": "# 01 — A\n\nStatus: open\nBlocked by: 2\n",
@@ -504,6 +553,34 @@ describe("readEffort: malformed input fails loudly", () => {
 			"1-a-again.md": "# 01 — A again\n",
 		});
 		expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
+	});
+
+	// Every filesystem failure on this path has to arrive as this module's own error, or a caller
+	// catching MarkdownEffortError to report "not an effort" crashes on a raw errno instead.
+	test("a scratch directory that is really a file", () => {
+		const repo = tempRepo();
+		writeFileSync(join(repo, ".scratch"), "not a directory\n");
+		expect(() => discoverEfforts(repo)).toThrow(MarkdownEffortError);
+	});
+
+	test("a symlink loop in the issues directory", () => {
+		const effort = writeEffort(tempRepo(), "effort", { "01-a.md": "# 01 — A\n" });
+		const issues = join(effort, "issues");
+		symlinkSync(join(issues, "03-loop.md"), join(issues, "02-loop.md"));
+		symlinkSync(join(issues, "02-loop.md"), join(issues, "03-loop.md"));
+		expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
+	});
+
+	test("a ticket file that cannot be read", () => {
+		const effort = writeEffort(tempRepo(), "effort", { "01-a.md": "# 01 — A\n" });
+		chmodSync(join(effort, "issues", "01-a.md"), 0o000);
+		expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
+	});
+
+	test("a dangling symlink is still skipped, not refused", () => {
+		const effort = writeEffort(tempRepo(), "effort", { "01-a.md": "# 01 — A\n\nStatus: open\n" });
+		symlinkSync(join(effort, "issues", "nope.md"), join(effort, "issues", "02-gone.md"));
+		expect(readEffort(effort).tickets.map((ticket) => ticket.ref.key)).toEqual(["1"]);
 	});
 
 	test("an effort directory with no map file", () => {
