@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { run } from "./cli";
@@ -97,6 +97,28 @@ describe("run", () => {
 		expect(result.code).toBe(1);
 		expect(result.stdout).toContain("no candidate to recommend");
 		expect(result.stderr).toBe("");
+	});
+
+	// A ticket file that cannot be read vanishes from the effort. Without a signal the pick reads as
+	// confident, and the ticket that would have won may be the one that vanished.
+	test("degrades rather than presenting an effort it could not fully read as complete", () => {
+		const repo = tempRepo();
+		const effort = writeEffort(repo, "partial", { "09-chore.md": "# 09 — Low priority chore\n\nStatus: open\n" });
+		symlinkSync("/nonexistent/gone.md", join(effort, "issues", "01-critical.md"));
+
+		const result = run([], { cwd: repo });
+		expect(result.code).toBe(0);
+		expect(result.stdout.split("\n").some((line) => line.startsWith(DEGRADED_PREFIX))).toBe(true);
+		expect(JSON.parse(run(["--json"], { cwd: repo }).stdout).degraded).toEqual(["truncated"]);
+	});
+
+	test("reads an effort with only real ticket files as complete", () => {
+		const repo = tempRepo();
+		writeEffort(repo, "whole", {
+			"01-a.md": "# 01 — First\n\nStatus: open\n",
+			"README.md": "Not a ticket, and not a gap.\n",
+		});
+		expect(JSON.parse(run(["--json"], { cwd: repo }).stdout).degraded).toEqual([]);
 	});
 
 	test("carries the degraded sentinel into the human rendering", () => {

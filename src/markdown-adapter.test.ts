@@ -467,10 +467,23 @@ describe("readEffort: malformed input fails loudly", () => {
 		expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
 	});
 
-	test("a dangling symlink is still skipped, not refused", () => {
+	// Skipped rather than refused, as before — but reported, because the entry was named like a ticket.
+	// Silently handing back the smaller effort presents a partial set as the whole one, and the missing
+	// ticket is only visible downstream if some other ticket happens to name it as a blocker.
+	test("a dangling symlink is still skipped, and truncates the effort", () => {
 		const effort = writeEffort(tempRepo(), "effort", { "01-a.md": "# 01 — A\n\nStatus: open\n" });
 		symlinkSync(join(effort, "issues", "nope.md"), join(effort, "issues", "02-gone.md"));
 		expect(readEffort(effort).tickets.map((ticket) => ticket.ref.key)).toEqual(["1"]);
+		expect(readEffort(effort).truncated).toBe(true);
+	});
+
+	test("junk that was never a ticket leaves the effort whole", () => {
+		const effort = writeEffort(tempRepo(), "effort", {
+			"01-a.md": "# 01 — A\n\nStatus: open\n",
+			"README.md": "# Notes\n",
+		});
+		symlinkSync(join(effort, "issues", "nope.md"), join(effort, "issues", "notes-gone.md"));
+		expect(readEffort(effort).truncated).toBe(false);
 	});
 
 	test("an effort directory with no map file", () => {

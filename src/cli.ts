@@ -72,8 +72,7 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 
 	let selection;
 	try {
-		// Markdown reads a whole effort directory, so there is no page limit to stop short of.
-		selection = select({ tickets: effort.tickets, graph: effort.graph, filter, truncated: false });
+		selection = select({ tickets: effort.tickets, graph: effort.graph, filter, truncated: effort.truncated });
 	} catch (cause) {
 		if (cause instanceof SelectionError) return { code: 2, stdout: "", stderr: `${message(cause)}\n` };
 		throw cause;
