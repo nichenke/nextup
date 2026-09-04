@@ -12,7 +12,7 @@ export interface CliDeps {
  * command is assertable without capturing a process's streams.
  *
  * `1` separates "nothing to recommend" from `2`, "this invocation or this ticket set is wrong". A
- * caller polling for work needs to tell an empty backlog from a broken one, and folding both into a
+ * caller polling for work needs to tell an empty ticket set from a broken one, and folding both into a
  * single non-zero code makes a misspelled flag look like a quiet day.
  */
 export interface CliResult {
@@ -26,15 +26,19 @@ const USAGE = `nextup — picks the ticket to start next, and says why
 usage: nextup [--effort <path>] [--include <label>]... [--exclude <label>]... [--json]
 
   --effort <path>    the effort to read; defaults to the single effort under <cwd>/.scratch
-  --include <label>  consider only tickets carrying one of these labels; repeatable
-  --exclude <label>  never consider a ticket carrying one of these labels; repeatable
-  --json             emit the selection as JSON rather than the human rendering
-  --help             print this
+  --include <label>       consider only tickets carrying one of these labels; repeatable
+  --exclude <label>       never consider a ticket carrying one of these labels; repeatable
+  --no-default-exclude    drop the wayfinder exclusion below rather than adding to it
+  --json                  emit the selection as JSON rather than the human rendering
+  --help                  print this
 
-A label may end in "*" to match a prefix. --exclude 'wayfinder:*' is applied unless --include names a
-filter of its own, so --include 'wayfinder:*' drives the wayfinder track instead of the backlog while
-a lone --exclude adds to that default rather than dropping it. Either way the filter narrows only what
-may be recommended: the blocking graph still reads every ticket, so an excluded ticket still blocks.
+A label may end in "*" to match a prefix. --exclude 'wayfinder:*' always applies unless
+--no-default-exclude lifts it, and --exclude adds to it, so the two tracks cannot compete for one
+ticket on a flag that never mentioned wayfinder. To drive the wayfinder track instead, invert the
+filter: --include 'wayfinder:*' --no-default-exclude.
+
+The filter narrows only what may be recommended: the blocking graph still reads every ticket, so an
+excluded ticket still blocks.
 
 Exit status: 0 a ticket to start, 1 nothing to recommend, 2 a bad invocation or a ticket set that
 could not be read. This command only reads — it claims nothing and changes nothing.
@@ -92,6 +96,7 @@ function parse(argv: readonly string[]): Options {
 	let help = false;
 	let json = false;
 	let effort: string | null = null;
+	let keepDefaults = true;
 	const include: string[] = [];
 	const exclude: string[] = [];
 
@@ -104,6 +109,9 @@ function parse(argv: readonly string[]): Options {
 				break;
 			case "--json":
 				json = true;
+				break;
+			case "--no-default-exclude":
+				keepDefaults = false;
 				break;
 			case "--effort":
 				effort = value(argv, ++i, flag);
@@ -119,15 +127,12 @@ function parse(argv: readonly string[]): Options {
 		}
 	}
 
-	// `--include` replaces the default exclusion rather than adding to it, because merging would leave
-	// `--include 'wayfinder:*'` cancelled by the very exclusion it is inverting. That argument does not
-	// reach `--exclude`, which reads as "drop this as well" — replacing there would silently re-admit
-	// the wayfinder track to the candidate set on a flag that never mentioned it.
-	const filter =
-		include.length > 0
-			? { include, exclude }
-			: { include, exclude: [...DEFAULT_LABEL_FILTER.exclude, ...exclude] };
-	return { help, json, effort, filter };
+	// The default exclusion is a floor that only `--no-default-exclude` lifts. Letting a filter flag
+	// replace it implicitly re-admits the wayfinder track on a flag that never mentioned wayfinder —
+	// `--include backend` would then hand out a wayfinder ticket labelled `backend`, which is the
+	// competition between the two tracks that the default exists to prevent.
+	const exclusions = keepDefaults ? [...DEFAULT_LABEL_FILTER.exclude, ...exclude] : exclude;
+	return { help, json, effort, filter: { include, exclude: exclusions } };
 }
 
 function value(argv: readonly string[], index: number, flag: string): string {

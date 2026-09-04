@@ -179,7 +179,7 @@ describe("the confirmed and unknown partition", () => {
 		expect(formatTicketRef(selection.pick!.ref)).toBe("md:1");
 		expect(selection.consulted).toBe("unknown");
 		expect(selection.pick!.blocked).toBe("unknown");
-		expect(selection.degraded).toEqual([{ kind: "unconfirmed-blocking" }]);
+		expect(selection.degraded).toEqual([{ kind: "unknown-blocking" }, { kind: "partial-unblocks" }]);
 	});
 
 	test("ranks the unknown set by the same ladder", () => {
@@ -192,7 +192,7 @@ describe("the confirmed and unknown partition", () => {
 		expect(formatTicketRef(selection.pick!.ref)).toBe("md:2");
 	});
 
-	test("holds back a candidate whose blocker closed without meeting the dependency", () => {
+	test("holds back a candidate whose blocker closed without meeting what waited on it", () => {
 		const selection = select(
 			inputOf([
 				{ key: "1", state: "closed", openness: "unknown" },
@@ -200,7 +200,7 @@ describe("the confirmed and unknown partition", () => {
 			]),
 		);
 		expect(selection.consulted).toBe("unknown");
-		expect(selection.counts.unconfirmed).toBe(1);
+		expect(selection.counts.unknown).toBe(1);
 	});
 
 	test("recommends nothing when every candidate is confirmed blocked", () => {
@@ -223,7 +223,24 @@ describe("what the selection reports", () => {
 
 	test("reports both degrades where both apply", () => {
 		const selection = select(inputOf([{ key: "1", blockers: "unknown" }], { truncated: true }));
-		expect(selection.degraded).toEqual([{ kind: "truncated" }, { kind: "unconfirmed-blocking" }]);
+		expect(selection.degraded).toEqual([{ kind: "truncated" }, { kind: "unknown-blocking" }]);
+	});
+
+	// The ticket carrying the unreadable edges need not be a candidate itself. Whichever candidates it
+	// depends on are undercounted, so the second rung ranked two confidently-unblocked tickets against
+	// each other on numbers that are floors — and nothing about either of them looks uncertain.
+	test("reports an unblocks count built from edges it could not all read", () => {
+		const selection = select(
+			inputOf([{ key: "1" }, { key: "2" }, { key: "3", claim: { by: "octocat" }, blockers: "unknown" }]),
+		);
+		expect(selection.consulted).toBe("confirmed");
+		expect(selection.degraded).toEqual([{ kind: "partial-unblocks" }]);
+	});
+
+	test("says nothing about a floor no ranking was decided on", () => {
+		const selection = select(inputOf([{ key: "1", blockers: "unknown" }]));
+		expect(selection.ranked).toHaveLength(1);
+		expect(selection.degraded).toEqual([{ kind: "unknown-blocking" }]);
 	});
 
 	test("echoes the filter that ran, so an absent ticket can be traced to it", () => {
@@ -253,11 +270,11 @@ describe("what the selection reports", () => {
 			filtered: 1,
 			candidates: 3,
 			confirmed: 1,
-			unconfirmed: 1,
+			unknown: 1,
 			blocked: 1,
 		});
 		expect(counts.closed + counts.claimed + counts.filtered + counts.candidates).toBe(counts.tickets);
-		expect(counts.confirmed + counts.unconfirmed + counts.blocked).toBe(counts.candidates);
+		expect(counts.confirmed + counts.unknown + counts.blocked).toBe(counts.candidates);
 	});
 
 	test("ranks the whole consulted set, not only the winner", () => {

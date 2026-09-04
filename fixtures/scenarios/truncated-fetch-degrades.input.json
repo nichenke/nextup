@@ -1,5 +1,5 @@
 {
-	"description": "A fetch that hit its page limit against a large backlog. The pick is confidently unblocked, and the answer still degrades: a ticket that would have won the first rung may simply not have been read.",
+	"description": "A fetch that hit its page limit against a large ticket set — a GitHub search stopping at 1000 results, or a Jira query at its maxResults. The pick is confidently unblocked, and the answer still degrades: a ticket that would have won the first rung may simply not have been read.",
 	"truncated": true,
 	"filter": { "include": [], "exclude": ["wayfinder:*"] },
 	"tickets": [

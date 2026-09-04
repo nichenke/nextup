@@ -44,7 +44,7 @@
 		"filtered": 0,
 		"candidates": 4,
 		"confirmed": 2,
-		"unconfirmed": 0,
+		"unknown": 0,
 		"blocked": 2
 	},
 	"degraded": [],

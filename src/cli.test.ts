@@ -139,25 +139,27 @@ describe("the label filter flags", () => {
 		expect(result.stdout).toContain("no candidate to recommend");
 	});
 
-	test("replaces the default exclusion when --include names a filter of its own", () => {
+	// Otherwise `--include backend` hands out a wayfinder ticket labelled `backend`, which is the
+	// competition between the two tracks that the default exists to prevent.
+	test("keeps the wayfinder exclusion under a filter flag that never mentioned wayfinder", () => {
 		const repo = tempRepo();
 		chainedEffort(repo);
 		expect(run(["--json"], { cwd: repo }).stdout).toContain("wayfinder");
 		expect(JSON.parse(run(["--json", "--include", "ready-for-agent"], { cwd: repo }).stdout).filter).toEqual({
 			include: ["ready-for-agent"],
-			exclude: [],
+			exclude: ["wayfinder:*"],
 		});
-	});
-
-	// "Also drop this" is what a lone --exclude reads as. Replacing the default there would re-admit the
-	// wayfinder track to the candidate set on a flag that never mentioned it.
-	test("adds a lone --exclude to the default rather than replacing it", () => {
-		const repo = tempRepo();
-		chainedEffort(repo);
 		expect(JSON.parse(run(["--json", "--exclude", "needs-info"], { cwd: repo }).stdout).filter).toEqual({
 			include: [],
 			exclude: ["wayfinder:*", "needs-info"],
 		});
+	});
+
+	test("lifts the default only when asked, which is what inverts the filter onto the wayfinder track", () => {
+		const repo = tempRepo();
+		chainedEffort(repo);
+		const inverted = run(["--json", "--include", "wayfinder:*", "--no-default-exclude"], { cwd: repo });
+		expect(JSON.parse(inverted.stdout).filter).toEqual({ include: ["wayfinder:*"], exclude: [] });
 	});
 
 	test("refuses a pattern the grammar does not accept", () => {

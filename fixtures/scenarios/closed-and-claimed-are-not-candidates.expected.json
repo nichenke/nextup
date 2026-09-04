@@ -32,7 +32,7 @@
 		"filtered": 0,
 		"candidates": 1,
 		"confirmed": 1,
-		"unconfirmed": 0,
+		"unknown": 0,
 		"blocked": 0
 	},
 	"degraded": [],

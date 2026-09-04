@@ -21,7 +21,7 @@ export interface SelectionInput {
 	/**
 	 * Whether the fetch that produced `tickets` stopped short of the whole ticket set. Required rather
 	 * than defaulted, so an adapter has to state it: defaulting to `false` is how a partial page of a
-	 * large backlog gets presented as the complete one.
+	 * large ticket set gets presented as the complete one.
 	 */
 	readonly truncated: boolean;
 }
@@ -53,15 +53,19 @@ export type Decision =
 	| { readonly kind: "rung"; readonly rung: Rung; readonly over: TicketRef };
 
 /**
- * A reason the answer is worth less than a confident one. The two are kept apart rather than folded
- * into one boolean because they call for different actions: a truncated fetch wants a narrower query,
- * and unconfirmed blocking wants a look at the tracker.
+ * A reason the answer is worth less than a confident one. Kept apart rather than folded into one
+ * boolean because they call for different actions: a truncated fetch wants a narrower query, unknown
+ * blocking on the pick wants a look at the tracker, and a partial unblocks count says the second rung
+ * ranked on numbers that are floors.
  */
-export type Degrade = { readonly kind: "truncated" } | { readonly kind: "unconfirmed-blocking" };
+export type Degrade =
+	| { readonly kind: "truncated" }
+	| { readonly kind: "unknown-blocking" }
+	| { readonly kind: "partial-unblocks" };
 
 /**
  * Where every ticket went. `closed + claimed + filtered + candidates === tickets` and
- * `confirmed + unconfirmed + blocked === candidates`, both by construction — see `tally`.
+ * `confirmed + unknown + blocked === candidates`, both by construction — see `tally`.
  */
 export interface SelectionCounts {
 	readonly tickets: number;
@@ -70,7 +74,7 @@ export interface SelectionCounts {
 	readonly filtered: number;
 	readonly candidates: number;
 	readonly confirmed: number;
-	readonly unconfirmed: number;
+	readonly unknown: number;
 	readonly blocked: number;
 }
 
@@ -95,18 +99,18 @@ export interface Selection {
 export function select(input: SelectionInput): Selection {
 	const ids = identify(input.tickets);
 	const unblocks = countUnblocks(input.tickets, ids, input.graph);
-	const placements = input.tickets.map((ticket) => place(ticket, ids.get(ticket)!, unblocks, input));
+	const placements = input.tickets.map((ticket) => place(ticket, ids.get(ticket)!, unblocks.counts, input));
 
 	const confirmed: Candidate[] = [];
-	const unconfirmed: Candidate[] = [];
+	const unknown: Candidate[] = [];
 	for (const placement of placements) {
 		if (placement.kind === "confirmed") confirmed.push(placement.candidate);
-		if (placement.kind === "unconfirmed") unconfirmed.push(placement.candidate);
+		if (placement.kind === "unknown") unknown.push(placement.candidate);
 	}
 
 	// Partition before the ladder, per ADR-0003.
-	const consulted = confirmed.length > 0 ? "confirmed" : unconfirmed.length > 0 ? "unknown" : null;
-	const ranked = [...(consulted === "unknown" ? unconfirmed : confirmed)].sort(byLadder);
+	const consulted = confirmed.length > 0 ? "confirmed" : unknown.length > 0 ? "unknown" : null;
+	const ranked = [...(consulted === "unknown" ? unknown : confirmed)].sort(byLadder);
 
 	return {
 		pick: ranked[0] ?? null,
@@ -114,8 +118,10 @@ export function select(input: SelectionInput): Selection {
 		consulted,
 		ranked,
 		counts: tally(placements),
-		degraded: degradesOf(input.truncated, consulted === "unknown"),
-		unreadPrioritySignals: unreadSignals([...confirmed, ...unconfirmed]),
+		// A floor for the unblocks count only costs something once two candidates were ordered against
+		// each other, which is when a missing edge can put them the wrong way round.
+		degraded: degradesOf(input.truncated, consulted === "unknown", unblocks.partial && ranked.length > 1),
+		unreadPrioritySignals: unreadSignals([...confirmed, ...unknown]),
 		filter: input.filter.spec,
 	};
 }
@@ -131,7 +137,7 @@ type Placement =
 	| { readonly kind: "filtered" }
 	| { readonly kind: "blocked" }
 	| { readonly kind: "confirmed"; readonly candidate: Candidate }
-	| { readonly kind: "unconfirmed"; readonly candidate: Candidate };
+	| { readonly kind: "unknown"; readonly candidate: Candidate };
 
 function place(
 	ticket: Ticket,
@@ -151,7 +157,7 @@ function place(
 	if (state === "blocked") return { kind: "blocked" };
 
 	const candidate = candidateOf(ticket, state, readPriority(ticket.labels), unblocks.get(id) ?? 0);
-	return state === "unblocked" ? { kind: "confirmed", candidate } : { kind: "unconfirmed", candidate };
+	return state === "unblocked" ? { kind: "confirmed", candidate } : { kind: "unknown", candidate };
 }
 
 /**
@@ -165,7 +171,7 @@ function tally(placements: readonly Placement[]): SelectionCounts {
 		filtered: 0,
 		blocked: 0,
 		confirmed: 0,
-		unconfirmed: 0,
+		unknown: 0,
 	};
 	for (const placement of placements) counts[placement.kind]++;
 	return {
@@ -173,9 +179,9 @@ function tally(placements: readonly Placement[]): SelectionCounts {
 		closed: counts.closed,
 		claimed: counts.claimed,
 		filtered: counts.filtered,
-		candidates: counts.blocked + counts.confirmed + counts.unconfirmed,
+		candidates: counts.blocked + counts.confirmed + counts.unknown,
 		confirmed: counts.confirmed,
-		unconfirmed: counts.unconfirmed,
+		unknown: counts.unknown,
 		blocked: counts.blocked,
 	};
 }
@@ -204,19 +210,33 @@ function countUnblocks(
 	tickets: readonly Ticket[],
 	ids: Map<Ticket, IssueId>,
 	graph: DependencyGraph,
-): Map<IssueId, number> {
+): UnblocksCount {
 	const counts = new Map<IssueId, number>();
+	let partial = false;
 	for (const ticket of tickets) {
 		if (ticket.state !== "open") continue;
 		const dependent = ids.get(ticket)!;
 		const blockers = graph.blockers(dependent);
-		if (blockers === "unknown") continue;
+		if (blockers === "unknown") {
+			// This ticket's edges are unreadable, so whichever candidates it depends on are undercounted.
+			// Every count below is therefore a floor, and the rung can rank two candidates the wrong way
+			// round without any of them looking uncertain — the ticket carrying the missing edges is the
+			// one that degrades, and it need not be a candidate at all.
+			partial = true;
+			continue;
+		}
 		for (const blocker of new Set(blockers)) {
 			if (blocker === dependent) continue;
 			counts.set(blocker, (counts.get(blocker) ?? 0) + 1);
 		}
 	}
-	return counts;
+	return { counts, partial };
+}
+
+/** `partial` marks every count in `counts` as a lower bound rather than a total. */
+interface UnblocksCount {
+	readonly counts: Map<IssueId, number>;
+	readonly partial: boolean;
 }
 
 function candidateOf(
@@ -241,9 +261,24 @@ function unreadSignals(candidates: readonly Candidate[]): string[] {
 	return [...new Set(candidates.flatMap((candidate) => candidate.unreadPriority))].sort();
 }
 
-/** The ladder, in order, each rung skipped when neither candidate carries its signal. */
+/**
+ * The ladder itself, in order, each rung skipped when neither candidate carries its signal. Written
+ * once because both the ordering and the "won on X" line read it: as two separate cascades, reordering
+ * a rung or adding one changed only whichever the editor happened to be looking at, and the resulting
+ * mismatch reports the wrong deciding rung with no type error and no failing fixture.
+ */
+const LADDER: readonly { readonly rung: Rung; readonly compare: (a: Candidate, b: Candidate) => number }[] = [
+	{ rung: "priority", compare: (a, b) => comparePriority(a.priority, b.priority) },
+	{ rung: "unblocks", compare: (a, b) => b.unblocks - a.unblocks },
+	{ rung: "reference", compare: (a, b) => compareTicketRefs(a.ref, b.ref) },
+];
+
 function byLadder(a: Candidate, b: Candidate): number {
-	return comparePriority(a.priority, b.priority) || b.unblocks - a.unblocks || compareTicketRefs(a.ref, b.ref);
+	for (const { compare } of LADDER) {
+		const ordered = compare(a, b);
+		if (ordered !== 0) return ordered;
+	}
+	return 0;
 }
 
 /** Lower is more urgent, and a candidate carrying no priority sorts after every one that does. */
@@ -261,16 +296,22 @@ function decisionOf(ranked: readonly Candidate[]): Decision | null {
 	return { kind: "rung", rung: decidingRung(pick, runnerUp), over: runnerUp.ref };
 }
 
-/** The first rung on which the pick actually beat the runner-up. */
+/**
+ * The first rung on which the pick actually beat the runner-up. The last rung is total over distinct
+ * references and `identify` refuses a set holding one reference twice, so the loop always returns; the
+ * tail names that last rung rather than a literal, so it cannot drift from `LADDER`.
+ */
 function decidingRung(pick: Candidate, runnerUp: Candidate): Rung {
-	if (comparePriority(pick.priority, runnerUp.priority) !== 0) return "priority";
-	if (pick.unblocks !== runnerUp.unblocks) return "unblocks";
-	return "reference";
+	for (const { rung, compare } of LADDER) {
+		if (compare(pick, runnerUp) !== 0) return rung;
+	}
+	return LADDER[LADDER.length - 1]!.rung;
 }
 
-function degradesOf(truncated: boolean, unconfirmed: boolean): Degrade[] {
+function degradesOf(truncated: boolean, unknownBlocking: boolean, partialUnblocks: boolean): Degrade[] {
 	const degrades: Degrade[] = [];
 	if (truncated) degrades.push({ kind: "truncated" });
-	if (unconfirmed) degrades.push({ kind: "unconfirmed-blocking" });
+	if (unknownBlocking) degrades.push({ kind: "unknown-blocking" });
+	if (partialUnblocks) degrades.push({ kind: "partial-unblocks" });
 	return degrades;
 }

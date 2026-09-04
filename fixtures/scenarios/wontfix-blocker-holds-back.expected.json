@@ -32,11 +32,11 @@
 		"filtered": 0,
 		"candidates": 1,
 		"confirmed": 0,
-		"unconfirmed": 1,
+		"unknown": 1,
 		"blocked": 0
 	},
 	"degraded": [
-		"unconfirmed-blocking"
+		"unknown-blocking"
 	],
 	"unreadPrioritySignals": [],
 	"filter": {

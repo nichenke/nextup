@@ -48,11 +48,12 @@
 		"filtered": 0,
 		"candidates": 2,
 		"confirmed": 0,
-		"unconfirmed": 2,
+		"unknown": 2,
 		"blocked": 0
 	},
 	"degraded": [
-		"unconfirmed-blocking"
+		"unknown-blocking",
+		"partial-unblocks"
 	],
 	"unreadPrioritySignals": [],
 	"filter": {

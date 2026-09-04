@@ -9,31 +9,23 @@ import { formatTicketRef } from "./ticket-ref";
  */
 export const DEGRADED_PREFIX = "degraded: ";
 
-export interface CandidateJson {
-	readonly ref: string;
-	readonly title: string;
-	readonly url: string | null;
-	readonly labels: readonly string[];
-	readonly blocked: "unblocked" | "unknown";
-	readonly priority: number | null;
-	readonly unreadPriority: readonly string[];
-	readonly unblocks: number;
-}
+/**
+ * The JSON forms are their source types with only the fields that change shape restated. Spelling them
+ * out in full let a field added to `Candidate` or `Selection` reach neither the type nor the output,
+ * silently: `--json` would simply not carry it, and nothing would fail.
+ */
+export type CandidateJson = Omit<Candidate, "ref"> & { readonly ref: string };
 
 export type DecisionJson =
 	| { readonly kind: "only-candidate" }
 	| { readonly kind: "rung"; readonly rung: Rung; readonly over: string };
 
-export interface SelectionJson {
+export type SelectionJson = Omit<Selection, "pick" | "decision" | "ranked" | "degraded"> & {
 	readonly pick: CandidateJson | null;
 	readonly decision: DecisionJson | null;
-	readonly consulted: "confirmed" | "unknown" | null;
 	readonly ranked: readonly CandidateJson[];
-	readonly counts: SelectionCounts;
 	readonly degraded: readonly Degrade["kind"][];
-	readonly unreadPrioritySignals: readonly string[];
-	readonly filter: LabelFilterSpec;
-}
+};
 
 /**
  * The selection as plain JSON. Every reference becomes its short form, and an absent pick is an
@@ -42,6 +34,7 @@ export interface SelectionJson {
  */
 export function selectionJson(selection: Selection): SelectionJson {
 	return {
+		...selection,
 		pick: selection.pick === null ? null : candidateJson(selection.pick),
 		decision:
 			selection.decision === null
@@ -49,26 +42,13 @@ export function selectionJson(selection: Selection): SelectionJson {
 				: selection.decision.kind === "only-candidate"
 					? { kind: "only-candidate" }
 					: { kind: "rung", rung: selection.decision.rung, over: formatTicketRef(selection.decision.over) },
-		consulted: selection.consulted,
 		ranked: selection.ranked.map(candidateJson),
-		counts: selection.counts,
 		degraded: selection.degraded.map((degrade) => degrade.kind),
-		unreadPrioritySignals: selection.unreadPrioritySignals,
-		filter: selection.filter,
 	};
 }
 
 function candidateJson(candidate: Candidate): CandidateJson {
-	return {
-		ref: formatTicketRef(candidate.ref),
-		title: candidate.title,
-		url: candidate.url,
-		labels: candidate.labels,
-		blocked: candidate.blocked,
-		priority: candidate.priority,
-		unreadPriority: candidate.unreadPriority,
-		unblocks: candidate.unblocks,
-	};
+	return { ...candidate, ref: formatTicketRef(candidate.ref) };
 }
 
 /** How many runners-up the human rendering names before summarising the rest. */
@@ -76,7 +56,8 @@ const RUNNERS_UP = 5;
 
 const DEGRADE_REASON: Record<Degrade["kind"], string> = {
 	truncated: "the ticket set was truncated, so a better candidate may not have been read",
-	"unconfirmed-blocking": "no candidate's blockers could be confirmed closed, so this pick may be blocked",
+	"unknown-blocking": "no candidate's blockers could be confirmed closed, so this pick may be blocked",
+	"partial-unblocks": "some tickets' blockers could not be read, so every unblocks count is a floor",
 };
 
 export function renderSelection(selection: Selection): string {
@@ -90,9 +71,9 @@ export function renderSelection(selection: Selection): string {
 		lines.push(`  ${renderDecision(selection)}`);
 		lines.push(`  ${renderSignals(selection.pick)}`);
 		lines.push(...renderRunnersUp(selection.ranked));
-		const unconsulted = heldBack(selection);
-		if (unconsulted > 0) {
-			lines.push("", `held back: ${unconsulted} candidate(s) whose blockers could not be confirmed closed`);
+		const heldBack = heldBackCount(selection);
+		if (heldBack > 0) {
+			lines.push("", `held back: ${heldBack} candidate(s) whose blockers could not be confirmed closed`);
 		}
 	}
 
@@ -116,16 +97,16 @@ function renderDecision(selection: Selection): string {
 	if (decision !== null && decision.kind === "rung") {
 		return `won on ${decision.rung} over ${formatTicketRef(decision.over)}`;
 	}
-	return heldBack(selection) === 0 ? "the only candidate" : "the only candidate with confirmed blocking";
+	return heldBackCount(selection) === 0 ? "the only candidate" : "the only candidate with confirmed blocking";
 }
 
 /** Candidates in the partition that was not consulted, which the ranking never saw. */
-function heldBack(selection: Selection): number {
-	return selection.consulted === "confirmed" ? selection.counts.unconfirmed : 0;
+function heldBackCount(selection: Selection): number {
+	return selection.consulted === "confirmed" ? selection.counts.unknown : 0;
 }
 
 function renderSignals(candidate: Candidate): string {
-	const blocking = candidate.blocked === "unblocked" ? "blocking confirmed" : "blocking unconfirmed";
+	const blocking = candidate.blocked === "unblocked" ? "blocking confirmed" : "blocking unknown";
 	return `${renderPriority(candidate)}, unblocks ${candidate.unblocks}, ${blocking}`;
 }
 
@@ -158,7 +139,7 @@ function renderCounts(counts: SelectionCounts): string {
 		`${counts.closed} closed`,
 		`${counts.claimed} claimed`,
 		`${counts.filtered} filtered out`,
-		`${counts.candidates} candidates (${counts.confirmed} unblocked, ${counts.unconfirmed} unconfirmed, ${counts.blocked} blocked)`,
+		`${counts.candidates} candidates (${counts.confirmed} unblocked, ${counts.unknown} unknown, ${counts.blocked} blocked)`,
 	];
 	return `${counts.tickets} tickets: ${aside.join(", ")}`;
 }

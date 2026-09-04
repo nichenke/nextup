@@ -1,5 +1,5 @@
 {
-	"description": "A blocker closed in a way that never met the dependency — a wontfix, a GitHub not_planned. Its openness is unknown rather than false, so the dependent lands in the unknown set.",
+	"description": "A blocker closed in a way that never met what waited on it — a wontfix, a GitHub not_planned. Its openness is unknown rather than false, so the ticket waiting on it lands in the unknown set.",
 	"truncated": false,
 	"filter": { "include": [], "exclude": ["wayfinder:*"] },
 	"tickets": [

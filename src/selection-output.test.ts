@@ -66,7 +66,7 @@ describe("selectionJson", () => {
 	test("names each degrade by kind, so a script can test for one", () => {
 		expect(selectionJson(selectionOf([{ key: "1" }], true)).degraded).toEqual(["truncated"]);
 		expect(selectionJson(selectionOf([{ key: "1", blockers: "unknown" }])).degraded).toEqual([
-			"unconfirmed-blocking",
+			"unknown-blocking",
 		]);
 	});
 
