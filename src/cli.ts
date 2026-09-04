@@ -124,8 +124,7 @@ function parse(argv: readonly string[]): Options {
 	}
 
 	// The default exclusion is a floor, not a starting point a filter flag replaces: `--include backend`
-	// would otherwise hand out a wayfinder ticket labelled `backend`, which is the competition between
-	// the two tracks that the default exists to prevent.
+	// would otherwise hand out a wayfinder ticket labelled `backend`.
 	return { help, json, effort, filter: { include, exclude: [...DEFAULT_LABEL_FILTER.exclude, ...exclude] } };
 }
 

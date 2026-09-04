@@ -1,6 +1,6 @@
 md:2 — Retry a timed-out fetch
   won on priority over md:1
-  priority P1, unblocks 0, blocking unknown
+  priority P1, unblocks 0, blockers unknown
 
 2 tickets: 0 closed, 0 claimed, 0 filtered out, 2 candidates (0 unblocked, 2 unknown, 0 blocked)
 degraded: no candidate's blockers could be confirmed closed, so this pick may be blocked

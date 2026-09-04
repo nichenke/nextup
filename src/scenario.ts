@@ -77,7 +77,6 @@ function readTicket(raw: unknown, path: string, where: string): TicketSpec {
 					),
 	};
 
-	// Stated rather than derived from `state`; see `GraphSeed.open` for why the two differ.
 	const openness =
 		entry.openness === undefined
 			? state === "open"

@@ -22,9 +22,7 @@ export function readPriority(labels: readonly string[]): PriorityReading {
 		const trimmed = label.trim();
 		const numbered = NUMBERED.exec(trimmed);
 		if (numbered?.[1] !== undefined) {
-			const value = exactly(numbered[1]);
-			// A digit run too long to hold exactly is reported rather than ranked, like a named value: it
-			// is a priority this reading could not order, and the `unread` channel already means that.
+			const value = rankable(numbered[1]);
 			if (value === null) unread.add(trimmed.toLowerCase());
 			else if (rank === null || value < rank) rank = value;
 			continue;
@@ -36,15 +34,14 @@ export function readPriority(labels: readonly string[]): PriorityReading {
 }
 
 /**
- * The digit run as a number, or `null` where `Number` cannot hold it exactly. Nothing bounds how many
- * digits a label carries, and past 2^53 the conversion is lossy in a way that ranks silently wrong:
- * `P9007199254740993` and `P9007199254740992` both become 9007199254740992, so two distinct priorities
- * compare equal and the rung hands the decision to the next one.
+ * The digit run as a number, or `null` above `Number.MAX_SAFE_INTEGER`; ADR-0011 says why that range is
+ * reported rather than ranked.
  *
- * Safe for a digit run specifically, which is all `NUMBERED` captures: a value at or below 2^53-1 is
- * exact, and anything above it rounds to at least 2^53 and fails the check.
+ * The check is sound for a digit run specifically, which is all `NUMBERED` captures: every integer at
+ * or below 2^53-1 is representable, so nothing rankable is refused. Widening `NUMBERED` past `\d+`
+ * breaks that — a fraction or an exponent can pass `isSafeInteger` after losing precision.
  */
-function exactly(digits: string): number | null {
+function rankable(digits: string): number | null {
 	const value = Number(digits);
 	return Number.isSafeInteger(value) ? value : null;
 }

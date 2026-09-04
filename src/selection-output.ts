@@ -77,8 +77,8 @@ export function renderSelection(selection: Selection): string {
 
 /**
  * A lone candidate is only lone among the ones the ladder ranked. Saying "the only candidate" while the
- * counts two lines below report more of them contradicts those counts, and the rest are held back
- * rather than absent — blocked, or in the partition that was never consulted.
+ * counts line below reports more of them contradicts it, and the rest are held back rather than absent
+ * — blocked, or in the partition that was never consulted.
  */
 function renderDecision(selection: Selection): string {
 	const decision = selection.decision;
@@ -88,17 +88,15 @@ function renderDecision(selection: Selection): string {
 	return heldBackCount(selection) === 0 ? "the only candidate" : "the only candidate the ladder ranked";
 }
 
-/**
- * Candidates the ranking never saw. Every candidate not in `ranked` counts, whatever held it back:
- * counting only the unconsulted partition left a lone pick claiming to be the only candidate while the
- * counts line reported the blocked ones alongside it.
- */
+/** Candidates the ranking never saw: every candidate not in `ranked`, whatever held it back. */
 function heldBackCount(selection: Selection): number {
 	return selection.counts.candidates - selection.ranked.length;
 }
 
 function renderSignals(candidate: Candidate): string {
-	const blocking = candidate.blocked === "unblocked" ? "blocking confirmed" : "blocking unknown";
+	// Not "blocking confirmed", the only string here a reader could take to mean confirmed *blocked* —
+	// on the line recommending the ticket, above a counts line that says how many are.
+	const blocking = candidate.blocked === "unblocked" ? "blockers confirmed closed" : "blockers unknown";
 	return `${renderPriority(candidate)}, unblocks ${candidate.unblocks}, ${blocking}`;
 }
 

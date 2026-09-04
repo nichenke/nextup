@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { ScenarioError, loadScenario } from "./scenario";
@@ -18,15 +18,11 @@ const RENDERED = ".expected.txt";
  */
 const UPDATING = process.env.UPDATE_SCENARIOS === "1" && process.env.CI === undefined;
 
-function scenarioNames(): string[] {
-	return readdirSync(SCENARIOS)
-		.filter((name) => name.endsWith(INPUT))
-		.map((name) => name.slice(0, -INPUT.length))
-		.sort();
-}
+/** The scenarios whose human rendering is pinned as well as their JSON. */
+const RENDERED_SCENARIOS = ["lone-pick-beside-blocked-candidates", "unknown-consulted-when-nothing-confirmed"];
 
 describe("the golden-file scenario suite", () => {
-	const names = scenarioNames();
+	const names = namesEndingIn(INPUT);
 
 	test("holds at least one scenario", () => {
 		expect(names.length).toBeGreaterThan(0);
@@ -36,7 +32,14 @@ describe("the golden-file scenario suite", () => {
 	// that scenario from the suite with nothing failing.
 	test("pairs every expected file with an input", () => {
 		expect(namesEndingIn(EXPECTED)).toEqual(names);
-		expect(names).toEqual(expect.arrayContaining(namesEndingIn(RENDERED)));
+	});
+
+	// Declared rather than discovered by looking for the files: deleting a rendering golden would
+	// otherwise drop its assertion with nothing failing, which is the same silent gap an orphaned
+	// expected file is refused for.
+	test("holds a rendering golden for exactly the scenarios that name one", () => {
+		expect(namesEndingIn(RENDERED)).toEqual([...RENDERED_SCENARIOS].sort());
+		expect(names).toEqual(expect.arrayContaining(RENDERED_SCENARIOS));
 	});
 
 	for (const name of names) {
@@ -52,12 +55,9 @@ describe("the golden-file scenario suite", () => {
 			}
 			expect(answer).toEqual(JSON.parse(readFileSync(expectedPath, "utf8")));
 
-			// Only the scenarios that carry one, which is a deliberate handful: the JSON pins the decision,
-			// and a rendering golden pins the shape of the document a person reads — line order, the blank
-			// line, the sentinel last. Wording changes then arrive as a diff to approve rather than
-			// silently. Create the file empty and regenerate to add one.
+			// Only the scenarios named in RENDERED_SCENARIOS; README's "Fixing a bad pick" says why.
+			if (!RENDERED_SCENARIOS.includes(name)) return;
 			const renderedPath = join(SCENARIOS, `${name}${RENDERED}`);
-			if (!existsSync(renderedPath)) return;
 			const rendered = renderSelection(selection);
 			if (UPDATING) writeFileSync(renderedPath, rendered);
 			expect(rendered).toBe(readFileSync(renderedPath, "utf8"));
