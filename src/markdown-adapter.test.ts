@@ -111,11 +111,19 @@ describe("readEffort: the observed plain-field format", () => {
 		expect(ticket.path).toEndWith("/issues/02-pick-a-substrate.md");
 	});
 
-	// The H1 carries a different number from the filename, so this can tell which one was read.
-	test("takes the ticket number from the filename, not the H1, and strips its padding", () => {
-		const ticket = oneTicket(tempRepo(), "07-seventh.md", "# 42 — Seventh\n");
+	test("takes the ticket number from the filename and strips the title's copy of it", () => {
+		const ticket = oneTicket(tempRepo(), "07-seventh.md", "# 07 — Seventh\n");
 		expect(ticket.ref.key).toBe("7");
 		expect(ticket.title).toBe("Seventh");
+	});
+
+	// The strip is only justified by the two numbers being one fact. Discarding a mismatch silently
+	// leaves a sibling's `Blocked by: 42` pointing at a number no file carries, degrading it to
+	// unknown for a reason nothing explains.
+	test("a title numbered differently from its filename is refused, not silently discarded", () => {
+		const effort = writeEffort(tempRepo(), "effort", { "07-seventh.md": "# 42 — Seventh\n" });
+		expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
+		expect(() => readEffort(effort)).toThrow(/numbered/);
 	});
 
 	test("keeps a title that carries no number prefix intact", () => {
@@ -165,46 +173,42 @@ describe("readEffort: the observed plain-field format", () => {
 		]);
 	});
 
-	// Only ATX `##` ended the header, so a setext-underlined heading left the whole body inside it and
-	// body prose became the ticket's own Status — which, read as resolved, prunes its dependents.
-	test("a setext-underlined heading ends the header region, like an ATX one", () => {
-		const effort = writeEffort(tempRepo(), "effort", {
-			"01-blocker.md": "# 01 — Blocker\n\nNotes\n-----\n\nStatus: resolved\n",
-			"02-dependent.md": "# 02 — Dependent\n\nStatus: open\nBlocked by: 1\n",
-		});
-		const tickets = byKey(readEffort(effort).tickets);
-		expect(tickets.get("1")!.state).toBe("open");
-		expect(tickets.get("2")!.blocked).toBe("blocked");
+	// A field below the boundary is refused rather than read or ignored. Reading it let body prose
+	// become the ticket's state and prune a live blocker; ignoring it let `Status: claimed` below a
+	// divider report somebody's in-flight work as available. Both are silent; refusing is not.
+	// CommonMark setext underlines are one or more `=` or `-`, so all of these are real headings.
+	test("a field below a setext-underlined heading is refused, at every underline length", () => {
+		const repo = tempRepo();
+		for (const underline of ["-", "--", "-----", "=", "==="]) {
+			const effort = writeEffort(repo, "effort", {
+				"01-a.md": `# 01 — A\n\nNotes\n${underline}\n\nStatus: resolved\n`,
+			});
+			expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
+		}
 	});
 
-	// The bold-marker strip runs first and collapses `**` pairs, so an asterisk break reached the
-	// break pattern as one stray `*` and never matched — leaving body prose inside the header region.
-	test("an asterisk thematic break ends the header region, like a dashed one", () => {
-		const effort = writeEffort(tempRepo(), "effort", {
-			"01-blocker.md": "# 01 — Blocker\n\nType: decision\n\n***\n\nStatus: resolved\n",
-			"02-dependent.md": "# 02 — Dependent\n\nStatus: open\nBlocked by: 1\n",
-		});
-		const tickets = byKey(readEffort(effort).tickets);
-		expect(tickets.get("1")!.state).toBe("open");
-		expect(tickets.get("2")!.blocked).toBe("blocked");
+	test("a claimed status below a divider is refused, not read as unclaimed and open", () => {
+		const repo = tempRepo();
+		for (const divider of ["---", "***", "___"]) {
+			const effort = writeEffort(repo, "effort", {
+				"01-a.md": `# 01 — A\n\n${divider}\n\nStatus: claimed\n`,
+			});
+			expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
+		}
 	});
 
-	test("a thematic break ends the header region too", () => {
+	test("a field above the boundary is read, and the boundary itself is not a field", () => {
+		const ticket = oneTicket(tempRepo(), "01-a.md", "# 01 — A\n\nStatus: resolved\n\n---\n\nProse.\n");
+		expect(ticket.state).toBe("closed");
+	});
+
+	// Prose below the boundary is untouched unless it is field-shaped; the escape for quoting a field
+	// verbatim is to fence it, which is what the refusal message tells an author to do.
+	test("a fenced field below the boundary is a quotation, not a field", () => {
 		const ticket = oneTicket(
 			tempRepo(),
 			"01-a.md",
-			"# 01 — A\n\nStatus: open\n\n---\n\nStatus: resolved was the old value.\n",
-		);
-		expect(ticket.state).toBe("open");
-	});
-
-	// The counterpart to the Blocked by rule: a Status line below a heading stays prose, because an
-	// Answer or Comments section legitimately quotes a past value.
-	test("a Status line below the first section heading is body prose, not the ticket's field", () => {
-		const ticket = oneTicket(
-			tempRepo(),
-			"01-a.md",
-			"# 01 — A\n\nStatus: open\n\n## Answer\n\nStatus: resolved was the old value.\n",
+			"# 01 — A\n\nStatus: open\n\n## Answer\n\n```\nStatus: resolved\n```\n",
 		);
 		expect(ticket.state).toBe("open");
 	});
@@ -421,6 +425,24 @@ describe("readEffort: malformed input fails loudly", () => {
 		}
 	});
 
+	// A hash-prefixed number is how the tickets this project actually writes name a blocker — issue 7's
+	// own body says `**Blocked by:** #6`. Refusing it took the whole effort down, which is the
+	// zero-candidates failure the ticket's own comment says to avoid.
+	test("a hash-prefixed blocker reference resolves to the same ticket as its bare form", () => {
+		const effort = writeEffort(tempRepo(), "effort", {
+			"01-a.md": "# 01 — A\n\nStatus: resolved\n",
+			"02-b.md": "# 02 — B\n\n**Status:** ready-for-agent\n\n**Blocked by:** #1\n",
+		});
+		const ticket = byKey(readEffort(effort).tickets).get("2")!;
+		expect(ticket.blockers).toEqual([{ tracker: "markdown", repo: null, host: null, key: "1" }]);
+		expect(ticket.blocked).toBe("unblocked");
+	});
+
+	test("a hash-prefixed list resolves every entry", () => {
+		const ticket = oneTicket(tempRepo(), "03-c.md", "# 03 — C\n\nStatus: open\nBlocked by: #1, #2\n");
+		expect(ticket.blockers.map((ref) => ref.key)).toEqual(["1", "2"]);
+	});
+
 	test("the skill's None prose is still read as no blockers", () => {
 		const repo = tempRepo();
 		for (const value of ["None — can start immediately", "none", "None – nothing to wait on"]) {
@@ -501,6 +523,24 @@ describe("readEffort: malformed input fails loudly", () => {
 		}
 	});
 
+	// The controls below all began with another word, which is how a refusal that fires on any line
+	// starting with a dependency word got through: a sentence is not a declaration, and one sentence
+	// in one ticket took down every ticket in the effort.
+	test("body prose that begins with a dependency word is prose, not a declaration", () => {
+		const repo = tempRepo();
+		const sentences = [
+			"Depends on the spike landing.",
+			"Blocked by the vendor, historically.",
+			"Blockers were mostly organisational.",
+			"Depends how you count it!",
+		];
+		for (const sentence of sentences) {
+			const ticket = oneTicket(repo, "01-a.md", `# 01 — A\n\nStatus: open\n\n## Notes\n\n${sentence}\n`);
+			expect(ticket.blockers).toEqual([]);
+			expect(ticket.blocked).toBe("unblocked");
+		}
+	});
+
 	test("body prose that mentions being blocked by a number is prose", () => {
 		const repo = tempRepo();
 		const bodies = [
@@ -577,9 +617,15 @@ describe("readEffort: malformed input fails loudly", () => {
 		expectRejected("Type: grilling\nStatus: open\n", /title/);
 	});
 
-	test("a file in the issues directory whose name carries no ticket number", () => {
-		const effort = writeEffort(tempRepo(), "effort", { "notes.md": "# Notes\n" });
-		expect(() => readEffort(effort)).toThrow(/notes\.md/);
+	// Skipped rather than refused, matching the dotfile and unreadable-entry stance: refusing would
+	// take a whole effort down over one file, which this module declines to do for a blocking cycle.
+	test("a non-ticket file alongside the tickets is skipped as junk", () => {
+		const effort = writeEffort(tempRepo(), "effort", {
+			"01-a.md": "# 01 — A\n\nStatus: open\n",
+			"README.md": "# Notes about this effort\n",
+			"TEMPLATE.md": "# 00 — Template\n",
+		});
+		expect(readEffort(effort).tickets.map((ticket) => ticket.ref.key)).toEqual(["1"]);
 	});
 
 	test("two files claiming the same ticket number", () => {
