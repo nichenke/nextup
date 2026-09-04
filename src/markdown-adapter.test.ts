@@ -529,10 +529,13 @@ describe("readEffort: content outside the grammar is body", () => {
 		expect(oneTicket(repo, "01-a.md", "# 01 — A\n\nStatus: open\nType: decision\n").type).toBe("decision");
 	});
 
+	// Both fixtures refused before per-line tracking, by different mechanisms: without a real Status the
+	// stray closing marker made a garbage value, and with one it made a second Status field.
 	test("emphasis spanning a hard break does not refuse the effort", () => {
 		const repo = tempRepo();
-		const ticket = oneTicket(repo, "01-a.md", "# 01 — A\n\nStatus: open\n\n_see also  \nStatus: resolved_\n");
-		expect(ticket.state).toBe("open");
+		expect(oneTicket(repo, "01-a.md", "# 01 — A\n\n_see also  \nStatus: resolved_\n").state).toBe("open");
+		const withField = oneTicket(repo, "01-a.md", "# 01 — A\n\nStatus: open\n\n_see also  \nStatus: resolved_\n");
+		expect(withField.state).toBe("open");
 	});
 
 	test("plain and bold are both still read", () => {

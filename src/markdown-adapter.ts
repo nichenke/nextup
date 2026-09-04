@@ -341,7 +341,8 @@ function resolveMarkdownRef(token: string, describeRefusal: () => string): Ticke
 /**
  * The fields in the header region: the run of paragraphs after the H1, up to the first block that is
  * anything else. Block and inline structure both come from a CommonMark lexer rather than from patterns
- * here — ADR-0009 records why, and ADR-0008 records what the accepted grammar is.
+ * here — ADR-0009 records why for block structure and ADR-0010 for inline, and ADR-0008 records what
+ * the accepted grammar is.
  *
  * Nothing outside that region is looked at. This adapter reads the one existing pack of `.scratch`
  * tickets and whatever this project writes itself, so it reads the grammar and does not try to infer
@@ -431,12 +432,14 @@ function blockLines(token: Token): BlockLine[] {
 
 /**
  * Walks inline tokens onto lines, marking a line impure the moment a form other than plain text or bold
- * touches it. That is the field grammar's inline half, which ADR-0008 states.
+ * contributes to it. That is the field grammar's inline half, which ADR-0008 states. A hard break is
+ * neither of those two and deliberately does not taint anything: it starts a fresh line, which is what
+ * keeps a run of fields written across breaks separable.
  *
  * Bold is whatever the lexer calls `strong`, which is wider than the `**Status:**` the producers write —
- * `__Status__:` is accepted too. Narrowing that would mean inspecting marker characters, the enumeration
- * ADR-0009 moved to the lexer to escape, so the rule is stated as what the code does rather than as
- * something stricter.
+ * `__Status__:` is accepted too. Narrowing that would mean inspecting marker characters, which is the
+ * enumeration ADR-0010 moved to the lexer to escape, so the rule is stated as what the code does rather
+ * than as something stricter.
  */
 function appendInline(tokens: readonly Token[], lines: Array<{ text: string; plain: boolean }>): void {
 	const last = (): { text: string; plain: boolean } => lines[lines.length - 1]!;
