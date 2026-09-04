@@ -96,6 +96,26 @@ describe("renderSelection", () => {
 		expect(renderSelection(selectionOf([{ key: "1" }]))).toContain("the only candidate");
 	});
 
+	// Otherwise the decision line asserts those candidates do not exist while the counts below report
+	// them, and the ranking never showed them because it never consulted their partition.
+	test("scopes a lone pick to its partition when others were held back, and counts them", () => {
+		const text = renderSelection(
+			selectionOf([
+				{ key: "1" },
+				{ key: "2", blockers: "unknown" },
+				{ key: "3", blockers: "unknown" },
+			]),
+		);
+		expect(text).toContain("the only candidate with confirmed blocking");
+		expect(text).toContain("held back: 2 candidate(s)");
+	});
+
+	test("does not scope a lone pick when nothing was held back", () => {
+		const text = renderSelection(selectionOf([{ key: "1" }]));
+		expect(text).not.toContain("held back");
+		expect(text).not.toContain("confirmed blocking");
+	});
+
 	test("shows the ticket's url where the tracker has one", () => {
 		const text = renderSelection(selectionOf([{ key: "1", url: "https://example.com/issues/1" }]));
 		expect(text).toContain("https://example.com/issues/1");
@@ -122,13 +142,18 @@ describe("renderSelection", () => {
 
 	test("names a priority label the ladder did not read, on the candidate that carried it", () => {
 		const text = renderSelection(selectionOf([{ key: "1", labels: ["priority:high"] }]));
-		expect(text).toContain("priority unread: priority:high");
+		expect(text).toContain("priority none (unread: priority:high)");
+	});
+
+	test("names an unread label on a candidate whose numeric priority the ladder did read", () => {
+		const text = renderSelection(selectionOf([{ key: "1", labels: ["P1", "priority:high"] }]));
+		expect(text).toContain("priority P1 (unread: priority:high)");
 	});
 
 	test("separates a candidate carrying no priority from one whose priority went unread", () => {
 		const text = renderSelection(selectionOf([{ key: "1", labels: ["priority:high"] }, { key: "2" }]));
-		expect(text).toContain("priority unread: priority:high");
-		expect(text).toContain("priority none");
+		expect(text).toContain("priority none (unread: priority:high)");
+		expect(text).toContain("priority none, unblocks 0");
 	});
 
 	test("names a handful of runners-up and counts the rest", () => {

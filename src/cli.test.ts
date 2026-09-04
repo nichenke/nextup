@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { run } from "./cli";
 import { DEGRADED_PREFIX } from "./selection-output";
 
@@ -139,7 +139,7 @@ describe("the label filter flags", () => {
 		expect(result.stdout).toContain("no candidate to recommend");
 	});
 
-	test("replaces the whole default filter as soon as either flag is given", () => {
+	test("replaces the default exclusion when --include names a filter of its own", () => {
 		const repo = tempRepo();
 		chainedEffort(repo);
 		expect(run(["--json"], { cwd: repo }).stdout).toContain("wayfinder");
@@ -149,12 +149,65 @@ describe("the label filter flags", () => {
 		});
 	});
 
+	// "Also drop this" is what a lone --exclude reads as. Replacing the default there would re-admit the
+	// wayfinder track to the candidate set on a flag that never mentioned it.
+	test("adds a lone --exclude to the default rather than replacing it", () => {
+		const repo = tempRepo();
+		chainedEffort(repo);
+		expect(JSON.parse(run(["--json", "--exclude", "needs-info"], { cwd: repo }).stdout).filter).toEqual({
+			include: [],
+			exclude: ["wayfinder:*", "needs-info"],
+		});
+	});
+
 	test("refuses a pattern the grammar does not accept", () => {
 		const repo = tempRepo();
 		chainedEffort(repo);
 		const result = run(["--exclude", "way*er"], { cwd: repo });
 		expect(result.code).toBe(2);
 		expect(result.stderr).toContain("way*er");
+	});
+});
+
+/**
+ * `run` returns its output as a string, so nothing above this reaches the process streams that
+ * `bin/nextup.ts` writes to. These drive the real executable.
+ */
+describe("bin/nextup.ts", () => {
+	const BIN = join(dirname(import.meta.dir), "bin", "nextup.ts");
+
+	/** Enough tickets that the JSON exceeds a 64KB pipe buffer and a writer can outrun its reader. */
+	function largeEffort(repoRoot: string): string {
+		const files: Record<string, string> = {};
+		for (let number = 1; number <= 400; number++) {
+			files[`${number}-t.md`] = `# ${number} — Ticket number ${number}, titled at length to pad the document\n\nStatus: open\n`;
+		}
+		return writeEffort(repoRoot, "large", files);
+	}
+
+	// `process.exit` tore the process down before an asynchronous pipe write drained, so a reader slower
+	// than the writer got a truncated document and an exit status of 0 saying it was fine.
+	test("delivers the whole JSON document to a reader slower than itself", () => {
+		const effort = largeEffort(tempRepo());
+		const piped = Bun.spawnSync(["sh", "-c", `bun ${BIN} --json --effort ${effort} | (sleep 1; cat)`]);
+		const direct = Bun.spawnSync(["bun", BIN, "--json", "--effort", effort]);
+
+		expect(direct.stdout.length).toBeGreaterThan(65536);
+		expect(piped.stdout.toString()).toBe(direct.stdout.toString());
+		expect(JSON.parse(piped.stdout.toString()).counts.tickets).toBe(400);
+	});
+
+	test("exits 0 on a pick, 1 with nothing to recommend, and 2 on a bad invocation", () => {
+		const repo = tempRepo();
+		const effort = chainedEffort(repo);
+		expect(Bun.spawnSync(["bun", BIN, "--effort", effort]).exitCode).toBe(0);
+
+		const stuck = writeEffort(repo, "stuck", {
+			"01-a.md": "# 01 — Migrate the store\n\nStatus: open\nBlocked by: 02\n",
+			"02-b.md": "# 02 — Cut over the reads\n\nStatus: open\nBlocked by: 01\n",
+		});
+		expect(Bun.spawnSync(["bun", BIN, "--effort", stuck]).exitCode).toBe(1);
+		expect(Bun.spawnSync(["bun", BIN, "--rank-by", "size"]).exitCode).toBe(2);
 	});
 });
 

@@ -31,10 +31,10 @@ usage: nextup [--effort <path>] [--include <label>]... [--exclude <label>]... [-
   --json             emit the selection as JSON rather than the human rendering
   --help             print this
 
-A label may end in "*" to match a prefix. Naming either filter replaces the default, which is
---exclude 'wayfinder:*' — so --include 'wayfinder:*' drives the wayfinder track instead of the
-backlog. Either way the filter narrows only what may be recommended: the blocking graph still reads
-every ticket, so an excluded ticket still blocks.
+A label may end in "*" to match a prefix. --exclude 'wayfinder:*' is applied unless --include names a
+filter of its own, so --include 'wayfinder:*' drives the wayfinder track instead of the backlog while
+a lone --exclude adds to that default rather than dropping it. Either way the filter narrows only what
+may be recommended: the blocking graph still reads every ticket, so an excluded ticket still blocks.
 
 Exit status: 0 a ticket to start, 1 nothing to recommend, 2 a bad invocation or a ticket set that
 could not be read. This command only reads — it claims nothing and changes nothing.
@@ -119,11 +119,15 @@ function parse(argv: readonly string[]): Options {
 		}
 	}
 
-	// Naming either list replaces the default rather than adding to it. Merging instead would make the
-	// default a floor, and `--include 'wayfinder:*'` would then be cancelled by the very exclusion it
-	// is trying to invert.
-	const named = include.length > 0 || exclude.length > 0;
-	return { help, json, effort, filter: named ? { include, exclude } : DEFAULT_LABEL_FILTER };
+	// `--include` replaces the default exclusion rather than adding to it, because merging would leave
+	// `--include 'wayfinder:*'` cancelled by the very exclusion it is inverting. That argument does not
+	// reach `--exclude`, which reads as "drop this as well" — replacing there would silently re-admit
+	// the wayfinder track to the candidate set on a flag that never mentioned it.
+	const filter =
+		include.length > 0
+			? { include, exclude }
+			: { include, exclude: [...DEFAULT_LABEL_FILTER.exclude, ...exclude] };
+	return { help, json, effort, filter };
 }
 
 function value(argv: readonly string[], index: number, flag: string): string {

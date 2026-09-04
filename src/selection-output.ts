@@ -90,6 +90,10 @@ export function renderSelection(selection: Selection): string {
 		lines.push(`  ${renderDecision(selection)}`);
 		lines.push(`  ${renderSignals(selection.pick)}`);
 		lines.push(...renderRunnersUp(selection.ranked));
+		const unconsulted = heldBack(selection);
+		if (unconsulted > 0) {
+			lines.push("", `held back: ${unconsulted} candidate(s) whose blockers could not be confirmed closed`);
+		}
 	}
 
 	lines.push("");
@@ -102,10 +106,22 @@ export function renderSelection(selection: Selection): string {
 	return `${lines.join("\n")}\n`;
 }
 
+/**
+ * A lone candidate is only lone within the partition that was consulted. Saying "the only candidate"
+ * while the counts below report two more contradicts them, and those two are held back rather than
+ * absent — the confirmed set won outright, so the unknown set was never ranked or shown.
+ */
 function renderDecision(selection: Selection): string {
 	const decision = selection.decision;
-	if (decision === null || decision.kind === "only-candidate") return "the only candidate";
-	return `won on ${decision.rung} over ${formatTicketRef(decision.over)}`;
+	if (decision !== null && decision.kind === "rung") {
+		return `won on ${decision.rung} over ${formatTicketRef(decision.over)}`;
+	}
+	return heldBack(selection) === 0 ? "the only candidate" : "the only candidate with confirmed blocking";
+}
+
+/** Candidates in the partition that was not consulted, which the ranking never saw. */
+function heldBack(selection: Selection): number {
+	return selection.consulted === "confirmed" ? selection.counts.unconfirmed : 0;
 }
 
 function renderSignals(candidate: Candidate): string {
@@ -114,14 +130,15 @@ function renderSignals(candidate: Candidate): string {
 }
 
 /**
- * A candidate carrying only an unread priority label says so here rather than reading "priority none",
- * which is what a candidate carrying no priority label at all says. The two are different situations
- * and ADR-0011 turns on telling them apart.
+ * The rank the ladder read, and separately every priority label it could not. A candidate can carry
+ * both — a `P1` alongside a `priority:high` — so the unread labels are appended rather than reported
+ * only when the rank is absent, which is what ADR-0011 means by naming them against the candidate that
+ * carried them.
  */
 function renderPriority(candidate: Candidate): string {
-	if (candidate.priority !== null) return `priority P${candidate.priority}`;
-	if (candidate.unreadPriority.length > 0) return `priority unread: ${candidate.unreadPriority.join(", ")}`;
-	return "priority none";
+	const rank = candidate.priority === null ? "priority none" : `priority P${candidate.priority}`;
+	if (candidate.unreadPriority.length === 0) return rank;
+	return `${rank} (unread: ${candidate.unreadPriority.join(", ")})`;
 }
 
 /** What the pick beat, which is the only answer to "why not that other one" the ladder can give. */
