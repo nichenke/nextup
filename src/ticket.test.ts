@@ -37,4 +37,17 @@ describe("ticketId", () => {
 	test("a ref that knows its host is distinct from one that does not", () => {
 		expect(ticketId(ref({ host: "example.com" }))).not.toBe(ticketId(ref({ host: null })));
 	});
+
+	// Joining the parts with a delimiter was not injective: a colon inside the repo could stand in for the
+	// separator before the host, so these two distinct refs shared one graph node and the later seed
+	// overwrote the earlier's openness — a real open blocker read as closed.
+	test("a delimiter inside a repo path cannot impersonate the host separator", () => {
+		expect(ticketId(ref({ repo: "a:b/c/d", host: null }))).not.toBe(
+			ticketId(ref({ repo: "b/c/d", host: "a" })),
+		);
+	});
+
+	test("a host carrying a port is distinct from the same host without one", () => {
+		expect(ticketId(ref({ host: "example.com:8443" }))).not.toBe(ticketId(ref({ host: "example.com" })));
+	});
 });

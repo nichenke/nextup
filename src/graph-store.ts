@@ -65,7 +65,17 @@ export interface GraphSeed {
  */
 export function seedGraph(seeds: Iterable<GraphSeed>): DependencyGraph {
 	const store = emptyGraphStore();
+	const seen = new Set<IssueId>();
 	for (const seed of seeds) {
+		// Two seeds for one id means two tickets have collapsed onto one node, and the second would
+		// overwrite the first's openness — a real open blocker read as closed, and its dependent reported
+		// unblocked. Silently taking the last write is how an identity mistake becomes that collapse, so
+		// this refuses instead. It is a caller invariant rather than malformed input: an adapter enumerates
+		// distinct tickets, so reaching this means the ids do not distinguish what the refs distinguish.
+		if (seen.has(seed.id)) {
+			throw new Error(`two tickets share the graph id ${seed.id}; ticket identity is not distinguishing them`);
+		}
+		seen.add(seed.id);
 		if (seed.parent !== "unknown") store.parents.set(seed.id, seed.parent);
 		if (seed.blockers !== "unknown") store.blockers.set(seed.id, [...seed.blockers]);
 		if (seed.open !== "unknown") store.openness.set(seed.id, seed.open);

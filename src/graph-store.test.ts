@@ -46,6 +46,17 @@ describe("seedGraph", () => {
 
 	// Copying in is only half of it: handing back the stored array let a consumer empty it, turning a
 	// confirmed list of blockers into a confirmed absence of them, which re-derives as `unblocked`.
+	// The backstop for any identity mistake, whatever its cause: taking the last write silently is how a
+	// collision becomes a real open blocker read as closed, and its dependent reported unblocked.
+	test("two seeds sharing an id are refused rather than the later overwriting the earlier", () => {
+		expect(() =>
+			seedGraph([
+				{ id: "1", parent: null, blockers: [], open: true },
+				{ id: "1", parent: null, blockers: [], open: false },
+			]),
+		).toThrow(/share the graph id/);
+	});
+
 	test("a read blocker list is copied too, so a consumer cannot empty the graph", () => {
 		const graph = seedGraph([{ id: "2", parent: null, blockers: ["1"], open: true }]);
 		const read = graph.blockers("2") as string[];
