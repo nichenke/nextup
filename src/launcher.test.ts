@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ClaimHold, Claimer, ReleaseOutcome } from "./claim";
 import { ClaimError } from "./claim";
 import { DEFAULT_SLASH_COMMAND } from "./command-builders";
-import { LaunchError, planLaunch, prepareLaunch } from "./launcher";
+import { LaunchError, beforeWorktreeExists, planLaunch, prepareLaunch } from "./launcher";
 import type { TicketRef } from "./ticket-ref";
 
 const REF: TicketRef = { tracker: "markdown", repo: null, host: null, key: "1" };
@@ -18,30 +18,30 @@ function recordingClaimer(options: { claim?: () => ClaimHold; release?: () => Re
 		claimer: {
 			claim() {
 				calls.push("claim");
-				return options.claim?.() ?? { ref: REF, claimant: null };
+				return options.claim?.() ?? { ref: REF, claimant: { by: null } };
 			},
 			release() {
 				calls.push("release");
-				return options.release?.() ?? { released: true };
+				return options.release?.() ?? { kind: "released" };
 			},
 		},
 	};
 }
 
 describe("prepareLaunch", () => {
-	test("claims the ticket, then produces the command that would start work on it", () => {
+	test("claims the ticket, and carries the command that would start work on it", () => {
 		const { claimer, calls } = recordingClaimer();
 		const launch = prepareLaunch({ ref: REF, claimer, slashCommand: DEFAULT_SLASH_COMMAND });
 
 		expect(calls).toEqual(["claim"]);
-		expect(launch.hold).toEqual({ ref: REF, claimant: null });
+		expect(launch.hold).toEqual({ ref: REF, claimant: { by: null } });
 		expect(launch.command).toEqual(["claude", "/implement md:1"]);
 	});
 
 	test("a claim that cannot land aborts, with nothing released and no command produced", () => {
 		const { claimer, calls } = recordingClaimer({
 			claim() {
-				throw new ClaimError("taken");
+				throw new ClaimError("taken", "unavailable");
 			},
 		});
 
@@ -49,19 +49,54 @@ describe("prepareLaunch", () => {
 		expect(calls).toEqual(["claim"]);
 	});
 
-	test("a failure before the worktree exists gives the claim back", () => {
+	// The plan is pure, so an input that was already wrong costs no tracker write to find out — and
+	// there is no claim to give back afterwards.
+	test("writes nothing when the input was wrong before anything was touched", () => {
 		const { claimer, calls } = recordingClaimer();
 
 		expect(() => prepareLaunch({ ref: REF, claimer, slashCommand: "not-a-slash-command" })).toThrow();
-		expect(calls).toEqual(["claim", "release"]);
+		expect(calls).toEqual([]);
+	});
+});
+
+describe("beforeWorktreeExists", () => {
+	test("passes work through untouched, holding the claim", () => {
+		const { claimer, calls } = recordingClaimer();
+		expect(beforeWorktreeExists(claimer, () => "done")).toBe("done");
+		expect(calls).toEqual([]);
 	});
 
-	test("reports both failures when the claim could not be given back either", () => {
-		const { claimer } = recordingClaimer({ release: () => ({ released: false, reason: "the file changed" }) });
+	test("gives the claim back when the work fails, since nothing local exists to keep it for", () => {
+		const { claimer, calls } = recordingClaimer();
 
-		expect(() => prepareLaunch({ ref: REF, claimer, slashCommand: "not-a-slash-command" })).toThrow(
-			/the file changed/,
-		);
+		expect(() => {
+			beforeWorktreeExists(claimer, () => {
+				throw new Error("no worktree yet");
+			});
+		}).toThrow("no worktree yet");
+		expect(calls).toEqual(["release"]);
+	});
+
+	test("reports both failures when the claim is left stranded", () => {
+		const { claimer } = recordingClaimer({ release: () => ({ kind: "stranded", reason: "the file changed" }) });
+
+		expect(() => {
+			beforeWorktreeExists(claimer, () => {
+				throw new Error("no worktree yet");
+			});
+		}).toThrow(/the file changed/);
+	});
+
+	// Nothing is outstanding, so the original failure is the whole story and wrapping it would send a
+	// caller looking for a claim to clear that was never taken.
+	test("passes the failure through when there was no claim to give back", () => {
+		const { claimer } = recordingClaimer({ release: () => ({ kind: "nothing-to-release" }) });
+
+		expect(() => {
+			beforeWorktreeExists(claimer, () => {
+				throw new Error("no worktree yet");
+			});
+		}).toThrow("no worktree yet");
 	});
 });
 
@@ -80,9 +115,11 @@ describe("planLaunch", () => {
 
 describe("LaunchError", () => {
 	test("keeps the original failure as its cause, so the reason a launch stopped is not lost", () => {
-		const { claimer } = recordingClaimer({ release: () => ({ released: false, reason: "the file changed" }) });
+		const { claimer } = recordingClaimer({ release: () => ({ kind: "stranded", reason: "the file changed" }) });
 		try {
-			prepareLaunch({ ref: REF, claimer, slashCommand: "nope" });
+			beforeWorktreeExists(claimer, () => {
+				throw new Error("no worktree yet");
+			});
 			expect.unreachable();
 		} catch (cause) {
 			expect(cause).toBeInstanceOf(LaunchError);

@@ -1,14 +1,19 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { ClaimError, markdownClaimer } from "./claim";
 import { readTicketFile } from "./markdown-adapter";
 
 const roots: string[] = [];
 
 afterEach(() => {
-	for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+	for (const root of roots.splice(0)) {
+		// A test that made a directory unwritable has to hand the permission back, or the cleanup that
+		// removes it fails and every later test inherits the leftovers.
+		chmodSync(join(root, "issues"), 0o755);
+		rmSync(root, { recursive: true, force: true });
+	}
 });
 
 /** One ticket file on a real disk, since the claim step's whole job is what it writes there. */
@@ -26,15 +31,12 @@ function read(path: string): string {
 }
 
 /**
- * A read-back that reports the ticket unclaimed however it was written — a tracker accepting a claim
- * it did not take. The first read, the one the claim step makes before writing, is the real thing.
+ * A read-back reporting the ticket unclaimed however it was written — a tracker accepting a claim it
+ * did not take. Only the verification reads through this; what the claim step decides from is the one
+ * read of the file it makes itself.
  */
-function unclaimed(): (target: string) => ReturnType<typeof readTicketFile> {
-	let reads = 0;
-	return (target) => {
-		const ticket = readTicketFile(target);
-		return ++reads > 1 ? { ...ticket, claim: null } : ticket;
-	};
+function unclaimed(target: string): ReturnType<typeof readTicketFile> {
+	return { ...readTicketFile(target), claim: null };
 }
 
 describe("markdownClaimer", () => {
@@ -46,11 +48,9 @@ describe("markdownClaimer", () => {
 		expect(hold.ref.key).toBe("1");
 	});
 
-	// GitHub, GitLab and Jira all record who holds a claim. Markdown records only that one is held, and
-	// saying so is what stops a caller reading a null claimant as nobody having claimed it.
-	test("names no claimant, because the tracker records none", () => {
+	test("holds a claim with no claimant, rather than no claim", () => {
 		const path = ticketFile("# 01 — A\n\nStatus: open\n");
-		expect(markdownClaimer(readTicketFile(path)).claim().claimant).toBeNull();
+		expect(markdownClaimer(readTicketFile(path)).claim().claimant).toEqual({ by: null });
 	});
 
 	test("refuses a ticket claimed since it was selected, leaving the file untouched", () => {
@@ -79,9 +79,23 @@ describe("markdownClaimer", () => {
 		expect(() => claimer.claim()).toThrow(ClaimError);
 	});
 
+	// The two answers separate a ticket somebody else took, which is worth coming back for, from a
+	// ticket file this tool cannot write, which no waiting fixes.
+	test("says whether the ticket was unavailable or the ticket set was wrong", () => {
+		const taken = ticketFile("# 01 — A\n\nStatus: claimed\n");
+		expect(() => markdownClaimer(readTicketFile(taken)).claim()).toThrow(
+			expect.objectContaining({ kind: "unavailable" }),
+		);
+
+		const unwritable = ticketFile("# 01 — A\n\n**Status: op**en\n");
+		expect(() => markdownClaimer(readTicketFile(unwritable)).claim()).toThrow(
+			expect.objectContaining({ kind: "ticket-set" }),
+		);
+	});
+
 	test("puts the file back when the claim it wrote does not read back as one", () => {
 		const path = ticketFile("# 01 — A\n\nStatus: open\n");
-		const claimer = markdownClaimer(readTicketFile(path), { readBack: unclaimed() });
+		const claimer = markdownClaimer(readTicketFile(path), { readBack: unclaimed });
 
 		expect(() => claimer.claim()).toThrow(ClaimError);
 		expect(read(path)).toBe("# 01 — A\n\nStatus: open\n");
@@ -89,11 +103,9 @@ describe("markdownClaimer", () => {
 
 	test("puts the file back when the claim it wrote cannot be read at all", () => {
 		const path = ticketFile("# 01 — A\n\nStatus: open\n");
-		let reads = 0;
 		const claimer = markdownClaimer(readTicketFile(path), {
-			readBack: (target) => {
-				if (++reads > 1) throw new Error("gone");
-				return readTicketFile(target);
+			readBack: () => {
+				throw new Error("gone");
 			},
 		});
 
@@ -101,14 +113,25 @@ describe("markdownClaimer", () => {
 		expect(read(path)).toBe("# 01 — A\n\nStatus: open\n");
 	});
 
-	test("a released claim leaves nothing to release a second time", () => {
-		const path = ticketFile("# 01 — A\n\nStatus: open\n");
-		const claimer = markdownClaimer(readTicketFile(path));
-		claimer.claim();
+	// Writing in place opens the file with O_TRUNC, so a write that fails partway leaves a ticket
+	// emptied and nothing to restore it from. These are the two refusals that path has to survive.
+	test("leaves the ticket exactly as it was when the write cannot happen", () => {
+		const readOnlyFile = ticketFile("# 01 — A\n\nStatus: open\n");
+		chmodSync(readOnlyFile, 0o444);
+		expect(() => markdownClaimer(readTicketFile(readOnlyFile)).claim()).toThrow(ClaimError);
+		expect(read(readOnlyFile)).toBe("# 01 — A\n\nStatus: open\n");
 
-		expect(claimer.release()).toEqual({ released: true });
-		expect(claimer.release().released).toBe(false);
-		expect(read(path)).toBe("# 01 — A\n\nStatus: open\n");
+		const readOnlyDir = ticketFile("# 01 — A\n\nStatus: open\n");
+		const claimer = markdownClaimer(readTicketFile(readOnlyDir));
+		chmodSync(dirname(readOnlyDir), 0o555);
+		expect(() => claimer.claim()).toThrow(ClaimError);
+		expect(read(readOnlyDir)).toBe("# 01 — A\n\nStatus: open\n");
+	});
+
+	test("leaves no working file behind, whether the claim landed or not", () => {
+		const path = ticketFile("# 01 — A\n\nStatus: open\n");
+		markdownClaimer(readTicketFile(path)).claim();
+		expect(readdirSync(dirname(path))).toEqual(["01-a.md"]);
 	});
 
 	test("releases by restoring exactly what the file said before, triage role and all", () => {
@@ -117,7 +140,7 @@ describe("markdownClaimer", () => {
 		claimer.claim();
 		expect(read(path)).toBe("# 01 — A\n\n**Status:** claimed\n\nProse.\n");
 
-		expect(claimer.release()).toEqual({ released: true });
+		expect(claimer.release()).toEqual({ kind: "released" });
 		expect(read(path)).toBe("# 01 — A\n\n**Status:** ready-for-agent\n\nProse.\n");
 	});
 
@@ -127,14 +150,24 @@ describe("markdownClaimer", () => {
 		claimer.claim();
 		writeFileSync(path, "# 01 — A\n\nStatus: claimed\nBlocked by: 02\n");
 
-		const outcome = claimer.release();
-		expect(outcome.released).toBe(false);
+		expect(claimer.release().kind).toBe("stranded");
 		expect(read(path)).toBe("# 01 — A\n\nStatus: claimed\nBlocked by: 02\n");
 	});
 
+	// Not "stranded": a caller escalates on a claim left outstanding, and there is no claim here.
 	test("reports a release of a claim it never took rather than writing anything", () => {
 		const path = ticketFile("# 01 — A\n\nStatus: open\n");
-		expect(markdownClaimer(readTicketFile(path)).release().released).toBe(false);
+		expect(markdownClaimer(readTicketFile(path)).release()).toEqual({ kind: "nothing-to-release" });
+		expect(read(path)).toBe("# 01 — A\n\nStatus: open\n");
+	});
+
+	test("a released claim leaves nothing to release a second time", () => {
+		const path = ticketFile("# 01 — A\n\nStatus: open\n");
+		const claimer = markdownClaimer(readTicketFile(path));
+		claimer.claim();
+
+		expect(claimer.release()).toEqual({ kind: "released" });
+		expect(claimer.release()).toEqual({ kind: "nothing-to-release" });
 		expect(read(path)).toBe("# 01 — A\n\nStatus: open\n");
 	});
 
@@ -144,7 +177,7 @@ describe("markdownClaimer", () => {
 		claimer.claim();
 		rmSync(path);
 
-		expect(claimer.release().released).toBe(false);
+		expect(claimer.release().kind).toBe("stranded");
 	});
 
 	test("claims a ticket whose file records no status, since absence is how unclaimed is written", () => {
@@ -153,7 +186,17 @@ describe("markdownClaimer", () => {
 		claimer.claim();
 		expect(readTicketFile(path).claim).toEqual({ by: null });
 
-		expect(claimer.release()).toEqual({ released: true });
+		expect(claimer.release()).toEqual({ kind: "released" });
 		expect(read(path)).toBe("# 01 — A\n\nType: task\n");
+	});
+
+	// The line looks like a field to a pattern and is prose to the reader, so rewriting it would
+	// destroy the author's text and then verify, because what it wrote is a field.
+	test("adds a field rather than overwriting a line the reader reads as prose", () => {
+		const path = ticketFile("# 01 — A\n\nStatus: resolved — superseded by `02`\n");
+		markdownClaimer(readTicketFile(path)).claim();
+
+		expect(read(path)).toContain("Status: resolved — superseded by `02`");
+		expect(readTicketFile(path).claim).toEqual({ by: null });
 	});
 });

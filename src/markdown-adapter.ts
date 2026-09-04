@@ -217,15 +217,27 @@ export function readEffort(effortRoot: string, deps: ResolveDeps = {}): Markdown
  * through the same parser the selector was fed, so a claim counts as landed only if it is one the
  * reader can see.
  *
- * @throws MarkdownEffortError when the path is not named like a ticket file, or the file does not
- * parse.
+ * @throws MarkdownEffortError when the path is not named like a ticket file, when the file cannot be
+ * read, or when it does not parse.
  */
 export function readTicketFile(path: string, deps: ResolveDeps = {}): MarkdownTicketFile {
+	return parseTicketText(readTicketText(path), path, deps);
+}
+
+/**
+ * One ticket parsed from text already in hand, so a caller that has to act on the file it read can do
+ * so without a second read reporting something else. The number comes from the path's own name, which
+ * is where the format keeps it.
+ *
+ * @throws MarkdownEffortError when the path is not named like a ticket file, or the text does not
+ * parse.
+ */
+export function parseTicketText(text: string, path: string, deps: ResolveDeps = {}): MarkdownTicketFile {
 	const named = TICKET_FILENAME.exec(basename(path));
 	if (named?.[1] === undefined) {
 		throw new MarkdownEffortError(`${path} is not named like a ticket file`);
 	}
-	return parseTicketFile(readTicketText(path), path, named[1], deps).ticket;
+	return parseTicketFile(text, path, named[1], deps).ticket;
 }
 
 function readTicketFiles(issuesDir: string, deps: ResolveDeps): { parsed: ParsedFile[]; truncated: boolean } {
@@ -396,50 +408,101 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 }
 
 /**
- * The `Status:` field as source, in the forms ADR-0008 accepts: plain, or with the whole line or
- * either half in bold. Splitting it into prefix, value and suffix is what lets the value be replaced
- * while the author's own form survives — `**Status:** open` stays bold, and `Status: **open**` keeps
- * the emphasis on the value it was written around.
+ * A line that might be the `Status:` field, in the forms ADR-0008 accepts: plain, or with the whole
+ * line or either half in bold. Splitting it into prefix, value and suffix is what lets the value be
+ * replaced while the author's own form survives — `**Status:** open` stays bold, and `Status: **open**`
+ * keeps the emphasis on the value it was written around.
+ *
+ * A candidate only. This matches the raw line while the reader decides fieldness from rendered inline
+ * text, so the two disagree in both directions: it matches prose the reader dropped for an inline form
+ * the grammar excludes (`Status: resolved — superseded by \`04\``), and it splits a field the reader
+ * accepts (`**Status: op**en`) at the wrong place. `withStatus` settles every disagreement by asking
+ * the reader, so nothing here has to be exact.
  */
 const STATUS_FIELD_LINE = /^(\s*(?:\*\*|__)?\s*Status\s*(?:\*\*|__)?\s*:\s*(?:\*\*|__)?\s*)(.*?)((?:\*\*|__)?\s*)$/i;
 
 /**
- * `text` with its `Status:` field set to `value`, adding the field where the file has none. Returns
- * the whole file rather than writing it, so the claim step owns every side effect and can put the
- * original back.
+ * `text` with its `Status:` field set to `value`, adding the field where the file has none. Returns the
+ * whole file rather than writing it, so the claim step owns every side effect and can put the original
+ * back.
  *
- * The field is located through the reader's own header-region walk, so this cannot rewrite a line the
- * reader would treat as body text — a `Status:` under a later heading, or one inside a fenced snippet,
- * is neither read nor written.
+ * Every edit is put back through the reader before it is returned, and kept only if the file still
+ * reads as the one that went in with `Status:` alone changed. That is what makes the rewrite safe
+ * rather than the pattern that proposes it: a line the reader treats as prose fails the check, because
+ * the file it came from had no `Status:` field to change.
  *
- * @throws MarkdownEffortError when the file has no title to write a field under, or carries a Status
- * field on a line whose source form this does not recognise. Refusing beats adding a second field,
- * which the reader rejects as a duplicate.
+ * @throws MarkdownEffortError when the file has no title to write a field under, or when no edit this
+ * can make reads back as one. Refusing beats writing over a line whose meaning it guessed at.
  */
 export function withStatus(text: string, value: string, path: string): string {
 	const region = walkHeader(text);
-	if (region.title === null) throw new MarkdownEffortError(`${path} has no H1 title`);
+	const title = region.title;
+	if (title === null) throw new MarkdownEffortError(`${path} has no H1 title`);
+	const fields = readFields(region, path);
 	const lines = text.split("\n");
 
+	// A file with no field gets one rather than having a line rewritten into one. The alternative reads
+	// back as a claim whichever line it hit, so a prose line destroyed this way would verify.
+	const proposals = fields.has("status") ? rewrites(region, lines, value) : [inserted(lines, region.afterTitle, value)];
+	for (const proposal of proposals) {
+		if (readsAsOnly(proposal, title, fields, value, path)) return proposal;
+	}
+	throw new MarkdownEffortError(`${path} has no Status field this can set to ${value}; set it by hand`);
+}
+
+/** Every line of the header region that could be the `Status:` field, rewritten to `value`, in order. */
+function rewrites(region: HeaderRegion, lines: readonly string[], value: string): string[] {
+	const proposals: string[] = [];
 	for (const paragraph of region.paragraphs) {
 		for (let offset = 0; offset < countLines(paragraph.token.raw); offset++) {
 			// Matched against the file's own line rather than the token's. The lexer normalises line
 			// endings before it tokenises, so a CRLF file's token text has lost the `\r` that the line
 			// still carries — rewriting from the token would leave that one line alone in LF.
-			const line = lines[paragraph.line + offset];
+			const index = paragraph.line + offset;
+			const line = lines[index];
 			if (line === undefined) break;
 			const field = STATUS_FIELD_LINE.exec(line);
 			if (field === null) continue;
-			lines[paragraph.line + offset] = `${field[1]}${value}${field[3]}`;
-			return lines.join("\n");
+			const rewritten = [...lines];
+			rewritten[index] = `${field[1]}${value}${field[3]}`;
+			proposals.push(rewritten.join("\n"));
 		}
 	}
+	return proposals;
+}
 
-	if (readFields(region, path).has("status")) {
-		throw new MarkdownEffortError(`${path} has a Status field this cannot rewrite; set it to ${value} by hand`);
+function inserted(lines: readonly string[], at: number, value: string): string {
+	return [...lines.slice(0, at), "", `Status: ${value}`, ...lines.slice(at)].join("\n");
+}
+
+/**
+ * Whether the reader reads `proposal` as the header it read before, with `Status:` alone now `value`.
+ * Comparing the whole field map rather than just the status is what catches an edit that changed a
+ * second field, dropped one, or turned a line the reader was ignoring into a field.
+ */
+function readsAsOnly(
+	proposal: string,
+	title: string,
+	before: Map<string, string>,
+	value: string,
+	path: string,
+): boolean {
+	const region = walkHeader(proposal);
+	if (region.title !== title) return false;
+	let after: Map<string, string>;
+	try {
+		after = readFields(region, path);
+	} catch {
+		// A duplicated or emptied field: the reader refuses the whole file, so this edit is not one to
+		// make. The refusal the caller sees names what it was trying to do instead.
+		return false;
 	}
-	lines.splice(region.afterTitle, 0, "", `Status: ${value}`);
-	return lines.join("\n");
+	const wanted = new Map(before).set("status", value);
+	if (after.size !== wanted.size) return false;
+	for (const [key, expected] of wanted) {
+		if (after.get(key) !== expected) return false;
+	}
+	return true;
 }
 
 function readFields(region: HeaderRegion, path: string): Map<string, string> {
@@ -452,10 +515,10 @@ function readFields(region: HeaderRegion, path: string): Map<string, string> {
  * The header region as source: the title, the paragraphs under it, and where each of those starts in
  * the file.
  *
- * The line numbers are here so that `withStatus` can rewrite the `Status:` field in place. Reader and
- * writer have to agree on which line is a field — a writer with its own idea of where the region ends
- * would edit a line the reader treats as body text, and the claim would read back as never written —
- * so there is one traversal rather than two sets of rules free to drift apart.
+ * The line numbers are here so that `withStatus` can rewrite the `Status:` field in place. One
+ * traversal settles which *blocks* are the header region, for reader and writer alike. It does not
+ * settle which line inside one is a field — the reader decides that from rendered inline text — so
+ * `withStatus` reads its own edit back rather than trusting a line rule of its own.
  */
 interface HeaderRegion {
 	readonly title: string | null;
@@ -481,8 +544,10 @@ function walkHeader(text: string): HeaderRegion {
 
 	for (const token of marked.lexer(text)) {
 		const start = line;
-		// Concatenating every token's `raw` reproduces the source exactly, so counting newlines through
-		// them is what keeps this on the line the next token starts on.
+		// The tokens' `raw` concatenates back to the source with line endings normalised, so its newline
+		// count is the source's — for CRLF, which keeps one newline per line, and not for a lone CR,
+		// which the lexer turns into one the source never had. `withStatus` catches the drift that
+		// causes by reading its edit back; nothing here can.
 		line += countLines(token.raw) - 1;
 		if (token.type === "space") continue;
 		if (token.type === "heading") {
@@ -492,8 +557,9 @@ function walkHeader(text: string): HeaderRegion {
 			// that section's body was read as this ticket's metadata.
 			if (title !== null || (token as Tokens.Heading).depth > 1) break;
 			title = renderedText((token as Tokens.Heading).tokens);
-			// A setext title's raw carries the newline ending its underline and an ATX title's does not,
-			// so only the second has a line still to step over.
+			// A heading's raw keeps the newline ending it only when the next block starts on the very
+			// next line; a blank line after it gives that newline to the `space` token instead. Whether
+			// the title is written `#` or underlined makes no difference to this.
 			afterTitle = token.raw.endsWith("\n") ? line : line + 1;
 			continue;
 		}

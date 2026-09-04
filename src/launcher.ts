@@ -32,16 +32,13 @@ export function planLaunch(input: LaunchPlanInput): LaunchPlan {
 }
 
 /**
- * Claims the ticket, then plans the launch.
- *
- * The order is the point. The claim is written into the tracker before anything local exists, so a
- * failure leaves a visible wrong state somebody can see and correct rather than an orphan on a disk
- * nobody is looking at. A claim that cannot land aborts here, having changed nothing.
+ * The plan, and a claim on the ticket it is for. The claim is the last thing that happens, and the
+ * first thing that writes: everything before it is pure, so an input that was already wrong costs no
+ * tracker write to find out.
  */
 export function prepareLaunch(input: LaunchInput): Launch {
-	const hold = input.claimer.claim();
-	const plan = beforeWorktreeExists(input.claimer, () => planLaunch(input));
-	return { ...plan, hold };
+	const plan = planLaunch(input);
+	return { ...plan, hold: input.claimer.claim() };
 }
 
 /**
@@ -51,16 +48,19 @@ export function prepareLaunch(input: LaunchInput): Launch {
  * half-finished branch is never handed to somebody else — so ticket 08's worktree step goes *outside*
  * this call rather than inside it.
  *
- * @throws LaunchError when the claim could not be given back either, naming both failures. A release
- * that fails leaves a real claimed-but-idle ticket, which a caller told only about the first failure
- * would not know to go and clear.
+ * Nothing between the claim and the worktree can fail yet, so ticket 08 is the first caller with work
+ * to pass. It is written and tested here because it is this ticket that decides where the line falls.
+ *
+ * @throws LaunchError only when the claim is left stranded, naming both failures — a caller told just
+ * the first would not know there is a claim to go and clear. A claimer that never claimed has nothing
+ * to strand, so the original failure passes through untouched.
  */
 export function beforeWorktreeExists<T>(claimer: Claimer, work: () => T): T {
 	try {
 		return work();
 	} catch (cause) {
 		const outcome = claimer.release();
-		if (outcome.released) throw cause;
+		if (outcome.kind !== "stranded") throw cause;
 		throw new LaunchError(`${message(cause)}; the claim was not given back either: ${outcome.reason}`, { cause });
 	}
 }

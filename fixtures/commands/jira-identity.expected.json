@@ -1,0 +1,8 @@
+{
+	"description": "Whether a Jira session exists at all, since its config holds no host worth comparing.",
+	"input": {},
+	"argv": [
+		"jira",
+		"me"
+	]
+}

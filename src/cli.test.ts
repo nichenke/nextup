@@ -288,8 +288,6 @@ describe("claiming the pick", () => {
 		expect(result.stdout).toContain("would run: claude '/implement md:1'");
 	});
 
-	// The claim is the whole point of running this: a second run has to see the first one's work, or
-	// two agents start on the same ticket.
 	test("hands the next run a different ticket, because the first one is claimed", () => {
 		const repo = tempRepo();
 		writeEffort(repo, "two-ready", {
@@ -302,14 +300,19 @@ describe("claiming the pick", () => {
 		expect(run([], deps(repo)).code).toBe(1);
 	});
 
-	test("reports a claim that could not be written as its own exit status, distinct from a bad flag", () => {
-		const repo = tempRepo();
-		const effort = chainedEffort(repo);
+	// A ticket somebody else took is worth coming back for; a ticket file this tool cannot write is
+	// not, and lands on the same status as a bad invocation.
+	test("separates a pick that was unavailable from a ticket set that will not take a claim", () => {
+		const unavailable = tempRepo();
+		const effort = chainedEffort(unavailable);
 		chmodSync(ticketPath(effort, "01-first.md"), 0o444);
+		const refused = run([], deps(unavailable));
+		expect(refused.code).toBe(3);
+		expect(refused.stderr).toContain("01-first.md");
 
-		const result = run([], deps(repo));
-		expect(result.code).toBe(3);
-		expect(result.stderr).toContain("01-first.md");
+		const unwritable = tempRepo();
+		writeEffort(unwritable, "an-effort", { "01-first.md": "# 01 — A\n\n**Status: op**en\n" });
+		expect(run([], deps(unwritable)).code).toBe(2);
 	});
 
 	test("carries the claim and the command in the JSON, so a caller needs no second invocation", () => {
@@ -333,7 +336,6 @@ describe("--print-command", () => {
 		expect(readFileSync(join(effort, "issues", "01-first.md"), "utf8")).not.toContain("claimed");
 	});
 
-	// Piping the command into a shell has to stay possible, so the reasoning cannot share stdout with it.
 	test("keeps why the ticket won off the stream carrying the command", () => {
 		const repo = tempRepo();
 		chainedEffort(repo);

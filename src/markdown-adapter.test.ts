@@ -752,8 +752,6 @@ describe("withStatus", () => {
 		expect(withStatus("# 01 — A\n\nType: task\n", "claimed", PATH)).toBe("# 01 — A\n\nStatus: claimed\n\nType: task\n");
 	});
 
-	// A writer with its own idea of where the header region ends would edit these, and the reader would
-	// go on reporting the ticket unclaimed with no sign anything had been written.
 	test("never writes over a Status line the reader does not read", () => {
 		const belowAHeading = "# 01 — A\n\nType: task\n\n## Notes\n\nStatus: resolved\n";
 		expect(withStatus(belowAHeading, "claimed", PATH)).toBe(
@@ -783,6 +781,20 @@ describe("withStatus", () => {
 	// The endings a lexer normalises away that a line split does not: the counts drift, so no line is
 	// found to rewrite and the field is refused rather than written over whatever now sits at that
 	// offset. The reader accepts such a file, so the two disagree — knowingly, in the safe direction.
+	// A pattern over the raw line and the reader over rendered text disagree in both directions. The
+	// prose line is the dangerous half: rewritten, it destroys the author's text and then verifies,
+	// because what it wrote is a field even though what it replaced was not.
+	test("adds a field rather than rewriting a line the reader reads as prose", () => {
+		const prose = "# 01 — A\n\nStatus: resolved — superseded by `02`\n";
+		expect(withStatus(prose, "claimed", PATH)).toBe(
+			"# 01 — A\n\nStatus: claimed\n\nStatus: resolved — superseded by `02`\n",
+		);
+	});
+
+	test("refuses a field it can only rewrite into one the reader stops reading", () => {
+		expect(() => withStatus("# 01 — A\n\n**Status: op**en\n", "claimed", PATH)).toThrow(MarkdownEffortError);
+	});
+
 	test("refuses rather than rewriting a line it can no longer locate", () => {
 		expect(() => withStatus("# 01 — A\r\rStatus: open\r", "claimed", PATH)).toThrow(MarkdownEffortError);
 	});

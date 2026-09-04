@@ -57,8 +57,8 @@ The claim comes first, before anything exists locally, so a failure leaves a vis
 tracker rather than an orphan on a disk nobody is looking at. A claim that cannot land aborts having
 changed nothing; a failure after the claim but before a worktree exists gives the claim back. Once a
 worktree exists the claim is kept, so a ticket carrying a half-finished branch is never advertised as
-available. Claiming is best-effort by design — no compare-and-swap and no expiry — and for markdown it
-overwrites the `Status:` line, which ADR-0012 explains.
+available. A claim is advisory — `CONTEXT.md` says what that means — and for markdown it overwrites the
+`Status:` line, which ADR-0012 explains.
 
 Ranking is a fixed ladder, each rung skipped when its signal is absent, with the last rung guaranteeing
 a total order:

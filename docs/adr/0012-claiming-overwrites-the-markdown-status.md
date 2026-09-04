@@ -24,12 +24,15 @@ Three alternatives were considered and rejected:
 
 ## Consequences
 
-While a ticket is claimed its triage role is not readable from the file, so a label filter cannot see
-it. That is bounded: a claimed ticket is not a candidate, so the filter has nothing to decide about it.
+A claimed ticket's triage role is gone from the file, and does not come back on its own. The release
+path restores the previous contents exactly, but it runs only when a claim is given back — so a run
+that claims successfully, and every run abandoned after that point, leaves the role overwritten until
+somebody types it again. Nothing downstream misreads that, because a claimed ticket is not a candidate
+and the label filter never sees it; the cost is to whoever reads the file afterwards.
 
-The release path restores the previous file contents exactly, which is why the claim step holds the
-text it overwrote rather than reconstructing a value. It refuses to restore over a file edited since
-the claim: a ticket left claimed is visible and correctable, and a discarded edit is neither.
+This is the price of the one field, and it is why the alternatives above were weighed rather than
+waved through. The check that would notice it is the live check of nichenke/nextup issue 26, which
+compares a generated effort against the tracker it came from.
 
 This asymmetry stays local to markdown. The three trackers that follow record a claim as an assignee
 alongside labels and state, and none of them loses anything by claiming — so nothing above the adapter

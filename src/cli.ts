@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { ClaimError, markdownClaimer } from "./claim";
 import { CommandBuilderError, DEFAULT_SLASH_COMMAND, formatCommand } from "./command-builders";
-import { LaunchError, planLaunch, prepareLaunch } from "./launcher";
+import { type Launch, type LaunchPlan, LaunchError, planLaunch, prepareLaunch } from "./launcher";
 import { MarkdownEffortError, type MarkdownTicket, discoverEfforts, readEffort } from "./markdown-adapter";
 import { DEFAULT_LABEL_FILTER, LabelFilterError, type LabelFilterSpec, compileLabelFilter } from "./label-filter";
 import type { Runner } from "./runner";
@@ -27,7 +27,8 @@ export interface CliDeps {
  * `1` separates "nothing to recommend" from `2`, "this invocation or this ticket set is wrong". A
  * caller polling for work needs to tell an empty ticket set from a broken one, and folding both into a
  * single non-zero code makes a misspelled flag look like a quiet day. `3` is the same argument again:
- * a pick that could not be claimed is worth retrying later, and a bad flag never is.
+ * a pick somebody else took is a different answer from a ticket set that will not read, and only one
+ * of the two is worth coming back to.
  */
 export interface CliResult {
 	readonly code: 0 | 1 | 2 | 3;
@@ -102,13 +103,13 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 	const pick = selection.pick;
 	if (pick === null) return nothingToStart(options, selection);
 
-	return options.printCommand ? printCommand(options, selection, pick) : startWork(options, selection, pick, effort.tickets);
+	return options.printCommand
+		? printCommand(options, selection, pick)
+		: startWork(options, selection, pick, effort.tickets, deps);
 }
 
 function nothingToStart(options: Options, selection: Selection): CliResult {
-	if (options.json) return { code: 1, stdout: json(selection, null, false), stderr: "" };
-	// The rendering explains what held everything back, which is the whole answer here — but on stderr
-	// under --print-command, where stdout is a command a caller means to run.
+	if (options.json) return { code: 1, stdout: json(selection, null), stderr: "" };
 	const rendered = renderSelection(selection);
 	return options.printCommand ? { code: 1, stdout: "", stderr: rendered } : { code: 1, stdout: rendered, stderr: "" };
 }
@@ -118,17 +119,17 @@ function nothingToStart(options: Options, selection: Selection): CliResult {
  * two layers: the same plan the launcher runs, worked out where it is safe to work it out.
  */
 function printCommand(options: Options, selection: Selection, pick: Candidate): CliResult {
-	let command;
+	let plan;
 	try {
-		command = planLaunch({ ref: pick.ref, slashCommand: DEFAULT_SLASH_COMMAND }).command;
+		plan = planLaunch({ ref: pick.ref, slashCommand: DEFAULT_SLASH_COMMAND });
 	} catch (cause) {
 		if (cause instanceof CommandBuilderError) return { code: 2, stdout: "", stderr: `${message(cause)}\n` };
 		throw cause;
 	}
-	if (options.json) return { code: 0, stdout: json(selection, command, false), stderr: "" };
+	if (options.json) return { code: 0, stdout: json(selection, plan), stderr: "" };
 	// Why this ticket won goes to stderr, so stdout stays a command a caller can pipe into a shell
 	// while a person running the same invocation still sees the reasoning.
-	return { code: 0, stdout: `${formatCommand(command)}\n`, stderr: renderSelection(selection) };
+	return { code: 0, stdout: `${formatCommand(plan.command)}\n`, stderr: renderSelection(selection) };
 }
 
 function startWork(
@@ -136,6 +137,7 @@ function startWork(
 	selection: Selection,
 	pick: Candidate,
 	tickets: readonly MarkdownTicket[],
+	deps: CliDeps,
 ): CliResult {
 	const id = ticketId(pick.ref);
 	const ticket = tickets.find((candidate) => ticketId(candidate.ref) === id);
@@ -150,30 +152,34 @@ function startWork(
 		launch = prepareLaunch({
 			ref: pick.ref,
 			slashCommand: DEFAULT_SLASH_COMMAND,
-			claimer: markdownClaimer(ticket),
+			claimer: markdownClaimer(ticket, { runner: deps.runner }),
 		});
 	} catch (cause) {
-		// A command that could not be built is not a claim that could not be written: the claim landed
-		// and `beforeWorktreeExists` has already given it back, so this is 2 like every other bad
-		// invocation. A LaunchError says the release failed too, which leaves a real claim behind.
+		// A ticket this tool cannot write is a ticket set to fix rather than a claim to retry, and the
+		// same goes for a command that could not be built — which, per `beforeWorktreeExists`, has been
+		// given back by the time it arrives here. A LaunchError says the release failed too, so a claim
+		// really is outstanding, which is the one thing 3 is for.
 		if (cause instanceof CommandBuilderError) return { code: 2, stdout: "", stderr: `${message(cause)}\n` };
-		if (cause instanceof ClaimError || cause instanceof LaunchError || cause instanceof MarkdownEffortError) {
-			return { code: 3, stdout: "", stderr: `${message(cause)}\n` };
+		if (cause instanceof ClaimError) {
+			return { code: cause.kind === "ticket-set" ? 2 : 3, stdout: "", stderr: `${message(cause)}\n` };
 		}
+		if (cause instanceof LaunchError) return { code: 3, stdout: "", stderr: `${message(cause)}\n` };
 		throw cause;
 	}
 
-	if (options.json) return { code: 0, stdout: json(selection, launch.command, true), stderr: "" };
+	if (options.json) return { code: 0, stdout: json(selection, launch), stderr: "" };
 	const claimed = `claimed ${formatTicketRef(launch.hold.ref)}`;
 	return { code: 0, stdout: `${renderSelection(selection)}${claimed}\nwould run: ${formatCommand(launch.command)}\n`, stderr: "" };
 }
 
 /**
- * The selection document, plus what this invocation did about it. `command` and `claimed` are always
- * present so that a consumer can read either without first testing whether the key is there.
+ * The selection document, plus what this invocation did about it. `claimed` is read off the plan rather
+ * than passed alongside it, so the flag cannot say a claim was taken on a path that took none. Both
+ * keys are always present, so a consumer can read either without first testing whether it is there.
  */
-function json(selection: Selection, command: readonly string[] | null, claimed: boolean): string {
-	return `${JSON.stringify({ ...selectionJson(selection), claimed, command }, null, "\t")}\n`;
+function json(selection: Selection, plan: LaunchPlan | Launch | null): string {
+	const claimed = plan !== null && "hold" in plan;
+	return `${JSON.stringify({ ...selectionJson(selection), claimed, command: plan?.command ?? null }, null, "\t")}\n`;
 }
 
 class CliError extends Error {}
