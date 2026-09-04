@@ -350,8 +350,10 @@ function readHeader(text: string, path: string): { title: string | null; fields:
 			title = renderedText((token as Tokens.Heading).tokens);
 			continue;
 		}
+		// Only paragraphs *under* the title are the header region. Reading one above it made a preamble
+		// line authoritative metadata for a ticket whose title had not been seen yet.
 		if (token.type === "paragraph") {
-			addFields(blockLines(token), fields, path);
+			if (title !== null) addFields(blockLines(token), fields, path);
 			continue;
 		}
 		// A code block does not end the region: `to-tickets` inlines a snippet where one encodes a
@@ -376,7 +378,14 @@ function addFields(lines: readonly string[], fields: Map<string, string>, path: 
 		if (fields.has(key)) {
 			throw new MarkdownEffortError(`${path} has more than one ${field[1]} field`);
 		}
-		fields.set(key, field[2] ?? "");
+		// A field with nothing after the colon is malformed, not absent. Reading the two the same way is
+		// how an empty `Status:` came to mean open and unclaimed, which can hand out a ticket the file was
+		// trying to mark claimed. Absence is the convention for open and unclaimed; blankness is a typo.
+		const value = field[2] ?? "";
+		if (value === "") {
+			throw new MarkdownEffortError(`${path} has an empty ${field[1]} field; give it a value or remove the line`);
+		}
+		fields.set(key, value);
 	}
 }
 
@@ -445,10 +454,10 @@ function parseBlockers(value: string | undefined, path: string): TicketRef[] {
 		);
 	}
 	if (NO_BLOCKERS.test(value)) return [];
-	// Empty entries are dropped, so a trailing or doubled comma is a typo rather than a refusal that
-	// takes the whole effort down. The numbers either side of it are not ambiguous.
-	const entries = value.split(",").filter((entry) => entry.trim() !== "");
-	return entries.map((entry) => {
+	// Do not filter empty entries to be kind about a trailing comma: that is what let `Blocked by: ,`
+	// reduce to a confirmed empty list. A tracker returns references or no field at all, with no notion
+	// of an entry that is present and blank.
+	return value.split(",").map((entry) => {
 		const token = entry.trim();
 		// `#6` is how the tickets this project writes name a blocker — issue 7's own body says
 		// `**Blocked by:** #6` — so the prefix is accepted per ADR-0008's clause for a shape an authored

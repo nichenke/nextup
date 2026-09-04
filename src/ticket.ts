@@ -41,15 +41,22 @@ export interface Ticket {
 }
 
 /**
- * The `IssueId` a ticket occupies in the blocking graph. Scheme-prefixed, and repo-qualified where
- * the ref carries a repo, so that a query spanning two projects — which each number their tickets
- * from 1 — cannot collide two distinct tickets onto one node.
+ * The `IssueId` a ticket occupies in the blocking graph: every part of the ref that distinguishes one
+ * ticket from another, so two tickets cannot land on one node and overwrite each other's openness.
  *
- * Markdown carries no repo, and its reference grammar is a bare ticket number, so a markdown id is
- * qualified by nothing and is unique only within one effort. Two efforts both numbering from 1
- * therefore collide. Nothing reaches that today because a graph is built per effort, but a caller
- * that ever merges two efforts into one graph must qualify them before doing so.
+ * All three qualifiers matter, and each was a real collision. Without the repo, two projects numbering
+ * from 1 collide. Without the host, two self-hosted GitLab instances sharing a namespace and number
+ * collide, and every Jira tenant collapses onto `jira:PROJ-1` because Jira carries no repo at all.
+ *
+ * Two constraints follow, and they are the reason this is worth reading before adding an adapter:
+ *
+ * - Refs entering one graph must agree on how much they know. A short form resolved from a git remote
+ *   has no host while a pasted URL for the same ticket does, so the two would occupy different nodes —
+ *   an adapter must emit one consistent form for a set rather than mixing them.
+ * - Markdown has neither host nor repo, so a markdown id is unique only within one effort. A graph is
+ *   built per effort today, so nothing reaches that; a caller merging two efforts must qualify first.
  */
 export function ticketId(ref: TicketRef): IssueId {
-	return ref.repo === null ? `${ref.tracker}:${ref.key}` : `${ref.tracker}:${ref.repo}#${ref.key}`;
+	const scope = [ref.tracker, ref.host, ref.repo].filter((part) => part !== null).join(":");
+	return `${scope}#${ref.key}`;
 }

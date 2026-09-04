@@ -254,12 +254,36 @@ describe("readEffort: the bold-field format the to-tickets skill emits", () => {
 		}
 	});
 
-	test("a trailing or doubled comma in Blocked by is a typo, not a refusal", () => {
+	// A tracker returns references or no field at all, with no notion of an entry that is present and
+	// blank, so neither does this. Dropping empty entries to be kind about a trailing comma is what let
+	// a value of `,` alone reduce to a confirmed empty list — a blocked ticket reading unblocked.
+	test("a Blocked by entry that is blank is malformed, not skipped", () => {
 		const repo = tempRepo();
-		for (const value of ["1,", "1,,2", ", 1"]) {
-			const ticket = oneTicket(repo, "03-c.md", `# 03 — C\n\nStatus: open\nBlocked by: ${value}\n`);
-			expect(ticket.blockers.length).toBeGreaterThan(0);
+		for (const value of ["1,", ",", " , ", "1,,2", ", 1"]) {
+			const effort = writeEffort(repo, "effort", {
+				"03-c.md": `# 03 — C\n\nStatus: open\nBlocked by: ${value}\n`,
+			});
+			expect(() => readEffort(effort)).toThrow(MarkdownEffortError);
 		}
+	});
+
+	// Absence is the convention for open and unclaimed; blankness is a typo. Reading the two the same
+	// way could hand out a ticket whose file was trying to mark it claimed.
+	test("a field present with no value is malformed, not absent", () => {
+		const repo = tempRepo();
+		for (const line of ["Status:", "Type:", "Blocked by:"]) {
+			const effort = writeEffort(repo, "effort", { "01-a.md": `# 01 — A\n\n${line}\n` });
+			expect(() => readEffort(effort)).toThrow(/empty|has no/i);
+		}
+	});
+
+	test("fields above the title are not this ticket's metadata", () => {
+		const ticket = oneTicket(
+			tempRepo(),
+			"02-b.md",
+			"<!-- preamble -->\n\nStatus: resolved\n\n# 02 — B\n\nStatus: open\n",
+		);
+		expect(ticket.state).toBe("open");
 	});
 
 	test("a hard line break separates fields, like a soft one", () => {
@@ -798,8 +822,8 @@ describe("readEffort: the normalized ticket surface", () => {
 		expect(ticket.labels).toEqual([]);
 	});
 
-	test("Type with an empty value is absent, matching how an empty Status is read", () => {
-		expect(oneTicket(tempRepo(), "01-a.md", "# 01 — A\n\nType:\n").type).toBeNull();
+	test("a ticket with no Type field has no type", () => {
+		expect(oneTicket(tempRepo(), "01-a.md", "# 01 — A\n\nStatus: open\n").type).toBeNull();
 	});
 
 	// Without this the triage role is consumed into open/closed and discarded, so `needs-info`
