@@ -4,9 +4,9 @@ import { type Confirm, run } from "../src/cli";
 import { defaultRunner } from "../src/runner";
 
 // A reader that closes early — `nextup --json | head`, or a pager the user quits — makes the next
-// write raise EPIPE. Unhandled, that crashes with exit 1, which this command defines as "nothing to
-// recommend", so piping a real pick into `head` reports an empty ticket set. Swallowing only EPIPE
-// leaves every other stream failure loud.
+// write raise EPIPE. Unhandled, that crashes with exit 1, which this command defines as nothing
+// started, so piping a real pick into `head` reports a quiet day. Swallowing only EPIPE leaves every
+// other stream failure loud.
 for (const stream of [process.stdout, process.stderr]) {
 	stream.on("error", (error: NodeJS.ErrnoException) => {
 		if (error.code !== "EPIPE") throw error;

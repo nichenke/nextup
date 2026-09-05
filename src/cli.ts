@@ -44,8 +44,8 @@ export interface CliDeps {
  * caller polling for work needs to tell a quiet day from a broken one, and folding both into a single
  * non-zero code makes a misspelled flag look like an empty ticket set. Nothing to recommend and a pick
  * declined at the gate are both `1`: to a caller they are the same answer, that there is no session to
- * go to, and the rendering says which. `3` is the same argument again: a pick somebody else took is a
- * different answer from a ticket set that will not read, and only one of the two is worth coming back
+ * go to, and the rendering says which. `3` is the same argument again: a ticket set that moved under
+ * the run is a different answer from one that will not read, and only one of the two is worth coming back
  * to.
  */
 export interface CliResult {
@@ -195,10 +195,9 @@ function startWork(
 		});
 	} catch (cause) {
 		// 2 and 3 split on whether a later run could do better. A ticket set that will not take a claim
-		// stays wrong until somebody edits it, and so does a command that could not be built — which
-		// claimed nothing at all, since the plan is made before the claim. An unavailable pick is the
-		// other answer: the ticket was fine and somebody else had it. A stranded claim is 3 as well,
-		// with something outstanding to go and clear.
+		// stays wrong until somebody edits it, and so do a command that could not be built and a gate
+		// that could not be put — neither of which claimed anything, since both come before the claim.
+		// 3 is the other answer: the ticket set moved under the run, so the next one picks differently.
 		if (cause instanceof CommandBuilderError || cause instanceof ConfirmError) {
 			return { code: 2, stdout: "", stderr: `${message(cause)}\n` };
 		}

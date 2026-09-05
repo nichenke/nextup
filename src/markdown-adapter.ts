@@ -525,7 +525,7 @@ function readFields(region: HeaderRegion, path: string): Map<string, string> {
  */
 interface HeaderRegion {
 	readonly title: string | null;
-	/** The line a field is added on when the file has none: the first line past the title's own. */
+	/** The first line past the title's own, where a file with no field has one added under it. */
 	readonly afterTitle: number;
 	readonly paragraphs: readonly { readonly token: Token; readonly line: number }[];
 }

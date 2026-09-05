@@ -104,8 +104,8 @@ export function markdownClaimer(ticket: MarkdownTicketFile, deps: MarkdownClaimD
 			replace(path, after, before);
 
 			// Verified through the reader the selector was fed, so a claim counts as landed only when it
-			// is one that reads back as a claim. Anything else puts the file back, because a half-written
-			// claim advertises the ticket as neither taken nor free.
+			// is one that reads back as a claim. Anything else rolls the file back, or says it could not,
+			// because a half-written claim advertises the ticket as neither taken nor free.
 			let verified: MarkdownTicketFile;
 			try {
 				verified = asTicketSetFailure(path, () => readBack(path));
