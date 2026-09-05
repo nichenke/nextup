@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { type CliDeps, run } from "./cli";
+import { CLAIM_FAILURE_STATUS, type CliDeps, run } from "./cli";
 import type { Runner } from "./runner";
 import { DEGRADED_PREFIX } from "./selection-output";
 
@@ -319,10 +319,13 @@ describe("claiming the pick", () => {
 		expect(run([], deps(repo)).code).toBe(1);
 	});
 
-	// Reported as a ticket set to fix rather than a pick to come back for, in both shapes. Calling a
-	// permanently unclaimable pick unavailable wedges a caller polling for work on it forever, because
-	// the ranking hands back the same winner every time. Exit 3 is for a pick another run may find
-	// free, which needs a second writer — `claim.test.ts` covers that at the claimer.
+	// A claim left on a ticket the selector will now skip forever needs a person, not a retry — the
+	// same answer as a ticket set that will not read, and never the one that says come back later.
+	test("reports a claim it could not take back as needing a person", () => {
+		expect(CLAIM_FAILURE_STATUS.stranded).toBe(2);
+		expect(CLAIM_FAILURE_STATUS.unavailable).toBe(3);
+	});
+
 	test("reports a ticket set that will not take a claim as one to fix", () => {
 		const readOnly = tempRepo();
 		const effort = chainedEffort(readOnly);
@@ -417,8 +420,6 @@ describe("the confirmation gate", () => {
 		expect(readFileSync(join(effort, "issues", "01-first.md"), "utf8")).not.toContain("claimed");
 	});
 
-	// The command was worked out and shown at the gate, so reporting it as absent would lose what the
-	// answer was about. Only `claimed` separates this from an approved run.
 	test("a declined pick reports the command it did not run, and no claim", () => {
 		const repo = tempRepo();
 		chainedEffort(repo);
@@ -430,7 +431,6 @@ describe("the confirmation gate", () => {
 		expect(document.command).toEqual(["claude", "/implement md:1"]);
 	});
 
-	// A gate that broke is not a gate that said no, and 1 is the answer that means the user declined.
 	test("reports a gate it could not put as a bad run, not as a decline", () => {
 		const repo = tempRepo();
 		const effort = chainedEffort(repo);

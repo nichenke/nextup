@@ -56,7 +56,6 @@ export function planLaunch(input: LaunchPlanInput): LaunchPlan {
 	return { command: sessionCommand(input) };
 }
 
-/** The plan, and a claim on the ticket it is for where the plan was approved. */
 export function prepareLaunch(input: LaunchInput): PreparedLaunch {
 	const plan = planLaunch(input);
 	if (!input.confirm(plan)) return { kind: "declined", plan };

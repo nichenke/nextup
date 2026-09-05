@@ -50,10 +50,8 @@ function unclaimed(target: string): ReturnType<typeof readTicketFile> {
 }
 
 describe("markdownClaimer", () => {
-	// The contract `Claimer.claim` states: one error type, so a caller can classify every failure by
-	// `kind` rather than by matching on an errno it was never promised. A raw filesystem error escaping
-	// here reaches the CLI's `throw cause` and kills the process on an exit code that means something
-	// else entirely.
+	// A raw filesystem error escaping here reaches the CLI's `throw cause` and kills the process on an
+	// exit code that means something else entirely.
 	test("reports every failure it has as a ClaimError, whatever went wrong", () => {
 		const gone = ticketFile("# 01 — A\n\nStatus: open\n");
 		const goneClaimer = markdownClaimer(readTicketFile(gone));
@@ -110,8 +108,6 @@ describe("markdownClaimer", () => {
 		expect(read(path)).toBe("# 01 — A\n\nStatus: resolved\n");
 	});
 
-	// A ticket that has gone is a changed ticket set, so another run picks something else — the one
-	// filesystem failure worth coming back for, where a permission or a read-only mount is not.
 	test("refuses when the ticket file is gone, with nothing written, as a pick to come back for", () => {
 		const path = ticketFile("# 01 — A\n\nStatus: open\n");
 		const claimer = markdownClaimer(readTicketFile(path));
@@ -149,9 +145,26 @@ describe("markdownClaimer", () => {
 			},
 		});
 
-		expect(() => claimer.claim()).toThrow(/was not taken back either/);
+		expect(() => claimer.claim()).toThrow(expect.objectContaining({ kind: "stranded" }));
 		chmodSync(dirname(path), 0o755);
 		expect(read(path)).toBe("# 01 — A\n\nStatus: claimed\n");
+	});
+
+	// The claim is on the ticket, so it is still this claimer's to give back — answering
+	// nothing-to-release would hand a caller an all-clear over a claim nobody is working.
+	test("keeps a stranded claim releasable rather than reporting there was none", () => {
+		const path = ticketFile("# 01 — A\n\nStatus: open\n");
+		const claimer = markdownClaimer(readTicketFile(path), {
+			readBack: (target) => {
+				chmodSync(dirname(target), 0o555);
+				return { ...readTicketFile(target), claim: null };
+			},
+		});
+
+		expect(() => claimer.claim()).toThrow(ClaimError);
+		chmodSync(dirname(path), 0o755);
+		expect(claimer.release()).toEqual({ kind: "released" });
+		expect(read(path)).toBe("# 01 — A\n\nStatus: open\n");
 	});
 
 	test("puts the file back when the claim it wrote does not read back as one", () => {
@@ -203,8 +216,6 @@ describe("markdownClaimer", () => {
 		expect(readdirSync(dirname(path))).toEqual(["01-a.md"]);
 	});
 
-	// Out of contract, and the failure is silent without this: the rename would replace the link with a
-	// regular file while the shared target went on reading unclaimed, handing the ticket out twice.
 	test("refuses a ticket file that is a symlink, leaving the link and its target alone", () => {
 		const target = ticketFile("# 01 — A\n\nStatus: open\n", "01-target.md");
 		const link = join(dirname(target), "01-a.md");

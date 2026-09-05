@@ -34,6 +34,20 @@ This is the price of the one field, and it is why the alternatives above were we
 waved through. The check that would notice it is the live check of nichenke/nextup issue 26, which
 compares a generated effort against the tracker it came from.
 
+## What markdown cannot verify
+
+The spec orders the claim step "claim, verify it landed and is mine". Markdown can answer the first
+half and not the second: a `Status:` line has nowhere to put a name, so `Claim.by` is always null and
+the file cannot say whose claim it is. Verification here checks that the claim landed, and the
+re-read before the write refuses a ticket already claimed — together they stop this tool taking a
+claim it can see, which is as close as the format reaches.
+
+That is a property of markdown rather than a decision for the whole tool. GitHub, GitLab and Jira all
+record an assignee, so each of those adapters owes the second half of that sentence: compare the
+claimant the tracker reports against the identity the CLI is authenticated as, and refuse where they
+differ. Nothing above the adapter enforces it, and `ClaimHold.claimant` is a `Claim` rather than a
+name precisely so a tracker that records nobody cannot be read as nobody having claimed.
+
 This asymmetry stays local to markdown. The three trackers that follow record a claim as an assignee
 alongside labels and state, and none of them loses anything by claiming — so nothing above the adapter
 should be written as if claiming costs information.

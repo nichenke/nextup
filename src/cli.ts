@@ -17,7 +17,7 @@ import { formatTicketRef } from "./ticket-ref";
  */
 export type Confirm = (question: string) => boolean;
 
-/** A gate that could not be put. Never a no: the two are the same exit status only by accident. */
+/** A gate that could not be put, which is not a gate that said no. Uncaught, this exited as one. */
 class ConfirmError extends Error {}
 
 export interface CliDeps {
@@ -44,9 +44,8 @@ export interface CliDeps {
  * caller polling for work needs to tell a quiet day from a broken one, and folding both into a single
  * non-zero code makes a misspelled flag look like an empty ticket set. Nothing to recommend and a pick
  * declined at the gate are both `1`: to a caller they are the same answer, that there is no session to
- * go to, and the rendering says which. `3` is the same argument again: a pick that may be claimable on
- * the next run — the ticket set moved, or the machine was having a bad moment — is a different answer
- * from one that stays wrong until somebody edits it, and only one of the two is worth coming back to.
+ * go to, and the rendering says which. `3` is the same argument again, and `CLAIM_FAILURE_STATUS` is
+ * where the line falls: only a pick another run may find free is worth coming back to.
  */
 export interface CliResult {
 	readonly code: 0 | 1 | 2 | 3;
@@ -78,8 +77,8 @@ unattended run needs; with neither a terminal nor --yes the run is refused rathe
 your behalf. --print-command claims nothing and never asks.
 
 Exit status: 0 a ticket claimed, or a command printed, 1 nothing started — nothing to recommend, or
-the pick declined, 2 a bad invocation or a ticket set that could not be read or claimed, 3 a pick that
-may be claimable on the next run.
+the pick declined, 2 something needing a person — a bad invocation, a ticket set that will not read or
+take a claim, or a claim left behind, 3 a pick another run may find free.
 `;
 
 export function run(argv: readonly string[], deps: CliDeps): CliResult {
@@ -165,8 +164,8 @@ function startWork(
 		return { code: 2, stdout: "", stderr: `${formatTicketRef(pick.ref)} is not in the effort it was picked from\n` };
 	}
 
-	// Built by branching rather than by a condition over both fields, so the corner where there is
-	// nobody to ask has to return rather than falling into an arm that answers yes on their behalf.
+	// Built by branching rather than by a condition over both fields, so the corner with nobody to ask
+	// has to return rather than fall through.
 	let confirm: (plan: LaunchPlan) => boolean;
 	if (options.yes) {
 		confirm = () => true;
@@ -192,14 +191,12 @@ function startWork(
 			confirm,
 		});
 	} catch (cause) {
-		// 2 and 3 split on whether a later run could do better. A ticket set that will not take a claim
-		// stays wrong until somebody edits it, and so do a command that could not be built and a gate
-		// that could not be put — neither of which claimed anything, since both come before the claim.
+		// Neither of these claimed anything: both come before the claim.
 		if (cause instanceof CommandBuilderError || cause instanceof ConfirmError) {
 			return { code: 2, stdout: "", stderr: `${message(cause)}\n` };
 		}
 		if (cause instanceof ClaimError) {
-			return { code: cause.kind === "ticket-set" ? 2 : 3, stdout: "", stderr: `${message(cause)}\n` };
+			return { code: CLAIM_FAILURE_STATUS[cause.kind], stdout: "", stderr: `${message(cause)}\n` };
 		}
 		if (cause instanceof LaunchError) return { code: 3, stdout: "", stderr: `${message(cause)}\n` };
 		throw cause;
@@ -222,6 +219,18 @@ function startWork(
 		stderr: "",
 	};
 }
+
+/**
+ * What each way of failing to claim exits with. A map rather than a test against one arm, so a kind
+ * added later fails to compile here instead of quietly becoming the answer that says come back later.
+ */
+export const CLAIM_FAILURE_STATUS: Record<ClaimError["kind"], 2 | 3> = {
+	unavailable: 3,
+	"ticket-set": 2,
+	// The claim is on the ticket and no later run will reach it, so this needs a person, like a ticket
+	// set that will not read.
+	stranded: 2,
+};
 
 /** What the gate shows before it asks: the pick, why it won, and exactly what approving it runs. */
 function gate(selection: Selection, plan: LaunchPlan): string {

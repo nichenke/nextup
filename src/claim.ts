@@ -4,12 +4,17 @@ import type { Claim } from "./ticket";
 import { type ResolveDeps, type TicketRef, formatTicketRef } from "./ticket-ref";
 
 /**
- * Why a claim could not be taken. `kind` separates the two answers a caller owes different things to:
- * `"unavailable"` is the tracker's answer about this ticket right now, and `"ticket-set"` says the
- * ticket itself is wrong, which no amount of waiting fixes.
+ * Why a claim could not be taken, and what the answer costs whoever is listening. `"unavailable"` is
+ * the tracker's answer about this ticket right now; `"ticket-set"` says the ticket itself is wrong,
+ * which no waiting fixes; `"stranded"` says this run left a claim on a ticket nobody is working, which
+ * no waiting fixes *and* which nothing but a person will clear.
+ *
+ * `stranded` is its own answer rather than an unavailable one because the ticket is not available:
+ * `Status: claimed` is on disk, the selector drops claimed tickets, and no later run reaches it. Told
+ * to come back later, a caller polling for work waits on a ticket that will never return.
  */
 export class ClaimError extends Error {
-	readonly kind: "unavailable" | "ticket-set";
+	readonly kind: "unavailable" | "ticket-set" | "stranded";
 
 	constructor(message: string, kind: ClaimError["kind"], options?: ErrorOptions) {
 		super(message, options);
@@ -28,10 +33,9 @@ export interface ClaimHold {
 }
 
 /**
- * What became of a claim asked to give itself back. Three answers rather than a boolean because two
- * different questions are asked of this value and a boolean answers only one: *is the claim still
- * held* decides whether there is anything left to release, and *was one left behind* decides whether
- * to escalate. `nothing-to-release` answers no to both, which neither a `true` nor a `false` can.
+ * What became of a claim asked to give itself back. Three answers rather than a boolean because
+ * `nothing-to-release` has no honest boolean: `false` escalates a claim that never existed, and `true`
+ * reports a release that never happened.
  *
  * Reported rather than thrown, because a release runs on the way out of an earlier failure and
  * throwing there replaces the reason the caller was already reporting.
@@ -107,18 +111,35 @@ export function markdownClaimer(ticket: MarkdownTicketFile, deps: MarkdownClaimD
 			// Verified through the reader the selector was fed, so a claim counts as landed only when it
 			// is one that reads back as a claim. Anything else rolls the file back, or says it could not,
 			// because a half-written claim advertises the ticket as neither taken nor free.
+			/**
+			 * Reports `cause` after attempting the rollback, naming a claim the rollback could not take
+			 * back. Told only that the claim did not verify, a caller would not know one is outstanding.
+			 * A stranded claim stays this claimer's to release, so `written` is set: the file still holds
+			 * what the claim wrote, and `release` can try again rather than answering that there is
+			 * nothing to give back.
+			 */
+			const rollingBack = (cause: unknown): ClaimError => {
+				const failure = cause instanceof ClaimError ? cause : new ClaimError(message(cause), "unavailable", { cause });
+				const outcome = revert(path, after, before);
+				if (outcome.kind !== "stranded") return failure;
+				written = { before, after };
+				return new ClaimError(`${failure.message}; the claim was not taken back either: ${outcome.reason}`, "stranded", {
+					cause: failure,
+				});
+			};
+
 			let verified: MarkdownTicketFile;
 			try {
 				verified = asTicketSetFailure(path, () => readBack(path));
 			} catch (cause) {
-				throw rollingBack(path, after, before, cause);
+				throw rollingBack(cause);
 			}
 			if (verified.claim === null) {
 				const refusal = new ClaimError(
 					`${formatTicketRef(ticket.ref)} does not read as claimed after being claimed`,
 					"unavailable",
 				);
-				throw rollingBack(path, after, before, refusal);
+				throw rollingBack(refusal);
 			}
 
 			written = { before, after };
@@ -136,24 +157,6 @@ export function markdownClaimer(ticket: MarkdownTicketFile, deps: MarkdownClaimD
 }
 
 const CLAIMED = "claimed";
-
-/**
- * Reports `cause` for a claim whose rollback has been attempted, naming a claim the rollback could not
- * take back. Told only that the claim did not verify, a caller would not know one is outstanding — and
- * a claim left on a ticket nobody is working is the failure this whole step exists to avoid.
- *
- * Both rollback sites go through here rather than each looking at the outcome for itself.
- */
-function rollingBack(path: string, after: string, before: string, cause: unknown): ClaimError {
-	const failure = cause instanceof ClaimError ? cause : new ClaimError(message(cause), "unavailable", { cause });
-	const outcome = revert(path, after, before);
-	if (outcome.kind !== "stranded") return failure;
-	// Unavailable whatever the first failure was: there is now a claim to go and clear, which is the
-	// answer that code is for.
-	return new ClaimError(`${failure.message}; the claim was not taken back either: ${outcome.reason}`, "unavailable", {
-		cause: failure,
-	});
-}
 
 /**
  * Puts `before` back, but only over the exact text the claim wrote. An edit made since is somebody's
@@ -180,7 +183,7 @@ function revert(path: string, after: string, before: string): ReleaseOutcome {
  * leaves the ticket as it was. Writing in place opens with O_TRUNC, which empties the file before the
  * first byte lands — and this is the one step whose failure has nothing left to restore from.
  *
- * A scratch file already at that name is overwritten. Only this process ever writes one, so it can
+ * A scratch file already at that name is overwritten. Only this process writes one, so it can
  * only be debris from a claim that died mid-write, and refusing would turn that into a ticket nobody
  * can claim until somebody deletes a file by hand.
  *
@@ -222,28 +225,36 @@ function discard(scratch: string): void {
 	try {
 		rmSync(scratch, { force: true });
 	} catch {
-		// Nothing to add. The failure the caller is about to report is the one that matters, and a
-		// working file left behind is overwritten by the next claim rather than read by anything.
+		// Nothing to add.
 	}
 }
 
 /**
- * The filesystem failures that may not be there next time: a ticket that has gone, and a machine having
- * a bad moment. Both are worth another run, which is what `unavailable` means.
+ * The filesystem failures a later run may simply not hit: a ticket that has gone, so the set has moved
+ * and the next run picks something else, and the momentary ones a busy machine produces.
  *
- * Everything else — a permission, a read-only mount, a path that is not the kind of thing it should be
- * — stays wrong until somebody fixes it. Calling those unavailable wedges a caller polling for work on
- * the same unclaimable pick forever, because the ranking hands back the same winner every time.
+ * A full disk and an exceeded quota are deliberately absent. They do not clear themselves either, and
+ * retrying one wedges a caller polling for work on the same unclaimable pick forever, because the
+ * ranking hands back the same winner every time.
  *
- * An unrecognised code is treated as permanent. Both answers are loud, so the choice is only whether a
+ * An unrecognised code counts as permanent. Both answers are loud, so the only question is whether a
  * caller retries, and stopping on something nobody has classified is the direction that gets it looked
  * at rather than spun on.
  */
-const TRANSIENT_FAILURES = new Set(["ENOENT", "ENOSPC", "EDQUOT", "EIO", "EBUSY", "EAGAIN", "EINTR", "EMFILE", "ENFILE"]);
+const RETRYABLE_FAILURES: ReadonlySet<string> = new Set([
+	"ENOENT",
+	"EAGAIN",
+	"EINTR",
+	"EBUSY",
+	"EMFILE",
+	"ENFILE",
+	"ESTALE",
+	"ETIMEDOUT",
+]);
 
 function filesystemKind(cause: unknown): ClaimError["kind"] {
 	const code = (cause as NodeJS.ErrnoException | null)?.code;
-	return code !== undefined && TRANSIENT_FAILURES.has(code) ? "unavailable" : "ticket-set";
+	return code !== undefined && RETRYABLE_FAILURES.has(code) ? "unavailable" : "ticket-set";
 }
 
 function read(path: string): string {

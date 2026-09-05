@@ -56,7 +56,6 @@ describe("prepareLaunch", () => {
 			},
 		});
 
-		// The plan survives the decline, so a caller can still report what it was going to run.
 		expect(outcome).toEqual({ kind: "declined", plan: { command: ["claude", "/implement md:1"] } });
 		expect(calls).toEqual([]);
 		expect(asked).toEqual([{ command: ["claude", "/implement md:1"] }]);
