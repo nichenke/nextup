@@ -22,6 +22,14 @@ export interface LaunchInput extends LaunchPlanInput {
 	 * be given after the tracker had already been told.
 	 */
 	readonly confirm: (plan: LaunchPlan) => boolean;
+	/**
+	 * Checked after the gate and before the claim, throwing where the pick is no longer one to start.
+	 *
+	 * It runs here because the gate is where the wait is. Selection and claim used to be microseconds
+	 * apart; a question put to a person holds that window open for as long as they take to answer, and
+	 * what was startable when it was asked may not be when it is answered.
+	 */
+	readonly recheck: () => void;
 }
 
 export interface Launch extends LaunchPlan {
@@ -59,6 +67,7 @@ export function planLaunch(input: LaunchPlanInput): LaunchPlan {
 export function prepareLaunch(input: LaunchInput): PreparedLaunch {
 	const plan = planLaunch(input);
 	if (!input.confirm(plan)) return { kind: "declined", plan };
+	input.recheck();
 	return { kind: "launched", launch: { ...plan, hold: input.claimer.claim() } };
 }
 

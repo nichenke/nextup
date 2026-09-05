@@ -431,6 +431,28 @@ describe("the confirmation gate", () => {
 		expect(document.command).toEqual(["claude", "/implement md:1"]);
 	});
 
+	// The gate holds the window between selection and claim open for as long as a person takes to
+	// answer, so what was startable when it was asked may not be when it is answered. Blockedness is
+	// the check the claim step cannot make for itself: it reads one file, and this needs the graph.
+	test("refuses a pick that became blocked while it was being confirmed", () => {
+		const repo = tempRepo();
+		const effort = chainedEffort(repo);
+		const first = join(effort, "issues", "01-first.md");
+
+		const result = run([], {
+			cwd: repo,
+			runner: refuseToRun,
+			confirm: () => {
+				writeFileSync(first, "# 01 — Settle the format\n\nStatus: open\nBlocked by: 02\n");
+				return true;
+			},
+		});
+
+		expect(result.code).toBe(3);
+		expect(result.stderr).toContain("became blocked");
+		expect(readFileSync(first, "utf8")).not.toContain("claimed");
+	});
+
 	test("reports a gate it could not put as a bad run, not as a decline", () => {
 		const repo = tempRepo();
 		const effort = chainedEffort(repo);

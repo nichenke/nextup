@@ -8,7 +8,7 @@ import type { Runner } from "./runner";
 import { renderSelection, selectionJson } from "./selection-output";
 import { type Candidate, type Selection, SelectionError, select } from "./selector";
 import { ticketId } from "./ticket";
-import { formatTicketRef } from "./ticket-ref";
+import { type TicketRef, formatTicketRef } from "./ticket-ref";
 
 /**
  * Puts the pick to the person running this and reports what they said. It prints `question` itself,
@@ -125,7 +125,7 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 
 	return options.printCommand
 		? printCommand(options, selection, pick)
-		: startWork(options, selection, pick, effort.tickets, deps);
+		: startWork(options, selection, pick, effort.tickets, deps, effort.root);
 }
 
 function nothingToStart(options: Options, selection: Selection): CliResult {
@@ -149,12 +149,45 @@ function printCommand(options: Options, selection: Selection, pick: Candidate): 
 	return { code: 0, stdout: `${formatCommand(plan.command)}\n`, stderr: renderSelection(selection) };
 }
 
+/**
+ * Refuses where the pick has stopped being one to start, reading the whole effort rather than the one
+ * ticket. Blockedness is derived against the effort's graph, so it is the one check the claim step
+ * cannot make for itself — it reads a single file, which cannot say whether something else now waits
+ * on this one, or whether a blocker reopened.
+ *
+ * Confirmed blocked only. A pick whose blocking has gone unknown is not refused: the ladder ranks
+ * unknown candidates itself when nothing confirmed is left, so refusing here would refuse a state the
+ * selector will recommend on the next run.
+ *
+ * @throws ClaimError, so this reports as what it is — a pick another run may find free.
+ */
+function stillStartable(effortRoot: string, ref: TicketRef, deps: CliDeps): void {
+	let current;
+	try {
+		current = readEffort(effortRoot, { runner: deps.runner });
+	} catch (cause) {
+		throw new ClaimError(`${effortRoot} could not be read again before claiming: ${message(cause)}`, "ticket-set", {
+			cause,
+		});
+	}
+
+	const id = ticketId(ref);
+	const now = current.tickets.find((candidate) => ticketId(candidate.ref) === id);
+	if (now === undefined) {
+		throw new ClaimError(`${formatTicketRef(ref)} left the effort before it could be claimed`, "unavailable");
+	}
+	if (now.blocked === "blocked") {
+		throw new ClaimError(`${formatTicketRef(ref)} became blocked before it could be claimed`, "unavailable");
+	}
+}
+
 function startWork(
 	options: Options,
 	selection: Selection,
 	pick: Candidate,
 	tickets: readonly MarkdownTicket[],
 	deps: CliDeps,
+	effortRoot: string,
 ): CliResult {
 	const id = ticketId(pick.ref);
 	const ticket = tickets.find((candidate) => ticketId(candidate.ref) === id);
@@ -189,6 +222,7 @@ function startWork(
 			slashCommand: DEFAULT_SLASH_COMMAND,
 			claimer: markdownClaimer(ticket, { runner: deps.runner }),
 			confirm,
+			recheck: () => stillStartable(effortRoot, pick.ref, deps),
 		});
 	} catch (cause) {
 		// Neither of these claimed anything: both come before the claim.

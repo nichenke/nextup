@@ -8,6 +8,7 @@ import type { TicketRef } from "./ticket-ref";
 const REF: TicketRef = { tracker: "markdown", repo: null, host: null, key: "1" };
 
 const approve = (): boolean => true;
+const noop = (): void => {};
 
 /** A claimer that records what it was asked to do, since the order is the thing under test. */
 function recordingClaimer(options: { claim?: () => ClaimHold; release?: () => ReleaseOutcome } = {}): {
@@ -33,7 +34,7 @@ function recordingClaimer(options: { claim?: () => ClaimHold; release?: () => Re
 describe("prepareLaunch", () => {
 	test("claims the ticket, and carries the command that would start work on it", () => {
 		const { claimer, calls } = recordingClaimer();
-		const outcome = prepareLaunch({ ref: REF, claimer, slashCommand: DEFAULT_SLASH_COMMAND, confirm: approve });
+		const outcome = prepareLaunch({ ref: REF, claimer, slashCommand: DEFAULT_SLASH_COMMAND, confirm: approve, recheck: noop });
 
 		expect(calls).toEqual(["claim"]);
 		expect(outcome.kind).toBe("launched");
@@ -54,6 +55,7 @@ describe("prepareLaunch", () => {
 				asked.push(plan);
 				return false;
 			},
+			recheck: noop,
 		});
 
 		expect(outcome).toEqual({ kind: "declined", plan: { command: ["claude", "/implement md:1"] } });
@@ -69,7 +71,7 @@ describe("prepareLaunch", () => {
 		});
 
 		expect(() =>
-			prepareLaunch({ ref: REF, claimer, slashCommand: DEFAULT_SLASH_COMMAND, confirm: approve }),
+			prepareLaunch({ ref: REF, claimer, slashCommand: DEFAULT_SLASH_COMMAND, confirm: approve, recheck: noop }),
 		).toThrow(ClaimError);
 		expect(calls).toEqual(["claim"]);
 	});
@@ -78,7 +80,7 @@ describe("prepareLaunch", () => {
 		const { claimer, calls } = recordingClaimer();
 
 		expect(() =>
-			prepareLaunch({ ref: REF, claimer, slashCommand: "not-a-slash-command", confirm: approve }),
+			prepareLaunch({ ref: REF, claimer, slashCommand: "not-a-slash-command", confirm: approve, recheck: noop }),
 		).toThrow();
 		expect(calls).toEqual([]);
 	});
@@ -120,6 +122,48 @@ describe("beforeWorktreeExists", () => {
 				throw new Error("no worktree yet");
 			});
 		}).toThrow("no worktree yet");
+	});
+});
+
+describe("the recheck between the gate and the claim", () => {
+	// Between the two, because the gate is where the wait is: what was startable when the question was
+	// asked may not be when it is answered.
+	test("rechecks the pick after the gate and before the claim", () => {
+		const { claimer, calls } = recordingClaimer();
+		const order: string[] = [];
+
+		prepareLaunch({
+			ref: REF,
+			claimer,
+			slashCommand: DEFAULT_SLASH_COMMAND,
+			confirm: () => {
+				order.push("confirm");
+				return true;
+			},
+			recheck: () => {
+				order.push("recheck");
+			},
+		});
+
+		expect(order).toEqual(["confirm", "recheck"]);
+		expect(calls).toEqual(["claim"]);
+	});
+
+	test("claims nothing when the recheck refuses, so an approved pick that moved is not taken", () => {
+		const { claimer, calls } = recordingClaimer();
+
+		expect(() =>
+			prepareLaunch({
+				ref: REF,
+				claimer,
+				slashCommand: DEFAULT_SLASH_COMMAND,
+				confirm: approve,
+				recheck: () => {
+					throw new ClaimError("became blocked", "unavailable");
+				},
+			}),
+		).toThrow(ClaimError);
+		expect(calls).toEqual([]);
 	});
 });
 
