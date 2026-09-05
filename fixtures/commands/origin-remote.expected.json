@@ -1,0 +1,10 @@
+{
+	"description": "The remote a repository-scoped short form is resolved against.",
+	"input": {},
+	"argv": [
+		"git",
+		"remote",
+		"get-url",
+		"origin"
+	]
+}

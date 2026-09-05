@@ -1,0 +1,16 @@
+{
+	"description": "The v1 substrate: a local markdown ticket, which carries neither a repository nor a host.",
+	"input": {
+		"ref": {
+			"tracker": "markdown",
+			"repo": null,
+			"host": null,
+			"key": "1"
+		},
+		"slashCommand": "/implement"
+	},
+	"argv": [
+		"claude",
+		"/implement md:1"
+	]
+}

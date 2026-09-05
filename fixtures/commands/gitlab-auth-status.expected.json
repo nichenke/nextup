@@ -1,0 +1,14 @@
+{
+	"description": "The same question of the GitLab CLI, which has no second account to narrow to.",
+	"input": {
+		"tracker": "gitlab",
+		"hostname": "example.test"
+	},
+	"argv": [
+		"glab",
+		"auth",
+		"status",
+		"--hostname",
+		"example.test"
+	]
+}

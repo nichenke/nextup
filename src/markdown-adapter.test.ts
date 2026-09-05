@@ -6,6 +6,8 @@ import {
 	MarkdownEffortError,
 	discoverEfforts,
 	readEffort,
+	readTicketFile,
+	withStatus,
 	type MarkdownTicket,
 } from "./markdown-adapter";
 
@@ -723,4 +725,98 @@ describe("readEffort: the normalized ticket surface", () => {
 		}
 	});
 
+});
+
+/**
+ * The write half of the claim step. Every shape here stands in for the one column of the contract
+ * ADR-0010 gives markdown's `Status:` — a claim recorded, or none — in the forms the two authored
+ * producers write it: plain, and bold.
+ */
+describe("withStatus", () => {
+	const PATH = "issues/01-a.md";
+
+	test("replaces the value of a plain field, leaving the rest of the file alone", () => {
+		const before = "# 01 — A\n\nType: task\nStatus: open\nBlocked by: 02\n\n## Notes\n\nProse.\n";
+		expect(withStatus(before, "claimed", PATH)).toBe(
+			"# 01 — A\n\nType: task\nStatus: claimed\nBlocked by: 02\n\n## Notes\n\nProse.\n",
+		);
+	});
+
+	test("keeps a bold field bold, in either of the two places the emphasis is written", () => {
+		expect(withStatus("# 01 — A\n\n**Status:** open\n", "claimed", PATH)).toBe("# 01 — A\n\n**Status:** claimed\n");
+		expect(withStatus("# 01 — A\n\n**Status**: open\n", "claimed", PATH)).toBe("# 01 — A\n\n**Status**: claimed\n");
+		expect(withStatus("# 01 — A\n\n__Status:__ open\n", "claimed", PATH)).toBe("# 01 — A\n\n__Status:__ claimed\n");
+	});
+
+	test("adds the field under the title where the file has none, since absence is how unclaimed is written", () => {
+		expect(withStatus("# 01 — A\n\nType: task\n", "claimed", PATH)).toBe("# 01 — A\n\nStatus: claimed\n\nType: task\n");
+	});
+
+	test("never writes over a Status line the reader does not read", () => {
+		const belowAHeading = "# 01 — A\n\nType: task\n\n## Notes\n\nStatus: resolved\n";
+		expect(withStatus(belowAHeading, "claimed", PATH)).toBe(
+			"# 01 — A\n\nStatus: claimed\n\nType: task\n\n## Notes\n\nStatus: resolved\n",
+		);
+
+		const insideASnippet = "# 01 — A\n\nType: task\n\n```\nStatus: resolved\n```\n";
+		expect(withStatus(insideASnippet, "claimed", PATH)).toBe(
+			"# 01 — A\n\nStatus: claimed\n\nType: task\n\n```\nStatus: resolved\n```\n",
+		);
+	});
+
+	test("what it writes is what the reader reads back", () => {
+		const repo = tempRepo();
+		for (const before of ["# 01 — A\n\nStatus: open\n", "# 01 — A\n\n**Status:** open\n", "# 01 — A\n\nType: task\n"]) {
+			const effortRoot = writeEffort(repo, "an-effort", { "01-a.md": withStatus(before, "claimed", PATH) });
+			expect(readEffort(effortRoot).tickets[0]?.claim).toEqual({ by: null });
+		}
+	});
+
+	// Not a grammar shape but a file-encoding one: a checkout can hand back CRLF, and writing one line
+	// in LF leaves a file whose endings disagree with themselves. Both the line this rewrites and the
+	// line it adds, since they are two writers of the same property.
+	test("leaves the file's line endings as it found them", () => {
+		expect(withStatus("# 01 — A\r\n\r\nStatus: open\r\n", "claimed", PATH)).toBe("# 01 — A\r\n\r\nStatus: claimed\r\n");
+		expect(withStatus("# 01 — A\r\n\r\nType: task\r\n", "claimed", PATH)).toBe(
+			"# 01 — A\r\n\r\nStatus: claimed\r\n\r\nType: task\r\n",
+		);
+	});
+
+	// The endings a lexer normalises away that a line split does not: the counts drift, so no line is
+	// found to rewrite and the field is refused rather than written over whatever now sits at that
+	// offset. The reader accepts such a file, so the two disagree — knowingly, in the safe direction.
+	test("adds a field rather than rewriting a line the reader reads as prose", () => {
+		const prose = "# 01 — A\n\nStatus: resolved — superseded by `02`\n";
+		expect(withStatus(prose, "claimed", PATH)).toBe(
+			"# 01 — A\n\nStatus: claimed\n\nStatus: resolved — superseded by `02`\n",
+		);
+	});
+
+	test("refuses a field it can only rewrite into one the reader stops reading", () => {
+		expect(() => withStatus("# 01 — A\n\n**Status: op**en\n", "claimed", PATH)).toThrow(MarkdownEffortError);
+	});
+
+	test("refuses rather than rewriting a line it can no longer locate", () => {
+		expect(() => withStatus("# 01 — A\r\rStatus: open\r", "claimed", PATH)).toThrow(MarkdownEffortError);
+	});
+
+	test("refuses a file with no title rather than writing a field nothing would read", () => {
+		expect(() => withStatus("Status: open\n", "claimed", PATH)).toThrow(MarkdownEffortError);
+	});
+});
+
+describe("readTicketFile", () => {
+	test("reads one ticket without its effort, since a claim is verified against the file it wrote", () => {
+		const repo = tempRepo();
+		const effortRoot = writeEffort(repo, "an-effort", { "01-a.md": "# 01 — A\n\nStatus: claimed\n" });
+		const ticket = readTicketFile(join(effortRoot, "issues", "01-a.md"));
+		expect(ticket.ref.key).toBe("1");
+		expect(ticket.claim).toEqual({ by: null });
+	});
+
+	test("refuses a path not named like a ticket, rather than inventing a number for it", () => {
+		const repo = tempRepo();
+		const effortRoot = writeEffort(repo, "an-effort", { "01-a.md": "# 01 — A\n\nStatus: open\n" });
+		expect(() => readTicketFile(join(effortRoot, "map.md"))).toThrow(MarkdownEffortError);
+	});
 });

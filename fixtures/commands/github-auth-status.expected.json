@@ -1,0 +1,15 @@
+{
+	"description": "Asking the GitHub CLI whether the account it would use is authenticated to a host.",
+	"input": {
+		"tracker": "github",
+		"hostname": "example.test"
+	},
+	"argv": [
+		"gh",
+		"auth",
+		"status",
+		"--hostname",
+		"example.test",
+		"--active"
+	]
+}

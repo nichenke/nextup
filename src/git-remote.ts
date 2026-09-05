@@ -1,3 +1,4 @@
+import { originRemoteCommand } from "./command-builders";
 import type { Runner } from "./runner";
 
 const URL_REMOTE = /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]+@)?[^/]+\/(.+)$/i;
@@ -12,7 +13,7 @@ export function parseRepoPath(remote: string): string | null {
 }
 
 export function resolveRepoFromOrigin(runner: Runner): string | null {
-	const result = runner(["git", "remote", "get-url", "origin"]);
+	const result = runner([...originRemoteCommand()]);
 	if (result.code !== 0) return null;
 	return parseRepoPath(result.stdout.trim());
 }

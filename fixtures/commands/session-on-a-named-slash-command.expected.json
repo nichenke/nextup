@@ -1,0 +1,16 @@
+{
+	"description": "A slash command other than the default.",
+	"input": {
+		"ref": {
+			"tracker": "markdown",
+			"repo": null,
+			"host": null,
+			"key": "1"
+		},
+		"slashCommand": "/triage"
+	},
+	"argv": [
+		"claude",
+		"/triage md:1"
+	]
+}
