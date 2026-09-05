@@ -1,4 +1,4 @@
-import { accessSync, constants, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { accessSync, constants, lstatSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { type MarkdownTicketFile, parseTicketText, readTicketFile, withStatus } from "./markdown-adapter";
 import type { Claim } from "./ticket";
 import { type ResolveDeps, type TicketRef, formatTicketRef } from "./ticket-ref";
@@ -162,7 +162,7 @@ function revert(path: string, after: string, before: string): ReleaseOutcome {
  * leaves the ticket as it was. Writing in place opens with O_TRUNC, which empties the file before the
  * first byte lands — and this is the one step whose failure has nothing left to restore from.
  *
- * A scratch file already at that name is overwritten. Only this function ever writes one, so it can
+ * A scratch file already at that name is overwritten. Only this process ever writes one, so it can
  * only be debris from a claim that died mid-write, and refusing would turn that into a ticket nobody
  * can claim until somebody deletes a file by hand.
  *
@@ -170,10 +170,17 @@ function revert(path: string, after: string, before: string): ReleaseOutcome {
  */
 function replace(path: string, content: string, recover: string): void {
 	const scratch = `${path}.nextup`;
+	// The two ways renaming differs from writing in place, both checked rather than inferred.
+	//
+	// A rename needs permission on the directory and none on the file, so a read-only ticket would
+	// otherwise be rewritten by a step that never asked. And a rename replaces a symlink rather than
+	// following it, which would leave the effort holding a regular file while the shared target still
+	// read unclaimed — a ticket handed out twice, which is the one thing `Claim` exists to prevent.
+	// Symlinked ticket files are out of contract, so this refuses rather than resolving them.
+	if (lstatSync(path).isSymbolicLink()) {
+		throw new ClaimError(`${path} is a symlink; a ticket file has to be the file itself`, "ticket-set");
+	}
 	try {
-		// Renaming over a file needs permission on its directory and none on the file itself, so a
-		// read-only ticket would otherwise be rewritten by a step that never asked. Checked rather than
-		// inferred: this is the one place the atomic write is weaker than writing in place.
 		accessSync(path, constants.W_OK);
 		writeFileSync(scratch, content);
 		renameSync(scratch, path);

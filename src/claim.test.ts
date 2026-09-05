@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	lstatSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	readdirSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { ClaimError, markdownClaimer } from "./claim";
@@ -145,6 +155,20 @@ describe("markdownClaimer", () => {
 
 		expect(read(path)).toBe("# 01 — A\n\nStatus: claimed\n");
 		expect(readdirSync(dirname(path))).toEqual(["01-a.md"]);
+	});
+
+	// Out of contract, and the failure is silent without this: the rename would replace the link with a
+	// regular file while the shared target went on reading unclaimed, handing the ticket out twice.
+	test("refuses a ticket file that is a symlink, leaving the link and its target alone", () => {
+		const target = ticketFile("# 01 — A\n\nStatus: open\n", "01-target.md");
+		const link = join(dirname(target), "01-a.md");
+		symlinkSync(target, link);
+
+		expect(() => markdownClaimer(readTicketFile(link)).claim()).toThrow(
+			expect.objectContaining({ kind: "ticket-set" }),
+		);
+		expect(lstatSync(link).isSymbolicLink()).toBe(true);
+		expect(read(target)).toBe("# 01 — A\n\nStatus: open\n");
 	});
 
 	test("releases by restoring exactly what the file said before, triage role and all", () => {
