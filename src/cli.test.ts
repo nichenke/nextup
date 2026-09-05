@@ -323,14 +323,16 @@ describe("claiming the pick", () => {
 		expect(run([], deps(repo)).code).toBe(1);
 	});
 
-	// A ticket somebody else took is worth coming back for; a ticket file this tool cannot write is
-	// not, and lands on the same status as a bad invocation.
-	test("separates a pick that was unavailable from a ticket set that will not take a claim", () => {
-		const unavailable = tempRepo();
-		const effort = chainedEffort(unavailable);
+	// Reported as a ticket set to fix rather than a pick to come back for, in both shapes. Calling a
+	// permanently unclaimable pick unavailable wedges a caller polling for work on it forever, because
+	// the ranking hands back the same winner every time. Exit 3 is for a pick another run may find
+	// free, which needs a second writer — `claim.test.ts` covers that at the claimer.
+	test("reports a ticket set that will not take a claim as one to fix", () => {
+		const readOnly = tempRepo();
+		const effort = chainedEffort(readOnly);
 		chmodSync(ticketPath(effort, "01-first.md"), 0o444);
-		const refused = run([], deps(unavailable));
-		expect(refused.code).toBe(3);
+		const refused = run([], deps(readOnly));
+		expect(refused.code).toBe(2);
 		expect(refused.stderr).toContain("01-first.md");
 
 		const malformed = tempRepo();

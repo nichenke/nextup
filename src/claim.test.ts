@@ -81,12 +81,14 @@ describe("markdownClaimer", () => {
 		expect(read(path)).toBe("# 01 — A\n\nStatus: resolved\n");
 	});
 
-	test("refuses when the ticket file is gone, with nothing written", () => {
+	// A ticket that has gone is a changed ticket set, so another run picks something else — the one
+	// filesystem failure worth coming back for, where a permission or a read-only mount is not.
+	test("refuses when the ticket file is gone, with nothing written, as a pick to come back for", () => {
 		const path = ticketFile("# 01 — A\n\nStatus: open\n");
 		const claimer = markdownClaimer(readTicketFile(path));
 		rmSync(path);
 
-		expect(() => claimer.claim()).toThrow(ClaimError);
+		expect(() => claimer.claim()).toThrow(expect.objectContaining({ kind: "unavailable" }));
 	});
 
 	// The two answers separate a ticket somebody else took, which is worth coming back for, from a
@@ -101,6 +103,28 @@ describe("markdownClaimer", () => {
 		expect(() => markdownClaimer(readTicketFile(malformed)).claim()).toThrow(
 			expect.objectContaining({ kind: "ticket-set" }),
 		);
+
+		const readOnly = ticketFile("# 01 — A\n\nStatus: open\n");
+		chmodSync(readOnly, 0o444);
+		expect(() => markdownClaimer(readTicketFile(readOnly)).claim()).toThrow(
+			expect.objectContaining({ kind: "ticket-set" }),
+		);
+	});
+
+	test("says a rollback it could not make, rather than reporting only why the claim failed", () => {
+		const path = ticketFile("# 01 — A\n\nStatus: open\n");
+		const claimer = markdownClaimer(readTicketFile(path), {
+			readBack: (target) => {
+				// The rollback is denied between the write landing and the read-back reporting it unclaimed,
+				// which is the window that leaves a real claim on a ticket nobody is working.
+				chmodSync(dirname(target), 0o555);
+				return { ...readTicketFile(target), claim: null };
+			},
+		});
+
+		expect(() => claimer.claim()).toThrow(/was not taken back either/);
+		chmodSync(dirname(path), 0o755);
+		expect(read(path)).toBe("# 01 — A\n\nStatus: claimed\n");
 	});
 
 	test("puts the file back when the claim it wrote does not read back as one", () => {

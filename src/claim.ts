@@ -110,15 +110,14 @@ export function markdownClaimer(ticket: MarkdownTicketFile, deps: MarkdownClaimD
 			try {
 				verified = asTicketSetFailure(path, () => readBack(path));
 			} catch (cause) {
-				revert(path, after, before);
-				throw cause;
+				throw rollingBack(path, after, before, cause);
 			}
 			if (verified.claim === null) {
-				revert(path, after, before);
-				throw new ClaimError(
+				const refusal = new ClaimError(
 					`${formatTicketRef(ticket.ref)} does not read as claimed after being claimed`,
 					"unavailable",
 				);
+				throw rollingBack(path, after, before, refusal);
 			}
 
 			written = { before, after };
@@ -136,6 +135,25 @@ export function markdownClaimer(ticket: MarkdownTicketFile, deps: MarkdownClaimD
 }
 
 const CLAIMED = "claimed";
+
+/**
+ * Reports `cause` for a claim whose rollback has been attempted, naming a claim the rollback could not
+ * take back. Told only that the claim did not verify, a caller would not know one is outstanding — and
+ * a claim left on a ticket nobody is working is the failure this whole step exists to avoid.
+ *
+ * Both rollback sites go through here rather than each remembering to look at the outcome, which is
+ * how the first of them came to discard it.
+ */
+function rollingBack(path: string, after: string, before: string, cause: unknown): ClaimError {
+	const failure = cause instanceof ClaimError ? cause : new ClaimError(message(cause), "unavailable", { cause });
+	const outcome = revert(path, after, before);
+	if (outcome.kind !== "stranded") return failure;
+	// Unavailable whatever the first failure was: there is now a claim to go and clear, which is the
+	// answer that code is for.
+	return new ClaimError(`${failure.message}; the claim was not taken back either: ${outcome.reason}`, "unavailable", {
+		cause: failure,
+	});
+}
 
 /**
  * Puts `before` back, but only over the exact text the claim wrote. An edit made since is somebody's
@@ -187,15 +205,27 @@ function replace(path: string, content: string, recover: string): void {
 	} catch (cause) {
 		rmSync(scratch, { force: true });
 		const held = content === recover ? "" : `; ${path} still holds what it did before`;
-		throw new ClaimError(`${path} could not be written: ${message(cause)}${held}`, "unavailable");
+		throw new ClaimError(`${path} could not be written: ${message(cause)}${held}`, filesystemKind(cause), {
+			cause,
+		});
 	}
+}
+
+/**
+ * Which of the two answers a filesystem failure is. A ticket that has gone is a changed ticket set, so
+ * another run picks something else and this reports it as unavailable. Anything else — a permission, a
+ * read-only mount, a full disk — stays wrong until somebody fixes it, and calling that unavailable
+ * wedges a caller polling for work on the same unclaimable pick forever.
+ */
+function filesystemKind(cause: unknown): ClaimError["kind"] {
+	return (cause as NodeJS.ErrnoException | null)?.code === "ENOENT" ? "unavailable" : "ticket-set";
 }
 
 function read(path: string): string {
 	try {
 		return readFileSync(path, "utf8");
 	} catch (cause) {
-		throw new ClaimError(`${path} could not be read: ${message(cause)}`, "unavailable", { cause });
+		throw new ClaimError(`${path} could not be read: ${message(cause)}`, filesystemKind(cause), { cause });
 	}
 }
 
