@@ -1,4 +1,4 @@
-import { accessSync, constants, lstatSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { lstatSync, readFileSync, writeFileSync } from "node:fs";
 import { type MarkdownTicketFile, parseTicketText, readTicketFile, withStatus } from "./markdown-adapter";
 import type { Claim } from "./ticket";
 import { type ResolveDeps, type TicketRef, formatTicketRef } from "./ticket-ref";
@@ -106,7 +106,7 @@ export function markdownClaimer(ticket: MarkdownTicketFile, deps: MarkdownClaimD
 			}
 
 			const after = asTicketSetFailure(path, () => withStatus(before, CLAIMED, path));
-			replace(path, after, before);
+			replace(path, after);
 
 			// Verified through the reader the selector was fed, so a claim counts as landed only when it
 			// is one that reads back as a claim. Anything else rolls the file back, or says it could not,
@@ -171,7 +171,7 @@ function revert(path: string, after: string, before: string): ReleaseOutcome {
 	}
 	if (current !== after) return { kind: "stranded", reason: `${path} changed since the claim was written` };
 	try {
-		replace(path, before, after);
+		replace(path, before);
 	} catch (cause) {
 		return { kind: "stranded", reason: message(cause) };
 	}
@@ -179,53 +179,32 @@ function revert(path: string, after: string, before: string): ReleaseOutcome {
 }
 
 /**
- * Writes `content` by renaming a complete file over the old one, so a failed or interrupted write
- * leaves the ticket as it was. Writing in place opens with O_TRUNC, which empties the file before the
- * first byte lands — and this is the one step whose failure has nothing left to restore from.
+ * Writes `content` over the ticket, in place.
  *
- * A scratch file already at that name is overwritten. Only this process writes one, so it can
- * only be debris from a claim that died mid-write, and refusing would turn that into a ticket nobody
- * can claim until somebody deletes a file by hand.
+ * In place rather than by renaming a complete file over it. A rename is atomic, so an interrupted
+ * write cannot leave a half-written ticket — but it replaces the file rather than its contents, and
+ * everything the file was goes with it: mode, ownership, ACLs, extended attributes, any hard link.
+ * A group-writable ticket in a shared effort came back private to whoever claimed it. Writing in
+ * place keeps all of that, because it changes the contents of the file that is already there.
  *
- * @param recover what the file should still hold if the rename never happens, used only in the message.
+ * The window a rename closes is covered anyway. A write that fails partway leaves a ticket the reader
+ * cannot parse, the read-back after this refuses it, and the rollback puts the previous text back —
+ * the same path every other unverifiable claim takes. So the trade is a failure mode that is caught
+ * against three that were not: a symlink at the working path writing through to whatever it pointed
+ * at, the file's own metadata discarded on every claim, and debris from an interrupted run needing a
+ * rule of its own.
  */
-function replace(path: string, content: string, recover: string): void {
-	const scratch = `${path}.nextup`;
+function replace(path: string, content: string): void {
 	try {
-		// The two ways renaming differs from writing in place, both checked rather than inferred.
-		//
-		// A rename replaces a symlink rather than following it, which would leave the effort holding a
-		// regular file while the shared target still read unclaimed — a ticket handed out twice, which
-		// is the one thing `Claim` exists to prevent. Symlinked ticket files are out of contract, so
-		// this refuses rather than resolving them. And a rename needs permission on the directory and
-		// none on the file, so a read-only ticket would otherwise be rewritten by a step that never
-		// asked.
-		//
-		// Inside the try because every one of these touches the filesystem: a ticket that vanished
-		// between the read and here throws an errno, and outside it that escapes the one error type
-		// `claim()` promises.
+		// A symlinked ticket is out of contract: writing through it would claim a file the effort does
+		// not own, and leave whoever shares that file reading a ticket they never claimed.
 		if (lstatSync(path).isSymbolicLink()) {
 			throw new ClaimError(`${path} is a symlink; a ticket file has to be the file itself`, "ticket-set");
 		}
-		accessSync(path, constants.W_OK);
-		writeFileSync(scratch, content);
-		renameSync(scratch, path);
+		writeFileSync(path, content);
 	} catch (cause) {
-		discard(scratch);
 		if (cause instanceof ClaimError) throw cause;
-		const held = content === recover ? "" : `; ${path} still holds what it did before`;
-		throw new ClaimError(`${path} could not be written: ${message(cause)}${held}`, filesystemKind(cause), {
-			cause,
-		});
-	}
-}
-
-/** Removes a working file, best effort: this runs while a failure is already on its way out. */
-function discard(scratch: string): void {
-	try {
-		rmSync(scratch, { force: true });
-	} catch {
-		// Nothing to add.
+		throw new ClaimError(`${path} could not be written: ${message(cause)}`, filesystemKind(cause), { cause });
 	}
 }
 

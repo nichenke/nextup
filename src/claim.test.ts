@@ -7,6 +7,7 @@ import {
 	readFileSync,
 	readdirSync,
 	rmSync,
+	statSync,
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
@@ -140,13 +141,13 @@ describe("markdownClaimer", () => {
 			readBack: (target) => {
 				// The rollback is denied between the write landing and the read-back reporting it unclaimed,
 				// which is the window that leaves a real claim on a ticket nobody is working.
-				chmodSync(dirname(target), 0o555);
+				chmodSync(target, 0o444);
 				return { ...readTicketFile(target), claim: null };
 			},
 		});
 
 		expect(() => claimer.claim()).toThrow(expect.objectContaining({ kind: "stranded" }));
-		chmodSync(dirname(path), 0o755);
+		chmodSync(path, 0o644);
 		expect(read(path)).toBe("# 01 — A\n\nStatus: claimed\n");
 	});
 
@@ -156,13 +157,13 @@ describe("markdownClaimer", () => {
 		const path = ticketFile("# 01 — A\n\nStatus: open\n");
 		const claimer = markdownClaimer(readTicketFile(path), {
 			readBack: (target) => {
-				chmodSync(dirname(target), 0o555);
+				chmodSync(target, 0o444);
 				return { ...readTicketFile(target), claim: null };
 			},
 		});
 
 		expect(() => claimer.claim()).toThrow(ClaimError);
-		chmodSync(dirname(path), 0o755);
+		chmodSync(path, 0o644);
 		expect(claimer.release()).toEqual({ kind: "released" });
 		expect(read(path)).toBe("# 01 — A\n\nStatus: open\n");
 	});
@@ -188,31 +189,29 @@ describe("markdownClaimer", () => {
 	});
 
 	test("leaves the ticket exactly as it was when the write cannot happen", () => {
-		const readOnlyFile = ticketFile("# 01 — A\n\nStatus: open\n");
-		chmodSync(readOnlyFile, 0o444);
-		expect(() => markdownClaimer(readTicketFile(readOnlyFile)).claim()).toThrow(ClaimError);
-		expect(read(readOnlyFile)).toBe("# 01 — A\n\nStatus: open\n");
+		const readOnly = ticketFile("# 01 — A\n\nStatus: open\n");
+		chmodSync(readOnly, 0o444);
 
-		const readOnlyDir = ticketFile("# 01 — A\n\nStatus: open\n");
-		const claimer = markdownClaimer(readTicketFile(readOnlyDir));
-		chmodSync(dirname(readOnlyDir), 0o555);
-		expect(() => claimer.claim()).toThrow(ClaimError);
-		expect(read(readOnlyDir)).toBe("# 01 — A\n\nStatus: open\n");
+		expect(() => markdownClaimer(readTicketFile(readOnly)).claim()).toThrow(ClaimError);
+		expect(read(readOnly)).toBe("# 01 — A\n\nStatus: open\n");
 	});
 
-	test("leaves no working file behind, whether the claim landed or not", () => {
+	// Nothing about a claim replaces the file, so everything the file is — its mode, and with it its
+	// ownership, ACLs and any hard link — survives one. A rename would have taken all of it.
+	test("leaves the ticket's own permissions alone", () => {
 		const path = ticketFile("# 01 — A\n\nStatus: open\n");
-		markdownClaimer(readTicketFile(path)).claim();
-		expect(readdirSync(dirname(path))).toEqual(["01-a.md"]);
-	});
-
-	test("claims over debris left by a claim that died mid-write", () => {
-		const path = ticketFile("# 01 — A\n\nStatus: open\n");
-		writeFileSync(`${path}.nextup`, "half a ticket, from a run that never finished\n");
+		chmodSync(path, 0o664);
 
 		markdownClaimer(readTicketFile(path)).claim();
 
-		expect(read(path)).toBe("# 01 — A\n\nStatus: claimed\n");
+		expect(statSync(path).mode & 0o777).toBe(0o664);
+	});
+
+	// A claim writes the ticket and nothing else, so there is no working file to leave behind and no
+	// rule needed for one an interrupted run left there.
+	test("writes the ticket and nothing beside it", () => {
+		const path = ticketFile("# 01 — A\n\nStatus: open\n");
+		markdownClaimer(readTicketFile(path)).claim();
 		expect(readdirSync(dirname(path))).toEqual(["01-a.md"]);
 	});
 
