@@ -23,11 +23,12 @@ whichever worktree happened to invoke the tool would be based on something the o
 
 ## Consequences
 
-Nothing removes these worktrees. That is a real gap rather than a deferral, and
-nichenke/nextup issue 23 holds the decision about it; ADR-0005 states the finding this rests on.
-Until it is settled, worktrees `nextup` creates accumulate until removed by hand.
+Nothing removes these worktrees, and nothing is going to: removal is out of scope per ADR-0002, which
+ADR-0005 now records as the settled reading. They accumulate under the root above until somebody
+removes them by hand.
 
-Spec issue 2 still states the refuted position in three places (the harvest list, the Worktrees
-section, and Out of Scope). Patching it is part of issue 23's scope, not this ticket's — but an
-implementer reading the spec alone will reach for `.claude/worktrees/` and a cleanup that does not
-exist, which is why this ADR names the sentence rather than only the decision.
+That decision does not rescue the spec's sentence about the root. Spec issue 2 justifies
+`.claude/worktrees/` by a session-exit cleanup ADR-0005 reproduced and found does not reach these
+worktrees, so an implementer reading the spec alone still reaches for that path expecting a behaviour
+that is not there. The conclusion in the spec's harvest list and its Out of Scope section stands; the
+reason attached to all three, and the root that reason picks, does not.

@@ -41,7 +41,8 @@ re-running after a partial failure heals rather than errors. The branch follows 
 convention — `feature/` or `fix/` by whether the ticket is labelled a bug, then the title as a slug,
 then the ticket's own key last, so tab-completion reaches the slug. It goes under `.worktrees/` in the
 primary checkout unless `--worktree-root` says otherwise; ADR-0013 has why there rather than under the
-harness's directory, and why nothing removes them yet. Conditions worth knowing that are not reasons
+harness's directory. Nothing removes them — that is settled rather than pending, and ADR-0005 has the
+reproduction behind it — so they accumulate until you clear them by hand. Conditions worth knowing that are not reasons
 to refuse — a primary checkout that has drifted off the default branch, an effort that will not reach
 the new worktree — arrive on stderr as `warning: ` lines. ADR-0014 has the second one, which decides
 whether a session started there can resolve the reference it is handed.
