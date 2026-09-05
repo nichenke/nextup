@@ -35,8 +35,9 @@ stdin and stdout, so it still works when either is redirected. `--print-command`
 command on stdout and the reasoning on stderr, and `--json --print-command` is the whole answer with
 nothing claimed.
 
-Once the claim lands, the ticket's worktree is *ensured*: created, or attached to if it is already
-there, so re-running after a partial failure heals rather than errors. The branch follows the
+Once the claim lands, the ticket's worktree is *ensured*: created along with its branch, checked out
+where the branch exists but no worktree does, or attached to where the worktree is already there — so
+re-running after a partial failure heals rather than errors. The branch follows the
 convention — `feature/` or `fix/` by whether the ticket is labelled a bug, then the title as a slug,
 then the ticket's own key last, so tab-completion reaches the slug. It goes under `.worktrees/` in the
 primary checkout unless `--worktree-root` says otherwise; ADR-0013 has why there rather than under the

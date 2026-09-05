@@ -12,7 +12,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { CLAIM_FAILURE_STATUS, type CliDeps, WARNING_PREFIX, run } from "./cli";
+import { CLAIM_FAILURE_STATUS, type CliDeps, WARNING_PREFIX, WORKTREE_FAILURE_STATUS, run } from "./cli";
 import type { Runner } from "./runner";
 import { DEGRADED_PREFIX } from "./selection-output";
 
@@ -92,8 +92,7 @@ afterEach(() => {
 function tempRepo(): string {
 	const root = mkdtempSync(join(tmpdir(), "nextup-cli-"));
 	roots.push(root);
-	// The real path, because the worktree step compares against paths git reports and git reports real
-	// ones; macOS hands `mkdtemp` a symlinked one.
+	// The real path, for the reason `resolveReal` in cli.ts gives.
 	return realpathSync(root);
 }
 
@@ -491,6 +490,20 @@ describe("ensuring the worktree", () => {
 		expect(result.code).toBe(0);
 		expect(result.stderr).toContain("cannot resolve md:1");
 		expect(result.stderr).toContain("commit the effort on the branch");
+	});
+
+	test("gives the JSON the same warnings it printed, not the shorter list the plan carried", () => {
+		const repo = tempRepo();
+		chainedEffort(repo);
+		const result = run(["--json"], deps(repo, terminal().confirm, fakeGit(repo, { branch: "wip", effortReaches: false })));
+		const warnings: string[] = JSON.parse(result.stdout).worktree.warnings;
+
+		expect(warnings).toHaveLength(2);
+		expect(result.stderr).toBe(warnings.map((one) => `${WARNING_PREFIX}${one}\n`).join(""));
+	});
+
+	test("exits 2 on every way of failing to ensure one, since none leaves a ticket another run can take", () => {
+		expect(new Set(Object.values(WORKTREE_FAILURE_STATUS))).toEqual(new Set([2]));
 	});
 
 	test("warns when the effort is outside the checkout the worktree was cut from", () => {

@@ -75,8 +75,8 @@ export function prepareLaunch(input: LaunchInput): PreparedLaunch {
  * Runs `work` with the claim given back if it fails, for the steps between a claim and a worktree.
  * Up to here a failure leaves nothing behind, so holding the claim would advertise a ticket nobody is
  * working as taken. Past here a worktree exists, and the claim is kept precisely so a ticket carrying
- * a half-finished branch is never handed to somebody else — so ticket 08's worktree step goes
- * *outside* this call rather than inside it.
+ * a half-finished branch is never handed to somebody else — so `planWorktree`, which only reads, runs
+ * inside this call, and the `git worktree add` it plans runs outside it.
  *
  * @throws LaunchError only when the claim is left stranded, naming both failures — a caller told just
  * the first would not know there is a claim to go and clear. A claimer that never claimed has nothing

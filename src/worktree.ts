@@ -1,21 +1,20 @@
-import { readdirSync, statSync } from "node:fs";
+import { lstatSync, readdirSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { branchExistsCommand, defaultBranchCommand, worktreeAddCommand, worktreeListCommand } from "./command-builders";
 import type { Runner } from "./runner";
 import type { Ticket } from "./ticket";
 
 /**
- * Why a worktree could not be brought into the required state. The two refusals are the ones the spec
- * names; `"git"` is a command that failed for a reason this tool did not anticipate, kept separate so
- * that a broken repository does not read as one of the two states this knows how to describe.
+ * Why a worktree could not be brought into the required state.
  *
  * `"stale-directory"` covers everything occupying the expected path that is not the worktree wanted
- * there — leftover files, a registration whose directory has gone, a worktree on another branch. One
- * kind rather than three because the remedy is the same in each case, a person looking at that path;
- * the message says which of them it is.
+ * there — leftover files, a symlink, a registration whose directory has gone, a worktree on another
+ * branch — and the message says which. `"ticket-set"` says the ticket cannot name a branch, borrowing
+ * `ClaimError`'s word for the same thing: no waiting fixes it. `"git"` is a git question this could
+ * not get a usable answer to, which includes a command that succeeded and said nothing.
  */
 export class WorktreeError extends Error {
-	readonly kind: "stale-directory" | "branch-elsewhere" | "git";
+	readonly kind: "stale-directory" | "branch-elsewhere" | "ticket-set" | "git";
 
 	constructor(message: string, kind: WorktreeError["kind"]) {
 		super(message);
@@ -25,22 +24,14 @@ export class WorktreeError extends Error {
 
 /**
  * Where worktrees go when nothing else says. Relative, and resolved against the primary checkout, so
- * that a run started from inside one worktree does not nest the next one underneath it.
- *
- * `.worktrees/` rather than the harness's `.claude/worktrees/`. ADR-0005 reproduced the reason: the
- * harness's session-exit cleanup keys on an in-session flag its own `EnterWorktree` sets, not on a
- * path, so a worktree created by `git worktree add` gets no cleanup at either location and the
- * harness's path buys nothing.
+ * that a run started from inside one worktree does not nest the next one underneath it. ADR-0013 has
+ * why here rather than under the harness's directory.
  */
 export const DEFAULT_WORKTREE_ROOT = ".worktrees";
 
-/** The label that makes a ticket a fix rather than a feature. */
 const BUG_LABEL = "bug";
 
-/**
- * How much of a title reaches the branch name. A cap rather than the whole title because the branch
- * becomes a directory name under the worktree root, and paths have limits the branch does not.
- */
+/** How much of a title reaches the branch name, which becomes a directory name under the root. */
 const SLUG_LIMIT = 48;
 
 /**
@@ -48,26 +39,24 @@ const SLUG_LIMIT = 48;
  * key. The key goes last so that tab-completion on the prefix reaches the slug rather than stopping at
  * a run of numbers, which is the whole reason the convention is shaped this way.
  *
- * Lowercased throughout, including a key that carries letters — a Jira `ABC-7` becomes `abc-7`. The
- * branch is a name a person types, not an identifier anything parses back, and the ticket it belongs
- * to is recoverable from the key either way.
- *
- * A title with nothing a branch name can carry — punctuation, or a script this strips — yields the key
- * alone rather than a branch ending in the separator.
+ * @throws WorktreeError `"ticket-set"` where the key does not survive slugification — anything but
+ * ASCII letters, digits and separators is dropped, so two keys differing only outside that set would
+ * name one branch at one path, and the second ticket would be reported as attached to the first
+ * ticket's worktree. Case is not part of the test: a Jira `ABC-7` becomes `abc-7`, because the branch
+ * is a name a person types rather than an identifier anything parses back.
  */
 export function branchName(ticket: Pick<Ticket, "ref" | "title" | "labels">): string {
 	const prefix = ticket.labels.some((label) => label.toLowerCase() === BUG_LABEL) ? "fix" : "feature";
-	const slug = slugify(ticket.title);
 	const key = slugify(ticket.ref.key);
-	if (key === "") {
-		throw new WorktreeError(`${ticket.ref.key} has nothing a branch name can carry`, "git");
+	if (key !== ticket.ref.key.toLowerCase()) {
+		throw new WorktreeError(`${ticket.ref.key} cannot be spelled in a branch name, so it would not name its own`, "ticket-set");
 	}
+	const slug = slugify(ticket.title);
 	return slug === "" ? `${prefix}/${key}` : `${prefix}/${slug}-${key}`;
 }
 
 /**
- * Text as one branch-name component: lowercase, runs of anything else collapsed to a single `-`, and
- * cut at a separator rather than mid-word once it passes `SLUG_LIMIT`.
+ * Text as one branch-name component.
  *
  * The accepted set is ASCII letters and digits and nothing more, so the result cannot contain any of
  * the characters `git check-ref-format` rejects, and cannot end in `.lock` or begin with `.`. An
@@ -92,25 +81,12 @@ export interface WorktreePlanInput {
 	readonly repo: string;
 	readonly branch: string;
 	/** Absolute, or relative to the primary checkout. Defaults to `DEFAULT_WORKTREE_ROOT`. */
-	readonly root?: string;
+	readonly root?: string | null;
 }
 
-/**
- * What ensuring the worktree will do, worked out without doing it — the same split as `LaunchPlan`,
- * and here it is load-bearing rather than symmetric: everything the plan reads leaves nothing behind,
- * so a failure while planning can still release the claim, while the command it carries is the first
- * thing that cannot be taken back.
- *
- * `kind` distinguishes the three ways a branch and a worktree can already partly exist, because a run
- * that cut a new branch and one that attached to somebody's existing work are different answers to
- * whoever is reading the output.
- */
-export interface WorktreePlan {
-	readonly kind: "attached" | "checked-out" | "created";
+interface WorktreeBase {
 	readonly path: string;
 	readonly branch: string;
-	/** The argv that brings the worktree into being; `null` where it is already there. */
-	readonly command: readonly string[] | null;
 	/** The primary checkout, so a caller can ask what of it a session in the worktree would see. */
 	readonly primary: string;
 	/** Conditions worth surfacing that are not reasons to refuse. */
@@ -118,12 +94,36 @@ export interface WorktreePlan {
 }
 
 /**
- * One registered worktree, as `git worktree list --porcelain` describes it. `branch` is null for a
- * detached HEAD, which still occupies the path and still has to be recognised there.
+ * What ensuring the worktree will do, worked out without doing it.
+ *
+ * A union rather than one shape with a nullable command, so that a plan claiming to have created
+ * something while carrying nothing to run cannot be built: `ensureWorktree` returns on a null command,
+ * so such a plan reports success having made no worktree, and the run would print `created` over an
+ * empty path. `ReleaseOutcome` in `claim.ts` is the same shape of problem, solved the same way.
  */
+export type WorktreePlan =
+	| (WorktreeBase & { readonly kind: "attached"; readonly command: null })
+	| (WorktreeBase & { readonly kind: "created" | "checked-out"; readonly command: readonly string[] });
+
+/**
+ * What a registration's HEAD is, in the shapes the porcelain listing reports.
+ *
+ * Separate arms rather than a nullable branch name. A bare repository and a detached HEAD are
+ * different situations with different answers to "has this drifted?", and flattened into one absent
+ * branch a bare primary was reported as "on a detached HEAD" — a checkout it does not have. `"opaque"`
+ * is a record naming none of the three, which is a git this does not understand rather than any of
+ * them; `CONTEXT.md`'s `Unknown` is the same rule.
+ */
+type Head =
+	| { readonly kind: "branch"; readonly name: string }
+	| { readonly kind: "detached" }
+	| { readonly kind: "bare" }
+	| { readonly kind: "opaque" };
+
+/** One registered worktree, as `git worktree list --porcelain` describes it. */
 interface Registration {
 	readonly path: string;
-	readonly branch: string | null;
+	readonly head: Head;
 	/** Set where git reports the registration's directory is gone, which no attach can use. */
 	readonly prunable: boolean;
 }
@@ -132,20 +132,24 @@ interface Registration {
  * Works out how to reach the required worktree, reading only.
  *
  * @throws WorktreeError — `"branch-elsewhere"` where the branch is checked out at another path,
- * `"stale-directory"` where the expected path holds anything else, `"git"` where a command failed.
+ * `"stale-directory"` where the expected path holds anything else, `"ticket-set"` from `branchName`,
+ * `"git"` where a command failed.
  */
 export function planWorktree(input: WorktreePlanInput): WorktreePlan {
 	const registrations = readRegistrations(input.runner, input.repo);
-	const primary = registrations[0]?.path;
-	if (primary === undefined) {
+	// The main worktree is what the porcelain listing puts first, whichever worktree the listing was
+	// asked from — which is the whole reason `repo` and `primary` are separate values here.
+	const main = registrations[0];
+	if (main === undefined) {
 		throw new WorktreeError(`${input.repo} reports no worktrees, so it is not a git checkout`, "git");
 	}
+	const primary = main.path;
 
 	const root = input.root ?? DEFAULT_WORKTREE_ROOT;
 	const path = join(isAbsolute(root) ? root : resolve(primary, root), leafOf(input.branch));
-	const warnings = driftWarnings(input.runner, primary, registrations[0]!.branch);
+	const warnings = driftWarnings(input.runner, primary, main.head);
 
-	const onBranch = registrations.find((one) => one.branch === input.branch);
+	const onBranch = registrations.find((one) => one.head.kind === "branch" && one.head.name === input.branch);
 	if (onBranch !== undefined && onBranch.path !== path) {
 		const where = onBranch.prunable ? `${onBranch.path}, a directory that is gone` : onBranch.path;
 		throw new WorktreeError(`${input.branch} is already checked out at ${where}, not at ${path}`, "branch-elsewhere");
@@ -154,30 +158,30 @@ export function planWorktree(input: WorktreePlanInput): WorktreePlan {
 	const atPath = registrations.find((one) => one.path === path);
 	if (atPath !== undefined) {
 		if (atPath.prunable) {
+			// Refused rather than healed, though `git worktree prune` would clear it: prune takes no path
+			// and would drop every other stale registration in the repository, and it writes, which this
+			// half of the step may not do — the claim is given back on a failure here.
 			throw new WorktreeError(
 				`${path} is registered as a worktree but the directory is gone; clear it with "git worktree prune"`,
 				"stale-directory",
 			);
 		}
-		if (atPath.branch !== input.branch) {
-			const on = atPath.branch === null ? "a detached HEAD" : atPath.branch;
-			throw new WorktreeError(`${path} is already a worktree on ${on}, not on ${input.branch}`, "stale-directory");
+		if (atPath.head.kind !== "branch" || atPath.head.name !== input.branch) {
+			throw new WorktreeError(`${path} is already a worktree on ${describe(atPath.head)}, not on ${input.branch}`, "stale-directory");
 		}
 		return { kind: "attached", path, branch: input.branch, command: null, primary, warnings };
 	}
 
 	refuseIfOccupied(path);
 
-	// A directory with a worktree at it is the case above, so anything left here is a branch that
-	// exists without being checked out anywhere.
+	// A registered worktree at the path is the case above, so a branch that exists at this point is one
+	// checked out nowhere.
 	const create = !branchExists(input.runner, primary, input.branch);
 	return {
 		kind: create ? "created" : "checked-out",
 		path,
 		branch: input.branch,
-		// Cut from the primary checkout's HEAD, which is what `driftWarnings` reports on. Running this
-		// from the invoking checkout instead would base the branch on whatever that one happens to be
-		// on, which is neither stated anywhere nor visible in the output.
+		// primary, not input.repo — see `driftWarnings`.
 		command: worktreeAddCommand(primary, path, input.branch, create),
 		primary,
 		warnings,
@@ -204,13 +208,24 @@ function leafOf(branch: string): string {
 	return branch.slice(branch.lastIndexOf("/") + 1);
 }
 
+function describe(head: Head): string {
+	if (head.kind === "branch") return head.name;
+	if (head.kind === "bare") return "a bare repository";
+	return head.kind === "detached" ? "a detached HEAD" : "a head this could not read";
+}
+
 /**
- * @throws WorktreeError `"stale-directory"` where anything at all is at `path`. Emptiness is the one
- * exception, because `git worktree add` accepts an empty directory — refusing it would turn a case git
- * heals on a re-run into one needing a person, which is the opposite of what ensuring is for.
+ * @throws WorktreeError `"stale-directory"` where anything at all is at `path`, an empty directory
+ * excepted — `git worktree add` accepts one of those, and refusing it would turn a case a re-run heals
+ * into one needing a person, which is the opposite of what ensuring is for.
+ *
+ * Asked with `lstat`, which does not follow the link, so a symlink is refused whether or not it
+ * resolves. Following it, a dangling symlink read as nothing there and the run went on to a
+ * `git worktree add` that refuses it — arriving as an unclassified git failure after the claim
+ * boundary rather than as this refusal before it.
  */
 function refuseIfOccupied(path: string): void {
-	const entry = statSync(path, { throwIfNoEntry: false });
+	const entry = lstatSync(path, { throwIfNoEntry: false });
 	if (entry === undefined) return;
 	if (!entry.isDirectory()) {
 		throw new WorktreeError(`${path} is where the worktree goes, and it is not a directory`, "stale-directory");
@@ -224,8 +239,9 @@ function refuseIfOccupied(path: string): void {
 }
 
 function branchExists(runner: Runner, repo: string, branch: string): boolean {
-	// Exit 1 is returned both for a branch that is absent and for a name `--verify` will not accept, so
-	// only success answers the question. A name git refuses reaches `git worktree add`, which says so.
+	// Exit 1 is returned both for a branch that is absent and for a name `--verify --quiet` will not
+	// accept, so only success answers the question. A name git refuses reaches `git worktree add`,
+	// which says so.
 	return runner([...branchExistsCommand(repo, branch)]).code === 0;
 }
 
@@ -237,22 +253,23 @@ function branchExists(runner: Runner, repo: string, branch: string): boolean {
  * silently in exactly the repositories that have no `origin/HEAD` to read, and a caller would have no
  * way to tell that from a checkout sitting on the default branch.
  */
-function driftWarnings(runner: Runner, primary: string, branch: string | null): readonly string[] {
-	if (branch === null) return [`the primary checkout ${primary} is on a detached HEAD`];
+function driftWarnings(runner: Runner, primary: string, head: Head): readonly string[] {
+	if (head.kind === "bare") return [`${primary} is a bare repository, so it has no checkout to compare against a default branch`];
+	if (head.kind !== "branch") return [`the primary checkout ${primary} is on ${describe(head)}`];
 
 	const result = runner([...defaultBranchCommand(primary)]);
 	if (result.code !== 0) {
 		return [
-			`which branch is the default could not be read from ${primary}, so ${branch} was not checked against it; set it with "git remote set-head origin --auto"`,
+			`which branch is the default could not be read from ${primary}, so ${head.name} was not checked against it; set it with "git remote set-head origin --auto"`,
 		];
 	}
 
-	const fallback = result.stdout.trim();
-	const head = "refs/remotes/origin/";
-	const target = fallback.startsWith(head) ? fallback.slice(head.length) : fallback;
-	if (target === branch) return [];
-	return [`the primary checkout ${primary} is on ${branch}, not on ${target}`];
+	const target = result.stdout.trim().slice(REMOTE_HEAD.length);
+	if (target === head.name) return [];
+	return [`the primary checkout ${primary} is on ${head.name}, not on ${target}`];
 }
+
+const REMOTE_HEAD = "refs/remotes/origin/";
 
 function readRegistrations(runner: Runner, repo: string): readonly Registration[] {
 	const result = runner([...worktreeListCommand(repo)]);
@@ -266,23 +283,24 @@ function readRegistrations(runner: Runner, repo: string): readonly Registration[
 }
 
 /**
- * The `--porcelain -z` listing: attributes NUL-terminated, records separated by an empty attribute.
- * Split on NUL rather than on newline so that a worktree path containing one is read as the path it
- * is rather than as the start of the next attribute.
+ * The `--porcelain -z` listing: attributes NUL-terminated, records closed by an empty one. Split on
+ * NUL rather than on newline because a worktree path may contain one, and the line form prints it raw
+ * — the second line is then indistinguishable from the next attribute.
  *
  * An attribute this does not recognise is skipped rather than refused. The format is documented as
- * extensible, and a git that has learned a new one is not a reason to stop.
+ * extensible, and a git that has learned a new one is not a reason to stop; a record naming no head at
+ * all becomes `"opaque"` rather than any particular one.
  */
 export function parseWorktreeList(text: string): readonly Registration[] {
 	const registrations: Registration[] = [];
 	let path: string | null = null;
-	let branch: string | null = null;
+	let head: Head = { kind: "opaque" };
 	let prunable = false;
 
 	const close = (): void => {
-		if (path !== null) registrations.push({ path, branch, prunable });
+		if (path !== null) registrations.push({ path, head, prunable });
 		path = null;
-		branch = null;
+		head = { kind: "opaque" };
 		prunable = false;
 	};
 
@@ -298,7 +316,11 @@ export function parseWorktreeList(text: string): readonly Registration[] {
 			close();
 			path = value;
 		} else if (name === "branch") {
-			branch = value.startsWith(REF_HEADS) ? value.slice(REF_HEADS.length) : value;
+			head = { kind: "branch", name: value.startsWith(REF_HEADS) ? value.slice(REF_HEADS.length) : value };
+		} else if (name === "detached") {
+			head = { kind: "detached" };
+		} else if (name === "bare") {
+			head = { kind: "bare" };
 		} else if (name === "prunable") {
 			prunable = true;
 		}
@@ -309,7 +331,6 @@ export function parseWorktreeList(text: string): readonly Registration[] {
 
 const REF_HEADS = "refs/heads/";
 
-/** A git failure as one line, falling back to the exit status where the command said nothing. */
 function gitFailure(stderr: string, code: number): string {
 	const said = stderr.trim();
 	return said === "" ? `git exited ${code}` : said;

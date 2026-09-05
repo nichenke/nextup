@@ -94,8 +94,9 @@ The pick is shown and confirmed before it is claimed. --yes answers in advance, 
 unattended run needs; with neither a terminal nor --yes the run is refused rather than answered on
 your behalf. --print-command claims nothing and never asks.
 
-Once the claim lands the ticket's worktree is ensured: created, or attached to if it is already
-there, so re-running after a partial failure heals rather than errors. Failures from that point on
+Once the claim lands the ticket's worktree is ensured: created with its branch, checked out where the
+branch already exists, or attached to where the worktree does — so re-running after a partial failure
+heals rather than errors. Failures from that point on
 keep the claim, because the branch is half made and the ticket is not free.
 
 Exit status: 0 a ticket claimed, or a command printed, 1 nothing started — nothing to recommend, or
@@ -267,9 +268,6 @@ function startWork(
 		if (cause instanceof ClaimError) {
 			return { code: CLAIM_FAILURE_STATUS[cause.kind], stdout: "", stderr: `${message(cause)}\n` };
 		}
-		// A stranded claim, like `CLAIM_FAILURE_STATUS.stranded`: the ticket reads as taken and no later
-		// run reaches it, so telling a caller to come back later would have it wait on nothing.
-		if (cause instanceof LaunchError) return { code: 2, stdout: "", stderr: `${message(cause)}\n` };
 		throw cause;
 	}
 
@@ -283,20 +281,16 @@ function startWork(
 
 	let plan: WorktreePlan;
 	try {
-		// Everything planning reads leaves nothing behind, so a failure here can still hand the claim
-		// back. The one call that cannot be taken back is below, outside this.
 		plan = beforeWorktreeExists(claimer, () =>
-			planWorktree({
-				runner: deps.runner,
-				repo: deps.cwd,
-				branch: branchName(ticket),
-				...(options.worktreeRoot === null ? {} : { root: options.worktreeRoot }),
-			}),
+			planWorktree({ runner: deps.runner, repo: deps.cwd, branch: branchName(ticket), root: options.worktreeRoot }),
 		);
 	} catch (cause) {
-		if (cause instanceof WorktreeError || cause instanceof LaunchError) {
-			return { code: 2, stdout: "", stderr: `${message(cause)}\n` };
+		if (cause instanceof WorktreeError) {
+			return { code: WORKTREE_FAILURE_STATUS[cause.kind], stdout: "", stderr: `${message(cause)}\n` };
 		}
+		// A stranded claim, like `CLAIM_FAILURE_STATUS.stranded`: the ticket reads as taken and no later
+		// run reaches it, so telling a caller to come back later would have it wait on nothing.
+		if (cause instanceof LaunchError) return { code: 2, stdout: "", stderr: `${message(cause)}\n` };
 		throw cause;
 	}
 
@@ -304,16 +298,17 @@ function startWork(
 		ensureWorktree(plan, deps.runner);
 	} catch (cause) {
 		if (!(cause instanceof WorktreeError)) throw cause;
-		// The claim stays, per the spec: a ticket carrying a branch somebody has to look at is not one
-		// to hand to the next run. Said out loud, because the alternative is finding it later.
-		return { code: 2, stdout: "", stderr: `${message(cause)}; ${formatTicketRef(launch.hold.ref)} stays claimed\n` };
+		return {
+			code: WORKTREE_FAILURE_STATUS[cause.kind],
+			stdout: "",
+			stderr: `${message(cause)}; ${formatTicketRef(launch.hold.ref)} stays claimed\n`,
+		};
 	}
 
-	const stderr = [...plan.warnings, ...reachWarning(plan, effortRoot, pick.ref)]
-		.map((warning) => `${WARNING_PREFIX}${warning}\n`)
-		.join("");
+	const warnings = [...plan.warnings, ...reachWarning(plan, effortRoot, pick.ref)];
+	const stderr = warnings.map((warning) => `${WARNING_PREFIX}${warning}\n`).join("");
 
-	if (options.json) return { code: 0, stdout: json(selection, outcome, plan), stderr };
+	if (options.json) return { code: 0, stdout: json(selection, outcome, plan, warnings), stderr };
 
 	const claimed = `claimed ${formatTicketRef(launch.hold.ref)}\n${WORKTREE_VERB[plan.kind]} ${plan.branch} at ${plan.path}\n`;
 	// --yes was never shown the gate's rendering, so it gets the whole answer here.
@@ -325,7 +320,18 @@ function startWork(
 	};
 }
 
-/** What the run did about the worktree, in the voice of the line that reports it. */
+/**
+ * What each way of failing to ensure a worktree exits with. A map for the same reason
+ * `CLAIM_FAILURE_STATUS` is one: a kind added later fails to compile here rather than silently
+ * becoming whichever status the last one happened to use.
+ */
+export const WORKTREE_FAILURE_STATUS: Record<WorktreeError["kind"], 2 | 3> = {
+	"stale-directory": 2,
+	"branch-elsewhere": 2,
+	"ticket-set": 2,
+	git: 2,
+};
+
 const WORKTREE_VERB: Record<WorktreePlan["kind"], string> = {
 	created: "created",
 	"checked-out": "checked out",
@@ -338,10 +344,9 @@ export const WARNING_PREFIX = "warning: ";
  * Whether a session started in the worktree could resolve the reference it would be handed.
  *
  * A markdown reference names a ticket of the effort under the session's own `.scratch` and carries no
- * path of its own, so it resolves in the worktree only where the effort reaches it — which is to say,
- * only where the effort is committed on the branch. Nothing here copies it: an effort deliberately
- * left untracked is not something this tool should be putting into a branch. ADR-0014 has the
- * alternatives and why this one.
+ * path of its own, so it resolves only where the effort is present in the worktree. Present, not
+ * committed: an attached worktree may hold an untracked copy, and what the session can open is what
+ * matters. ADR-0014 has why this warns rather than copying the effort or refusing the run.
  */
 function reachWarning(plan: WorktreePlan, effortRoot: string, ref: TicketRef): readonly string[] {
 	const inside = relative(plan.primary, resolveReal(effortRoot));
@@ -357,8 +362,8 @@ function reachWarning(plan: WorktreePlan, effortRoot: string, ref: TicketRef): r
 /**
  * The path as git would report it, so that a comparison against one git reported is not decided by a
  * symlink — macOS hands out temporary directories under one. A path that will not resolve is passed
- * through: it has just been read from, so this is a race rather than a state, and the reach check
- * below answers it correctly either way.
+ * through unchanged, which still warns, though with the wording for an effort outside the checkout
+ * rather than for one missing from the worktree.
  */
 function resolveReal(path: string): string {
 	try {
@@ -391,11 +396,17 @@ function gate(selection: Selection, plan: LaunchPlan): string {
  * command that was worked out and shown. Every key is always present, so a consumer can read any of them
  * without first testing whether it is there.
  */
-function json(selection: Selection, outcome: LaunchOutcome | null, plan: WorktreePlan | null): string {
+function json(
+	selection: Selection,
+	outcome: LaunchOutcome | null,
+	plan: WorktreePlan | null,
+	warnings: readonly string[] = [],
+): string {
 	const command = outcome === null ? null : outcome.kind === "launched" ? outcome.launch.command : outcome.plan.command;
 	const claimed = outcome?.kind === "launched";
-	const worktree =
-		plan === null ? null : { kind: plan.kind, branch: plan.branch, path: plan.path, warnings: plan.warnings };
+	// The warnings as reported, not `plan.warnings` — the reach check adds one the plan never saw, and
+	// a JSON consumer reading a shorter list than stderr printed has no way to know it is short.
+	const worktree = plan === null ? null : { kind: plan.kind, branch: plan.branch, path: plan.path, warnings };
 	return `${JSON.stringify({ ...selectionJson(selection), claimed, command, worktree }, null, "\t")}\n`;
 }
 

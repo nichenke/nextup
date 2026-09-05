@@ -62,17 +62,8 @@ export function originRemoteCommand(): readonly string[] {
 	return ["git", "remote", "get-url", "origin"];
 }
 
-/**
- * The git commands the worktree step issues, each naming the directory it acts on rather than
- * inheriting one. The runner seam takes argv and nothing else, so a command that relied on the
- * process's working directory would be a second input the golden files do not capture — and this tool
- * runs from whichever checkout it was invoked in, which is not the one worktrees are cut from.
- */
-
-/** Every worktree the repository has registered, and for each one its path, HEAD, branch and state. */
 export function worktreeListCommand(repo: string): readonly string[] {
-	// NUL-terminated rather than line-terminated: a worktree path may contain a newline, and the
-	// line form gives no way to tell that apart from the next attribute.
+	// `-z`, for the reason `parseWorktreeList` gives.
 	return ["git", "-C", repo, "worktree", "list", "--porcelain", "-z"];
 }
 
@@ -85,9 +76,12 @@ export function branchExistsCommand(repo: string, branch: string): readonly stri
 }
 
 /**
- * Which branch the repository treats as its default. The full ref rather than `--short`, so the
- * answer is stripped of a fixed `refs/remotes/origin/` prefix instead of an `origin/` one that a
- * branch of that name could also start with.
+ * Which branch the repository treats as its default.
+ *
+ * The full ref, because `--short` shortens only as far as stays unambiguous: with a local branch
+ * named `origin/main` in the repository it answers `remotes/origin/main` rather than `origin/main`,
+ * and a caller stripping `origin/` is then left comparing `remotes/origin/main` against a branch name.
+ * The full form is always `refs/remotes/origin/<branch>`, so the prefix to strip is fixed.
  */
 export function defaultBranchCommand(repo: string): readonly string[] {
 	return ["git", "-C", repo, "symbolic-ref", "refs/remotes/origin/HEAD"];

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Runner, defaultRunner } from "./runner";
@@ -7,6 +7,7 @@ import type { Ticket } from "./ticket";
 import type { TicketRef } from "./ticket-ref";
 import {
 	DEFAULT_WORKTREE_ROOT,
+	type WorktreePlan,
 	WorktreeError,
 	branchName,
 	ensureWorktree,
@@ -74,6 +75,23 @@ describe("branchName", () => {
 		expect(name).not.toContain("--");
 	});
 
+	test("refuses a key a branch name cannot spell, rather than letting two tickets share one branch", () => {
+		const cyrillic: TicketRef = { tracker: "jira", repo: null, host: null, key: "\u0416\u0423\u041a-7" };
+		const other: TicketRef = { tracker: "jira", repo: null, host: null, key: "\u041b\u0418\u0421-7" };
+
+		// Both keys slug down to "7", so without the refusal these two tickets name one branch at one
+		// path, and the second run reports itself attached to the first ticket's worktree.
+		expect(kindOf(() => branchName(ticket({ ref: cyrillic })))).toBe("ticket-set");
+		expect(kindOf(() => branchName(ticket({ ref: other })))).toBe("ticket-set");
+	});
+
+	test("lets a key through whose only change is case, which is every real tracker key", () => {
+		for (const key of ["8", "123", "ABC-7", "abc-7", "PROJ-1234"]) {
+			const ref: TicketRef = { tracker: "jira", repo: null, host: null, key };
+			expect(() => branchName(ticket({ ref }))).not.toThrow();
+		}
+	});
+
 	test("produces a name git itself accepts as a branch", () => {
 		const repo = realRepo();
 		const name = branchName(ticket({ title: "08 — Fix: the reader's *broken* path?" }));
@@ -81,7 +99,7 @@ describe("branchName", () => {
 	});
 });
 
-/** One `--porcelain -z` record: attributes NUL-terminated, the record closed by an empty one. */
+/** One `--porcelain -z` record, in the layout `parseWorktreeList` documents. */
 function record(attributes: readonly string[]): string {
 	return `${attributes.map((one) => `${one}\0`).join("")}\0`;
 }
@@ -332,6 +350,51 @@ describe("planWorktree", () => {
 		expect(plan.command).toContain(repo);
 	});
 
+	test("says a bare primary is bare, rather than reporting a checkout it does not have", () => {
+		const repo = tempDir("nextup-worktree-");
+		const git = stubGit({ worktrees: [[`worktree ${repo}`, "bare"]] });
+		const plan = planWorktree({ runner: git.runner, repo, branch: "feature/reader-8" });
+
+		expect(plan.warnings).toEqual([
+			`${repo} is a bare repository, so it has no checkout to compare against a default branch`,
+		]);
+		expect(git.issued.some((argv) => argv.includes("symbolic-ref"))).toBe(false);
+	});
+
+	test("says so when it cannot tell what the primary is on, rather than picking one of the three", () => {
+		const repo = tempDir("nextup-worktree-");
+		const git = stubGit({ worktrees: [[`worktree ${repo}`, "HEAD abc"]] });
+
+		expect(planWorktree({ runner: git.runner, repo, branch: "feature/reader-8" }).warnings).toEqual([
+			`the primary checkout ${repo} is on a head this could not read`,
+		]);
+	});
+
+	test("refuses a dangling symlink at the path, which following the link would have read as nothing", () => {
+		const { repo, state } = primaryOn();
+		const path = join(repo, DEFAULT_WORKTREE_ROOT, "reader-8");
+		mkdirSync(join(repo, DEFAULT_WORKTREE_ROOT), { recursive: true });
+		symlinkSync(join(repo, "gone"), path);
+		const git = stubGit(state);
+
+		expect(kindOf(() => planWorktree({ runner: git.runner, repo, branch: "feature/reader-8" }))).toBe(
+			"stale-directory",
+		);
+	});
+
+	test("refuses a symlink at the path even where it does resolve to a directory", () => {
+		const { repo, state } = primaryOn();
+		const real = join(repo, "somewhere-real");
+		mkdirSync(real, { recursive: true });
+		mkdirSync(join(repo, DEFAULT_WORKTREE_ROOT), { recursive: true });
+		symlinkSync(real, join(repo, DEFAULT_WORKTREE_ROOT, "reader-8"));
+		const git = stubGit(state);
+
+		expect(kindOf(() => planWorktree({ runner: git.runner, repo, branch: "feature/reader-8" }))).toBe(
+			"stale-directory",
+		);
+	});
+
 	test("reports a git that will not answer as a git failure rather than as a missing worktree", () => {
 		const runner: Runner = () => ({ code: 128, stdout: "", stderr: "fatal: not a git repository" });
 
@@ -352,7 +415,7 @@ describe("parseWorktreeList", () => {
 		const odd = "/tmp/a\nb";
 		const parsed = parseWorktreeList(record([`worktree ${odd}`, "HEAD abc", "branch refs/heads/main"]));
 
-		expect(parsed).toEqual([{ path: odd, branch: "main", prunable: false }]);
+		expect(parsed).toEqual([{ path: odd, head: { kind: "branch", name: "main" }, prunable: false }]);
 	});
 
 	test("keeps reading past an attribute it does not know", () => {
@@ -360,12 +423,21 @@ describe("parseWorktreeList", () => {
 			record([`worktree /a`, "HEAD abc", "locked", "something-git-learned later", "branch refs/heads/main"]),
 		);
 
-		expect(parsed).toEqual([{ path: "/a", branch: "main", prunable: false }]);
+		expect(parsed).toEqual([{ path: "/a", head: { kind: "branch", name: "main" }, prunable: false }]);
 	});
 
-	test("reads a bare primary, which carries no branch at all", () => {
+	test("keeps a bare primary and a detached one apart, rather than as two absent branches", () => {
 		expect(parseWorktreeList(record(["worktree /a", "bare"]))).toEqual([
-			{ path: "/a", branch: null, prunable: false },
+			{ path: "/a", head: { kind: "bare" }, prunable: false },
+		]);
+		expect(parseWorktreeList(record(["worktree /b", "HEAD abc", "detached"]))).toEqual([
+			{ path: "/b", head: { kind: "detached" }, prunable: false },
+		]);
+	});
+
+	test("calls a record naming no head at all opaque, rather than reading it as any of the three", () => {
+		expect(parseWorktreeList(record(["worktree /a", "HEAD abc"]))).toEqual([
+			{ path: "/a", head: { kind: "opaque" }, prunable: false },
 		]);
 	});
 });
@@ -377,42 +449,42 @@ describe("ensureWorktree", () => {
 		const plan = planWorktree({ runner: git.runner, repo, branch: "feature/reader-8" });
 		ensureWorktree(plan, git.runner);
 
-		expect(git.issued[git.issued.length - 1]).toEqual([...plan.command!]);
+		expect(git.issued[git.issued.length - 1]).toEqual(plan.command === null ? [] : [...plan.command]);
 	});
 
 	test("runs nothing for a worktree that is already there", () => {
 		const runner: Runner = (argv) => {
 			throw new Error(`nothing should run: ${argv.join(" ")}`);
 		};
-		const plan = { kind: "attached", path: "/a", branch: "b", command: null, primary: "/p", warnings: [] } as const;
+		const plan: WorktreePlan = { kind: "attached", path: "/a", branch: "b", command: null, primary: "/p", warnings: [] };
 
 		expect(() => ensureWorktree(plan, runner)).not.toThrow();
 	});
 
 	test("reports what git said when the add fails, rather than a bare exit status", () => {
 		const runner: Runner = () => ({ code: 128, stdout: "", stderr: "fatal: '/a' already exists\n" });
-		const plan = {
+		const plan: WorktreePlan = {
 			kind: "created",
 			path: "/a",
 			branch: "b",
 			command: ["git", "worktree", "add", "/a", "-b", "b"],
 			primary: "/p",
 			warnings: [],
-		} as const;
+		};
 
 		expect(() => ensureWorktree(plan, runner)).toThrow(/already exists/);
 	});
 
 	test("falls back to the exit status where git failed without saying anything", () => {
 		const runner: Runner = () => ({ code: 3, stdout: "", stderr: "" });
-		const plan = {
+		const plan: WorktreePlan = {
 			kind: "created",
 			path: "/a",
 			branch: "b",
 			command: ["git", "worktree", "add", "/a", "-b", "b"],
 			primary: "/p",
 			warnings: [],
-		} as const;
+		};
 
 		expect(() => ensureWorktree(plan, runner)).toThrow(/git exited 3/);
 	});
@@ -429,8 +501,7 @@ function realRepo(): string {
 	git("-c", "user.email=nobody@invalid", "-c", "user.name=nobody", "commit", "--quiet", "--allow-empty", "-m", "init");
 	git("remote", "add", "origin", root);
 	git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
-	// The real path, which is what git reports back and therefore what every path below is compared
-	// against; macOS hands `mkdtemp` a symlinked one.
+	// The real path, for the reason `resolveReal` in cli.ts gives.
 	return realpathSync(root);
 }
 
@@ -491,6 +562,16 @@ describe("planWorktree and ensureWorktree against real git", () => {
 		expect(kindOf(() => planWorktree({ runner: defaultRunner, repo, branch: "feature/reader-8" }))).toBe(
 			"stale-directory",
 		);
+	});
+
+	test("does not tell a bare repository it is on a detached HEAD, which it has no checkout to be", () => {
+		const bare = join(tempDir("nextup-bare-"), "bare.git");
+		expect(defaultRunner(["git", "init", "--quiet", "--bare", "--initial-branch", "main", bare]).code).toBe(0);
+
+		const plan = planWorktree({ runner: defaultRunner, repo: bare, branch: "feature/reader-8" });
+		expect(plan.warnings).toEqual([
+			`${realpathSync(bare)} is a bare repository, so it has no checkout to compare against a default branch`,
+		]);
 	});
 
 	test("warns rather than refusing when the primary checkout has drifted off the default branch", () => {
