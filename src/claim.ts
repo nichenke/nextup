@@ -1,4 +1,4 @@
-import { lstatSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, constants, openSync, readFileSync, writeFileSync, writeSync } from "node:fs";
 import { type MarkdownTicketFile, parseTicketText, readTicketFile, withStatus } from "./markdown-adapter";
 import type { Claim } from "./ticket";
 import { type ResolveDeps, type TicketRef, formatTicketRef } from "./ticket-ref";
@@ -106,7 +106,7 @@ export function markdownClaimer(ticket: MarkdownTicketFile, deps: MarkdownClaimD
 			}
 
 			const after = asTicketSetFailure(path, () => withStatus(before, CLAIMED, path));
-			replace(path, after);
+			replace(path, after, before);
 
 			// Verified through the reader the selector was fed, so a claim counts as landed only when it
 			// is one that reads back as a claim. Anything else rolls the file back, or says it could not,
@@ -171,7 +171,7 @@ function revert(path: string, after: string, before: string): ReleaseOutcome {
 	}
 	if (current !== after) return { kind: "stranded", reason: `${path} changed since the claim was written` };
 	try {
-		replace(path, before);
+		replace(path, before, null);
 	} catch (cause) {
 		return { kind: "stranded", reason: message(cause) };
 	}
@@ -179,33 +179,74 @@ function revert(path: string, after: string, before: string): ReleaseOutcome {
 }
 
 /**
- * Writes `content` over the ticket, in place.
+ * Writes `content` over the ticket, in place, putting `previous` back if the write fails partway.
  *
- * In place rather than by renaming a complete file over it. A rename is atomic, so an interrupted
- * write cannot leave a half-written ticket — but it replaces the file rather than its contents, and
- * everything the file was goes with it: mode, ownership, ACLs, extended attributes, any hard link.
- * A group-writable ticket in a shared effort came back private to whoever claimed it. Writing in
- * place keeps all of that, because it changes the contents of the file that is already there.
+ * In place rather than by renaming a complete file over it. A rename is atomic, but it replaces the
+ * file rather than its contents, and everything the file was goes with it: mode, ownership, ACLs,
+ * extended attributes, any hard link. A group-writable ticket in a shared effort came back private to
+ * whoever claimed it.
  *
- * The window a rename closes is covered anyway. A write that fails partway leaves a ticket the reader
- * cannot parse, the read-back after this refuses it, and the rollback puts the previous text back —
- * the same path every other unverifiable claim takes. So the trade is a failure mode that is caught
- * against three that were not: a symlink at the working path writing through to whatever it pointed
- * at, the file's own metadata discarded on every claim, and debris from an interrupted run needing a
- * rule of its own.
+ * Opened `O_NOFOLLOW` and written through the descriptor, rather than checked and then reopened by
+ * name. A symlinked ticket is out of contract — writing through one claims a file the effort does not
+ * own — and checking that by path leaves a window for the ticket to become a link between the check
+ * and the open, which on a shared effort directory is somebody else's write landing in a file of their
+ * choosing.
+ *
+ * The open truncates, so a write that fails after it leaves the ticket short. `previous` is put back
+ * on that path, and nothing else can be there to lose: the only thing this truncated was its own read
+ * of the same file. Pass `null` where there is no better text to restore, which is the rollback
+ * putting `before` back — a failure there has nothing left to try.
+ *
+ * @throws ClaimError. `"ticket-set"` where the ticket is a symlink or was left short, since both need
+ * a person.
  */
-function replace(path: string, content: string): void {
+function replace(path: string, content: string, previous: string | null): void {
+	const buffer = Buffer.from(content, "utf8");
+	let handle: number;
 	try {
-		// A symlinked ticket is out of contract: writing through it would claim a file the effort does
-		// not own, and leave whoever shares that file reading a ticket they never claimed.
-		if (lstatSync(path).isSymbolicLink()) {
+		// Nothing is truncated until this succeeds, so a failure here leaves the ticket untouched.
+		handle = openSync(path, constants.O_WRONLY | constants.O_TRUNC | constants.O_NOFOLLOW);
+	} catch (cause) {
+		if ((cause as NodeJS.ErrnoException).code === "ELOOP") {
 			throw new ClaimError(`${path} is a symlink; a ticket file has to be the file itself`, "ticket-set");
 		}
-		writeFileSync(path, content);
-	} catch (cause) {
-		if (cause instanceof ClaimError) throw cause;
 		throw new ClaimError(`${path} could not be written: ${message(cause)}`, filesystemKind(cause), { cause });
 	}
+
+	try {
+		// Looped because a short write is a partial one, not a failure, and stopping at the first return
+		// would leave the ticket holding a prefix that this reported as written.
+		let written = 0;
+		while (written < buffer.length) {
+			written += writeSync(handle, buffer, written, buffer.length - written);
+		}
+	} catch (cause) {
+		throw new ClaimError(`${path} could not be written: ${message(cause)}${restored(path, previous)}`, "ticket-set", {
+			cause,
+		});
+	} finally {
+		try {
+			closeSync(handle);
+		} catch {
+			// The write above is what says whether the ticket is intact; a close that fails after it adds
+			// nothing a caller can act on.
+		}
+	}
+}
+
+/**
+ * Puts `previous` back over a ticket a failed write left short, and says what happened either way. The
+ * message is the whole point: a ticket holding half a claim is not something a caller can be left to
+ * discover.
+ */
+function restored(path: string, previous: string | null): string {
+	if (previous === null) return `; ${path} may be incomplete`;
+	try {
+		writeFileSync(path, previous);
+	} catch (cause) {
+		return `; ${path} may be incomplete, and putting it back failed too: ${message(cause)}`;
+	}
+	return `; ${path} was put back as it was`;
 }
 
 /**
