@@ -28,9 +28,10 @@ export interface ClaimHold {
 }
 
 /**
- * What became of a claim asked to give itself back. Three answers rather than a boolean because a
- * caller acts differently on each: `stranded` leaves a real claim on a ticket nobody is working, and
- * is the only one worth escalating; `nothing-to-release` says there was never a claim to give back.
+ * What became of a claim asked to give itself back. Three answers rather than a boolean because two
+ * different questions are asked of this value and a boolean answers only one: *is the claim still
+ * held* decides whether there is anything left to release, and *was one left behind* decides whether
+ * to escalate. `nothing-to-release` answers no to both, which neither a `true` nor a `false` can.
  *
  * Reported rather than thrown, because a release runs on the way out of an earlier failure and
  * throwing there replaces the reason the caller was already reporting.
@@ -141,8 +142,7 @@ const CLAIMED = "claimed";
  * take back. Told only that the claim did not verify, a caller would not know one is outstanding — and
  * a claim left on a ticket nobody is working is the failure this whole step exists to avoid.
  *
- * Both rollback sites go through here rather than each remembering to look at the outcome, which is
- * how the first of them came to discard it.
+ * Both rollback sites go through here rather than each looking at the outcome for itself.
  */
 function rollingBack(path: string, after: string, before: string, cause: unknown): ClaimError {
 	const failure = cause instanceof ClaimError ? cause : new ClaimError(message(cause), "unavailable", { cause });
@@ -188,22 +188,28 @@ function revert(path: string, after: string, before: string): ReleaseOutcome {
  */
 function replace(path: string, content: string, recover: string): void {
 	const scratch = `${path}.nextup`;
-	// The two ways renaming differs from writing in place, both checked rather than inferred.
-	//
-	// A rename needs permission on the directory and none on the file, so a read-only ticket would
-	// otherwise be rewritten by a step that never asked. And a rename replaces a symlink rather than
-	// following it, which would leave the effort holding a regular file while the shared target still
-	// read unclaimed — a ticket handed out twice, which is the one thing `Claim` exists to prevent.
-	// Symlinked ticket files are out of contract, so this refuses rather than resolving them.
-	if (lstatSync(path).isSymbolicLink()) {
-		throw new ClaimError(`${path} is a symlink; a ticket file has to be the file itself`, "ticket-set");
-	}
 	try {
+		// The two ways renaming differs from writing in place, both checked rather than inferred.
+		//
+		// A rename replaces a symlink rather than following it, which would leave the effort holding a
+		// regular file while the shared target still read unclaimed — a ticket handed out twice, which
+		// is the one thing `Claim` exists to prevent. Symlinked ticket files are out of contract, so
+		// this refuses rather than resolving them. And a rename needs permission on the directory and
+		// none on the file, so a read-only ticket would otherwise be rewritten by a step that never
+		// asked.
+		//
+		// Inside the try because every one of these touches the filesystem: a ticket that vanished
+		// between the read and here throws an errno, and outside it that escapes the one error type
+		// `claim()` promises.
+		if (lstatSync(path).isSymbolicLink()) {
+			throw new ClaimError(`${path} is a symlink; a ticket file has to be the file itself`, "ticket-set");
+		}
 		accessSync(path, constants.W_OK);
 		writeFileSync(scratch, content);
 		renameSync(scratch, path);
 	} catch (cause) {
-		rmSync(scratch, { force: true });
+		discard(scratch);
+		if (cause instanceof ClaimError) throw cause;
 		const held = content === recover ? "" : `; ${path} still holds what it did before`;
 		throw new ClaimError(`${path} could not be written: ${message(cause)}${held}`, filesystemKind(cause), {
 			cause,
@@ -211,14 +217,33 @@ function replace(path: string, content: string, recover: string): void {
 	}
 }
 
+/** Removes a working file, best effort: this runs while a failure is already on its way out. */
+function discard(scratch: string): void {
+	try {
+		rmSync(scratch, { force: true });
+	} catch {
+		// Nothing to add. The failure the caller is about to report is the one that matters, and a
+		// working file left behind is overwritten by the next claim rather than read by anything.
+	}
+}
+
 /**
- * Which of the two answers a filesystem failure is. A ticket that has gone is a changed ticket set, so
- * another run picks something else and this reports it as unavailable. Anything else — a permission, a
- * read-only mount, a full disk — stays wrong until somebody fixes it, and calling that unavailable
- * wedges a caller polling for work on the same unclaimable pick forever.
+ * The filesystem failures that may not be there next time: a ticket that has gone, and a machine having
+ * a bad moment. Both are worth another run, which is what `unavailable` means.
+ *
+ * Everything else — a permission, a read-only mount, a path that is not the kind of thing it should be
+ * — stays wrong until somebody fixes it. Calling those unavailable wedges a caller polling for work on
+ * the same unclaimable pick forever, because the ranking hands back the same winner every time.
+ *
+ * An unrecognised code is treated as permanent. Both answers are loud, so the choice is only whether a
+ * caller retries, and stopping on something nobody has classified is the direction that gets it looked
+ * at rather than spun on.
  */
+const TRANSIENT_FAILURES = new Set(["ENOENT", "ENOSPC", "EDQUOT", "EIO", "EBUSY", "EAGAIN", "EINTR", "EMFILE", "ENFILE"]);
+
 function filesystemKind(cause: unknown): ClaimError["kind"] {
-	return (cause as NodeJS.ErrnoException | null)?.code === "ENOENT" ? "unavailable" : "ticket-set";
+	const code = (cause as NodeJS.ErrnoException | null)?.code;
+	return code !== undefined && TRANSIENT_FAILURES.has(code) ? "unavailable" : "ticket-set";
 }
 
 function read(path: string): string {

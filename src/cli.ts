@@ -44,9 +44,9 @@ export interface CliDeps {
  * caller polling for work needs to tell a quiet day from a broken one, and folding both into a single
  * non-zero code makes a misspelled flag look like an empty ticket set. Nothing to recommend and a pick
  * declined at the gate are both `1`: to a caller they are the same answer, that there is no session to
- * go to, and the rendering says which. `3` is the same argument again: a ticket set that moved under
- * the run is a different answer from one that will not read, and only one of the two is worth coming back
- * to.
+ * go to, and the rendering says which. `3` is the same argument again: a pick that may be claimable on
+ * the next run — the ticket set moved, or the machine was having a bad moment — is a different answer
+ * from one that stays wrong until somebody edits it, and only one of the two is worth coming back to.
  */
 export interface CliResult {
 	readonly code: 0 | 1 | 2 | 3;
@@ -77,8 +77,9 @@ The pick is shown and confirmed before it is claimed. --yes answers in advance, 
 unattended run needs; with neither a terminal nor --yes the run is refused rather than answered on
 your behalf. --print-command claims nothing and never asks.
 
-Exit status: 0 a ticket claimed, 1 nothing started — nothing to recommend, or the pick declined,
-2 a bad invocation or a ticket set that could not be read, 3 a pick that could not be claimed.
+Exit status: 0 a ticket claimed, or a command printed, 1 nothing started — nothing to recommend, or
+the pick declined, 2 a bad invocation or a ticket set that could not be read or claimed, 3 a pick that
+may be claimable on the next run.
 `;
 
 export function run(argv: readonly string[], deps: CliDeps): CliResult {
@@ -194,7 +195,6 @@ function startWork(
 		// 2 and 3 split on whether a later run could do better. A ticket set that will not take a claim
 		// stays wrong until somebody edits it, and so do a command that could not be built and a gate
 		// that could not be put — neither of which claimed anything, since both come before the claim.
-		// 3 is the other answer: the ticket set moved under the run, so the next one picks differently.
 		if (cause instanceof CommandBuilderError || cause instanceof ConfirmError) {
 			return { code: 2, stdout: "", stderr: `${message(cause)}\n` };
 		}

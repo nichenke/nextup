@@ -17,9 +17,9 @@ export interface LaunchPlan {
 export interface LaunchInput extends LaunchPlanInput {
 	readonly claimer: Claimer;
 	/**
-	 * Answered with the finished plan, before the claim and so before anything is written. Returning
-	 * `false` stops the launch having changed nothing at all — which is the point of asking here rather
-	 * than anywhere earlier, where the answer would be given without the command it approves.
+	 * Answered with the finished plan, and before the claim, which is the first thing that writes. Asked
+	 * any earlier and the answer would be given without the command it approves; any later and it would
+	 * be given after the tracker had already been told.
 	 */
 	readonly confirm: (plan: LaunchPlan) => boolean;
 }
@@ -56,10 +56,7 @@ export function planLaunch(input: LaunchPlanInput): LaunchPlan {
 	return { command: sessionCommand(input) };
 }
 
-/**
- * The plan, and a claim on the ticket it is for where the plan was approved. The claim is the last
- * thing that happens and the first thing that writes.
- */
+/** The plan, and a claim on the ticket it is for where the plan was approved. */
 export function prepareLaunch(input: LaunchInput): PreparedLaunch {
 	const plan = planLaunch(input);
 	if (!input.confirm(plan)) return { kind: "declined", plan };
@@ -67,14 +64,11 @@ export function prepareLaunch(input: LaunchInput): PreparedLaunch {
 }
 
 /**
- * Runs `work` with the claim given back if it fails. This is the boundary the spec draws: up to here a
- * failure leaves nothing behind, so holding the claim would advertise a ticket nobody is working as
- * taken. Past here a worktree exists, and the claim is kept precisely so a ticket carrying a
- * half-finished branch is never handed to somebody else — so ticket 08's worktree step goes *outside*
- * this call rather than inside it.
- *
- * No caller passes work between the two yet; ticket 08's checks for a branch attached elsewhere are the
- * first, and they read git state that only a claim already taken makes it worth reading.
+ * Runs `work` with the claim given back if it fails, for the steps between a claim and a worktree.
+ * Up to here a failure leaves nothing behind, so holding the claim would advertise a ticket nobody is
+ * working as taken. Past here a worktree exists, and the claim is kept precisely so a ticket carrying
+ * a half-finished branch is never handed to somebody else — so ticket 08's worktree step goes
+ * *outside* this call rather than inside it.
  *
  * @throws LaunchError only when the claim is left stranded, naming both failures — a caller told just
  * the first would not know there is a claim to go and clear. A claimer that never claimed has nothing

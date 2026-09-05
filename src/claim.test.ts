@@ -50,6 +50,35 @@ function unclaimed(target: string): ReturnType<typeof readTicketFile> {
 }
 
 describe("markdownClaimer", () => {
+	// The contract `Claimer.claim` states: one error type, so a caller can classify every failure by
+	// `kind` rather than by matching on an errno it was never promised. A raw filesystem error escaping
+	// here reaches the CLI's `throw cause` and kills the process on an exit code that means something
+	// else entirely.
+	test("reports every failure it has as a ClaimError, whatever went wrong", () => {
+		const gone = ticketFile("# 01 — A\n\nStatus: open\n");
+		const goneClaimer = markdownClaimer(readTicketFile(gone));
+		rmSync(gone);
+
+		const readOnly = ticketFile("# 01 — A\n\nStatus: open\n");
+		chmodSync(readOnly, 0o444);
+
+		const link = ticketFile("# 01 — A\n\nStatus: open\n", "01-target.md");
+		const linked = join(dirname(link), "01-a.md");
+		symlinkSync(link, linked);
+
+		const malformed = ticketFile("# 01 — A\n\n**Status: op**en\n");
+
+		const claimers = [
+			goneClaimer,
+			markdownClaimer(readTicketFile(readOnly)),
+			markdownClaimer(readTicketFile(linked)),
+			markdownClaimer(readTicketFile(malformed)),
+		];
+		for (const claimer of claimers) {
+			expect(() => claimer.claim()).toThrow(ClaimError);
+		}
+	});
+
 	test("writes the claim into the status field, which is the only claim signal markdown has", () => {
 		const path = ticketFile("# 01 — A\n\nStatus: open\n");
 		const hold = markdownClaimer(readTicketFile(path)).claim();
