@@ -42,8 +42,6 @@ describe("prepareLaunch", () => {
 		expect(outcome.launch.command).toEqual(["claude", "/implement md:1"]);
 	});
 
-	// The gate is asked with the finished plan and answered before the only write, so declining costs
-	// the tracker nothing and there is no claim to give back.
 	test("writes nothing when the plan is declined, and shows the plan being declined", () => {
 		const { claimer, calls } = recordingClaimer();
 		const asked: LaunchPlan[] = [];
@@ -77,8 +75,6 @@ describe("prepareLaunch", () => {
 		expect(calls).toEqual(["claim"]);
 	});
 
-	// The plan is pure, so an input that was already wrong costs no tracker write to find out — and
-	// there is no claim to give back afterwards.
 	test("writes nothing when the input was wrong before anything was touched", () => {
 		const { claimer, calls } = recordingClaimer();
 
@@ -117,8 +113,6 @@ describe("beforeWorktreeExists", () => {
 		}).toThrow(/the file changed/);
 	});
 
-	// Nothing is outstanding, so the original failure is the whole story and wrapping it would send a
-	// caller looking for a claim to clear that was never taken.
 	test("passes the failure through when there was no claim to give back", () => {
 		const { claimer } = recordingClaimer({ release: () => ({ kind: "nothing-to-release" }) });
 

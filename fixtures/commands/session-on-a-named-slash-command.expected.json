@@ -1,5 +1,5 @@
 {
-	"description": "A slash command other than the default, which ticket 09 exposes as a flag.",
+	"description": "A slash command other than the default.",
 	"input": {
 		"ref": {
 			"tracker": "markdown",

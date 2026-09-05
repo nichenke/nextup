@@ -134,10 +134,7 @@ function nothingToStart(options: Options, selection: Selection): CliResult {
 	return options.printCommand ? { code: 1, stdout: "", stderr: rendered } : { code: 1, stdout: rendered, stderr: "" };
 }
 
-/**
- * The pick and what would start work on it, with the tracker untouched. ADR-0002's bridge between the
- * two layers: the same plan the launcher runs, worked out where it is safe to work it out.
- */
+/** The pick and what would start work on it, with the tracker untouched; see `planLaunch`. */
 function printCommand(options: Options, selection: Selection, pick: Candidate): CliResult {
 	let plan;
 	try {
@@ -217,8 +214,7 @@ function startWork(
 
 	const launch = outcome.launch;
 	const claimed = `claimed ${formatTicketRef(launch.hold.ref)}\n`;
-	// The gate printed the pick and the command on its way to asking, so an approved run reports only
-	// what has changed since. --yes was never shown either, and gets the whole answer here.
+	// --yes was never shown the gate's rendering, so it gets the whole answer here.
 	if (!options.yes) return { code: 0, stdout: claimed, stderr: "" };
 	return {
 		code: 0,

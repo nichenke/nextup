@@ -6,11 +6,7 @@ import { type CliDeps, run } from "./cli";
 import type { Runner } from "./runner";
 import { DEGRADED_PREFIX } from "./selection-output";
 
-/**
- * The whole tool driven with no external binary reachable at all. Markdown asks for no process, and a
- * runner that refuses every command is how that is asserted rather than assumed — every test below
- * runs through it, so a call that started shelling out would fail loudly here first.
- */
+/** Every test below runs through this, so a call that started shelling out fails loudly here first. */
 const refuseToRun: Runner = (argv) => {
 	throw new Error(`nothing may run an external process here: ${argv.join(" ")}`);
 };
@@ -461,8 +457,6 @@ describe("the confirmation gate", () => {
 		expect(readFileSync(join(effort, "issues", "01-first.md"), "utf8")).toContain("Status: claimed");
 	});
 
-	// Answering on the user's behalf is the one thing a gate must not do, in either direction: a silent
-	// yes claims unasked, and a silent no looks exactly like an empty ticket set.
 	test("refuses with nothing to ask on, naming the flag that means yes", () => {
 		const repo = tempRepo();
 		const effort = chainedEffort(repo);

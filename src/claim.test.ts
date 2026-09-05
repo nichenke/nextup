@@ -91,8 +91,6 @@ describe("markdownClaimer", () => {
 		expect(() => claimer.claim()).toThrow(expect.objectContaining({ kind: "unavailable" }));
 	});
 
-	// The two answers separate a ticket somebody else took, which is worth coming back for, from a
-	// ticket file this tool cannot write, which no waiting fixes.
 	test("says whether the ticket was unavailable or the ticket set was wrong", () => {
 		const taken = ticketFile("# 01 — A\n\nStatus: claimed\n");
 		expect(() => markdownClaimer(readTicketFile(taken)).claim()).toThrow(
@@ -147,8 +145,6 @@ describe("markdownClaimer", () => {
 		expect(read(path)).toBe("# 01 — A\n\nStatus: open\n");
 	});
 
-	// Writing in place opens the file with O_TRUNC, so a write that fails partway leaves a ticket
-	// emptied and nothing to restore it from. These are the two refusals that path has to survive.
 	test("leaves the ticket exactly as it was when the write cannot happen", () => {
 		const readOnlyFile = ticketFile("# 01 — A\n\nStatus: open\n");
 		chmodSync(readOnlyFile, 0o444);
@@ -168,9 +164,6 @@ describe("markdownClaimer", () => {
 		expect(readdirSync(dirname(path))).toEqual(["01-a.md"]);
 	});
 
-	// The atomic write is a destructive step against a file it did not create. Nothing else writes that
-	// name, so debris from a claim that died mid-write is all it can ever find — and a refusal there
-	// would leave a ticket nobody can claim until somebody deletes a file by hand.
 	test("claims over debris left by a claim that died mid-write", () => {
 		const path = ticketFile("# 01 — A\n\nStatus: open\n");
 		writeFileSync(`${path}.nextup`, "half a ticket, from a run that never finished\n");
@@ -215,7 +208,6 @@ describe("markdownClaimer", () => {
 		expect(read(path)).toBe("# 01 — A\n\nStatus: claimed\nBlocked by: 02\n");
 	});
 
-	// Not "stranded": a caller escalates on a claim left outstanding, and there is no claim here.
 	test("reports a release of a claim it never took rather than writing anything", () => {
 		const path = ticketFile("# 01 — A\n\nStatus: open\n");
 		expect(markdownClaimer(readTicketFile(path)).release()).toEqual({ kind: "nothing-to-release" });
@@ -251,8 +243,6 @@ describe("markdownClaimer", () => {
 		expect(read(path)).toBe("# 01 — A\n\nType: task\n");
 	});
 
-	// The line looks like a field to a pattern and is prose to the reader, so rewriting it would
-	// destroy the author's text and then verify, because what it wrote is a field.
 	test("adds a field rather than overwriting a line the reader reads as prose", () => {
 		const path = ticketFile("# 01 — A\n\nStatus: resolved — superseded by `02`\n");
 		markdownClaimer(readTicketFile(path)).claim();

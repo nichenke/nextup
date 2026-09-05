@@ -49,7 +49,7 @@ const CASES: readonly Case[] = [
 	},
 	{
 		name: "session-on-a-named-slash-command",
-		description: "A slash command other than the default, which ticket 09 exposes as a flag.",
+		description: "A slash command other than the default.",
 		input: { ref: markdown, slashCommand: "/triage" },
 		build: () => sessionCommand({ ref: markdown, slashCommand: "/triage" }),
 	},

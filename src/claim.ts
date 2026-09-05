@@ -58,9 +58,9 @@ export interface MarkdownClaimDeps extends ResolveDeps {
 	/**
 	 * Re-reads the file the claim was written to. A parameter because the failure it guards — a write
 	 * that lands and still reads back unclaimed — is another writer getting there in between, which
-	 * nothing can stage from outside the process now that `withStatus` refuses every edit the reader
-	 * would not read back. It stands in for the same event on a real tracker: GitHub accepts an
-	 * assignment to a user without repository access and hands the issue back unassigned.
+	 * nothing stages from outside the process: `withStatus` refuses every edit the reader would not read
+	 * back. It stands in for the same event on a real tracker: GitHub accepts an assignment to a user
+	 * without repository access and hands the issue back unassigned.
 	 */
 	readonly readBack?: (path: string) => MarkdownTicketFile;
 }

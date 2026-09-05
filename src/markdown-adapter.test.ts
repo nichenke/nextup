@@ -785,9 +785,6 @@ describe("withStatus", () => {
 	// The endings a lexer normalises away that a line split does not: the counts drift, so no line is
 	// found to rewrite and the field is refused rather than written over whatever now sits at that
 	// offset. The reader accepts such a file, so the two disagree — knowingly, in the safe direction.
-	// A pattern over the raw line and the reader over rendered text disagree in both directions. The
-	// prose line is the dangerous half: rewritten, it destroys the author's text and then verifies,
-	// because what it wrote is a field even though what it replaced was not.
 	test("adds a field rather than rewriting a line the reader reads as prose", () => {
 		const prose = "# 01 — A\n\nStatus: resolved — superseded by `02`\n";
 		expect(withStatus(prose, "claimed", PATH)).toBe(

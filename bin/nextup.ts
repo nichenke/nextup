@@ -35,7 +35,6 @@ const askOnTerminal: Confirm = (question) => {
 	}
 };
 
-/** The terminal to ask on, or `null` where this run has none — a pipe, a cron entry, a sandbox. */
 function terminal(): Confirm | null {
 	try {
 		closeSync(openSync("/dev/tty", "r+"));

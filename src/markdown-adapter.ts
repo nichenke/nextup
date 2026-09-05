@@ -170,10 +170,8 @@ export function discoverEfforts(repoRoot: string): string[] {
 }
 
 /**
- * `deps` reaches reference resolution, which is where a tracker that resolves a short form against a
- * git remote runs a process. Markdown resolves numbers and runs none, so nothing here uses it today —
- * it is threaded so that no path from the command line can fall back to `resolveTicketRef`'s default
- * runner, which is a real one.
+ * `deps` reaches reference resolution, threaded so that no path from the command line falls back to
+ * `resolveTicketRef`'s default runner; `CliDeps.runner` says why that matters.
  */
 export function readEffort(effortRoot: string, deps: ResolveDeps = {}): MarkdownEffort {
 	if (!isEffortRoot(effortRoot)) {
