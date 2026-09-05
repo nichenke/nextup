@@ -12,16 +12,16 @@ treated as unblocked.
 
 ## Status
 
-The selector works on local markdown ticket sets, and the launcher claims. A run reads an effort, ranks
-what is startable, shows the pick and what starting it would run, and claims the winner once you say so.
-Nothing local is created yet — no worktree and no session — and the GitHub, GitLab and Jira adapters are
-not built.
+The selector works on local markdown ticket sets, and the launcher claims and ensures the worktree. A
+run reads an effort, ranks what is startable, shows the pick and what starting it would run, claims
+the winner once you say so, and creates its worktree. The session is still printed rather than
+started, and the GitHub, GitLab and Jira adapters are not built.
 
 ```sh
-bun bin/nextup.ts                   # show the pick, ask, and claim it if you agree
+bun bin/nextup.ts                   # show the pick, ask, then claim it and make its worktree
 bun bin/nextup.ts --yes             # claim without asking, for an unattended run
-bun bin/nextup.ts --print-command   # the same answer, claiming nothing and asking nothing
-bun bin/nextup.ts --json            # the selection, the claim, and the command, as JSON
+bun bin/nextup.ts --print-command   # the same answer, claiming nothing and making nothing
+bun bin/nextup.ts --json            # the selection, the claim, the worktree, and the command, as JSON
 bun bin/nextup.ts --help            # every flag
 ```
 
@@ -34,6 +34,16 @@ Nothing is claimed without an answer. The gate asks on the controlling terminal 
 stdin and stdout, so it still works when either is redirected. `--print-command` neither claims nor asks: it prints the
 command on stdout and the reasoning on stderr, and `--json --print-command` is the whole answer with
 nothing claimed.
+
+Once the claim lands, the ticket's worktree is *ensured*: created, or attached to if it is already
+there, so re-running after a partial failure heals rather than errors. The branch follows the
+convention — `feature/` or `fix/` by whether the ticket is labelled a bug, then the title as a slug,
+then the ticket's own key last, so tab-completion reaches the slug. It goes under `.worktrees/` in the
+primary checkout unless `--worktree-root` says otherwise; ADR-0013 has why there rather than under the
+harness's directory, and why nothing removes them yet. Conditions worth knowing that are not reasons
+to refuse — a primary checkout that has drifted off the default branch, an effort that will not reach
+the new worktree — arrive on stderr as `warning: ` lines. ADR-0014 has the second one, which decides
+whether a session started there can resolve the reference it is handed.
 
 - [The spec](https://github.com/nichenke/nextup/issues/2) — problem, solution, user stories, and the
   phased delivery
@@ -61,7 +71,9 @@ tracker write to find out.
 A claim that cannot land aborts having changed nothing, and one that lands but cannot be verified is
 rolled back — or says plainly that it could not be, because a claim left on a ticket nobody is working
 is the failure the whole step exists to avoid. The boundary past which a claim is kept rather than
-given back is where a worktree starts existing. A claim is advisory — `CONTEXT.md` says what that means — and for markdown it overwrites the
+given back is where a worktree starts existing: everything the worktree step reads happens under the
+release, and only the `git worktree add` itself runs outside it, so a ticket carrying a half-made
+branch stays claimed rather than being advertised as free. A claim is advisory — `CONTEXT.md` says what that means — and for markdown it overwrites the
 `Status:` line, which ADR-0012 explains.
 
 Ranking is a fixed ladder, each rung skipped when its signal is absent, with the last rung guaranteeing

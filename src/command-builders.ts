@@ -63,6 +63,47 @@ export function originRemoteCommand(): readonly string[] {
 }
 
 /**
+ * The git commands the worktree step issues, each naming the directory it acts on rather than
+ * inheriting one. The runner seam takes argv and nothing else, so a command that relied on the
+ * process's working directory would be a second input the golden files do not capture — and this tool
+ * runs from whichever checkout it was invoked in, which is not the one worktrees are cut from.
+ */
+
+/** Every worktree the repository has registered, and for each one its path, HEAD, branch and state. */
+export function worktreeListCommand(repo: string): readonly string[] {
+	// NUL-terminated rather than line-terminated: a worktree path may contain a newline, and the
+	// line form gives no way to tell that apart from the next attribute.
+	return ["git", "-C", repo, "worktree", "list", "--porcelain", "-z"];
+}
+
+/**
+ * Whether the repository already has this branch. Answered by `show-ref` rather than by scanning the
+ * worktree listing, which sees only branches that are checked out somewhere.
+ */
+export function branchExistsCommand(repo: string, branch: string): readonly string[] {
+	return ["git", "-C", repo, "show-ref", "--verify", "--quiet", `refs/heads/${branch}`];
+}
+
+/**
+ * Which branch the repository treats as its default. The full ref rather than `--short`, so the
+ * answer is stripped of a fixed `refs/remotes/origin/` prefix instead of an `origin/` one that a
+ * branch of that name could also start with.
+ */
+export function defaultBranchCommand(repo: string): readonly string[] {
+	return ["git", "-C", repo, "symbolic-ref", "refs/remotes/origin/HEAD"];
+}
+
+/**
+ * The worktree for one branch, at one path. `create` picks between cutting a new branch from `repo`'s
+ * HEAD and checking out one that already exists; `-b` against an existing branch is a fatal error
+ * rather than an attach, so the two cannot share an invocation.
+ */
+export function worktreeAddCommand(repo: string, path: string, branch: string, create: boolean): readonly string[] {
+	const add = ["git", "-C", repo, "worktree", "add", path];
+	return create ? [...add, "-b", branch] : [...add, branch];
+}
+
+/**
  * Argv as one line a POSIX shell parses back into the same words, for a human to read or paste. It is
  * never what the tool executes — the runner takes argv — so this cannot become the path by which a
  * quoting bug reaches a shell.

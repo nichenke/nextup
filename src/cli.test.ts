@@ -1,8 +1,18 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	realpathSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { CLAIM_FAILURE_STATUS, type CliDeps, run } from "./cli";
+import { CLAIM_FAILURE_STATUS, type CliDeps, WARNING_PREFIX, run } from "./cli";
 import type { Runner } from "./runner";
 import { DEGRADED_PREFIX } from "./selection-output";
 
@@ -26,8 +36,51 @@ function terminal(answer = true): { confirm: CliDeps["confirm"]; questions: stri
 	};
 }
 
-function deps(cwd: string, confirm: CliDeps["confirm"] = terminal().confirm): CliDeps {
-	return { cwd, runner: refuseToRun, confirm };
+/**
+ * A git that answers the worktree step, and makes on disk what it reports having made. The step reads
+ * the filesystem to decide whether a path is free and whether the effort reaches the worktree, so a
+ * runner that reported an add without creating anything would be answering a question git does not.
+ */
+function fakeGit(primary: string, over: Partial<FakeGit> = {}): Runner {
+	const { branch, branches, effort, effortReaches }: FakeGit = { ...FAKE_GIT, ...over };
+	const added: { path: string; branch: string }[] = [];
+	return (argv) => {
+		const words = argv.join(" ");
+		if (words.includes("worktree list")) {
+			const all = [{ path: primary, branch }, ...added];
+			const stdout = all.map((one) => `worktree ${one.path}\0HEAD abc\0branch refs/heads/${one.branch}\0\0`).join("");
+			return { code: 0, stdout, stderr: "" };
+		}
+		if (words.includes("symbolic-ref")) return { code: 0, stdout: "refs/remotes/origin/main\n", stderr: "" };
+		if (words.includes("show-ref")) {
+			const ref = argv[argv.length - 1]!.replace("refs/heads/", "");
+			return { code: branches.includes(ref) ? 0 : 1, stdout: "", stderr: "" };
+		}
+		if (words.includes("worktree add")) {
+			const path = argv[argv.indexOf("add") + 1]!;
+			mkdirSync(path, { recursive: true });
+			if (effortReaches) mkdirSync(join(path, ".scratch", effort, "issues"), { recursive: true });
+			added.push({ path, branch: argv[argv.length - 1]! });
+			return { code: 0, stdout: "", stderr: "" };
+		}
+		return refuseToRun(argv);
+	};
+}
+
+interface FakeGit {
+	/** What the primary checkout is on, which the worktree step warns about drifting. */
+	readonly branch: string;
+	/** Branches the repository already has, which decides between creating and checking out. */
+	readonly branches: readonly string[];
+	readonly effort: string;
+	/** Whether the effort is committed on the branch, and so present in a fresh worktree. */
+	readonly effortReaches: boolean;
+}
+
+const FAKE_GIT: FakeGit = { branch: "main", branches: [], effort: "an-effort", effortReaches: true };
+
+function deps(cwd: string, confirm: CliDeps["confirm"] = terminal().confirm, runner = fakeGit(cwd)): CliDeps {
+	return { cwd, runner, confirm };
 }
 
 const roots: string[] = [];
@@ -39,7 +92,9 @@ afterEach(() => {
 function tempRepo(): string {
 	const root = mkdtempSync(join(tmpdir(), "nextup-cli-"));
 	roots.push(root);
-	return root;
+	// The real path, because the worktree step compares against paths git reports and git reports real
+	// ones; macOS hands `mkdtemp` a symlinked one.
+	return realpathSync(root);
 }
 
 function writeEffort(repoRoot: string, effort: string, files: Record<string, string>): string {
@@ -50,6 +105,10 @@ function writeEffort(repoRoot: string, effort: string, files: Record<string, str
 		writeFileSync(join(effortRoot, "issues", name), body);
 	}
 	return effortRoot;
+}
+
+function ticketPath(effortRoot: string, name: string): string {
+	return join(effortRoot, "issues", name);
 }
 
 /** Two open tickets, the second waiting on the first, so the answer is never a coin toss. */
@@ -292,10 +351,6 @@ describe("the command line itself", () => {
 });
 
 describe("claiming the pick", () => {
-	function ticketPath(effortRoot: string, name: string): string {
-		return join(effortRoot, "issues", name);
-	}
-
 	test("claims the winner in the tracker, and says what it would run on it", () => {
 		const repo = tempRepo();
 		const effort = chainedEffort(repo);
@@ -346,6 +401,115 @@ describe("claiming the pick", () => {
 
 		expect(document.claimed).toBe(true);
 		expect(document.command).toEqual(["claude", "/implement md:1"]);
+	});
+});
+
+describe("ensuring the worktree", () => {
+	test("creates the worktree for the pick once the claim has landed, and says where it went", () => {
+		const repo = tempRepo();
+		chainedEffort(repo);
+		const result = run([], deps(repo));
+
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain("claimed md:1");
+		expect(result.stdout).toContain(`created feature/settle-the-format-1 at ${join(repo, ".worktrees", "settle-the-format-1")}`);
+		expect(existsSync(join(repo, ".worktrees", "settle-the-format-1"))).toBe(true);
+		expect(result.stderr).toBe("");
+	});
+
+	test("says it checked out rather than created where the branch was already there", () => {
+		const repo = tempRepo();
+		chainedEffort(repo);
+		const result = run([], deps(repo, terminal().confirm, fakeGit(repo, { branches: ["feature/settle-the-format-1"] })));
+
+		expect(result.stdout).toContain("checked out feature/settle-the-format-1 at");
+	});
+
+	test("puts the worktree under the root it was given, so another launcher can site it elsewhere", () => {
+		const repo = tempRepo();
+		chainedEffort(repo);
+		const result = run(["--worktree-root", "trees"], deps(repo));
+
+		expect(result.stdout).toContain(join(repo, "trees", "settle-the-format-1"));
+	});
+
+	test("carries the worktree in the JSON, so a caller needs no second invocation for it either", () => {
+		const repo = tempRepo();
+		chainedEffort(repo);
+		const document = JSON.parse(run(["--json"], deps(repo)).stdout);
+
+		expect(document.worktree).toEqual({
+			kind: "created",
+			branch: "feature/settle-the-format-1",
+			path: join(repo, ".worktrees", "settle-the-format-1"),
+			warnings: [],
+		});
+	});
+
+	test("gives the claim back when the worktree could not even be planned, since nothing was made", () => {
+		const repo = tempRepo();
+		const effort = chainedEffort(repo);
+		const blind: Runner = (argv) =>
+			argv.join(" ").includes("worktree list")
+				? { code: 128, stdout: "", stderr: "fatal: not a git repository" }
+				: refuseToRun(argv);
+		const result = run([], deps(repo, terminal().confirm, blind));
+
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("not a git repository");
+		expect(readFileSync(ticketPath(effort, "01-first.md"), "utf8")).toContain("Status: open");
+	});
+
+	test("keeps the claim when the worktree itself failed, because the branch is half made", () => {
+		const repo = tempRepo();
+		const effort = chainedEffort(repo);
+		const failing: Runner = (argv) =>
+			argv.join(" ").includes("worktree add")
+				? { code: 128, stdout: "", stderr: "fatal: could not create leading directories" }
+				: fakeGit(repo)(argv);
+		const result = run([], deps(repo, terminal().confirm, failing));
+
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("md:1 stays claimed");
+		expect(readFileSync(ticketPath(effort, "01-first.md"), "utf8")).toContain("Status: claimed");
+	});
+
+	test("warns about a primary checkout that has drifted off the default branch, and still claims", () => {
+		const repo = tempRepo();
+		chainedEffort(repo);
+		const result = run([], deps(repo, terminal().confirm, fakeGit(repo, { branch: "wip" })));
+
+		expect(result.code).toBe(0);
+		expect(result.stderr).toBe(`${WARNING_PREFIX}the primary checkout ${repo} is on wip, not on main\n`);
+	});
+
+	test("warns when the effort does not reach the worktree, since md:1 there would resolve to nothing", () => {
+		const repo = tempRepo();
+		chainedEffort(repo);
+		const result = run([], deps(repo, terminal().confirm, fakeGit(repo, { effortReaches: false })));
+
+		expect(result.code).toBe(0);
+		expect(result.stderr).toContain("cannot resolve md:1");
+		expect(result.stderr).toContain("commit the effort on the branch");
+	});
+
+	test("warns when the effort is outside the checkout the worktree was cut from", () => {
+		const repo = tempRepo();
+		const elsewhere = tempRepo();
+		chainedEffort(elsewhere);
+		const result = run(["--effort", join(elsewhere, ".scratch", "an-effort")], deps(repo));
+
+		expect(result.code).toBe(0);
+		expect(result.stderr).toContain(`is outside ${repo}`);
+	});
+
+	test("a declined pick makes no worktree, having claimed nothing to make one for", () => {
+		const repo = tempRepo();
+		chainedEffort(repo);
+		const result = run([], deps(repo, terminal(false).confirm, refuseToRun));
+
+		expect(result.code).toBe(1);
+		expect(existsSync(join(repo, ".worktrees"))).toBe(false);
 	});
 });
 

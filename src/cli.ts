@@ -1,7 +1,15 @@
-import { resolve } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { ClaimError, markdownClaimer } from "./claim";
 import { CommandBuilderError, DEFAULT_SLASH_COMMAND, formatCommand } from "./command-builders";
-import { type LaunchOutcome, type LaunchPlan, LaunchError, planLaunch, prepareLaunch } from "./launcher";
+import {
+	type LaunchOutcome,
+	type LaunchPlan,
+	LaunchError,
+	beforeWorktreeExists,
+	planLaunch,
+	prepareLaunch,
+} from "./launcher";
 import { MarkdownEffortError, type MarkdownTicket, discoverEfforts, readEffort } from "./markdown-adapter";
 import {
 	DEFAULT_LABEL_FILTER,
@@ -15,6 +23,7 @@ import { renderSelection, selectionJson } from "./selection-output";
 import { type Candidate, type Selection, SelectionError, select } from "./selector";
 import { ticketId } from "./ticket";
 import { type TicketRef, formatTicketRef } from "./ticket-ref";
+import { type WorktreePlan, WorktreeError, branchName, ensureWorktree, planWorktree } from "./worktree";
 
 /**
  * Puts the pick to the person running this and reports what they said. It prints `question` itself,
@@ -62,9 +71,12 @@ export interface CliResult {
 const USAGE = `nextup — picks the ticket to start next, claims it, and says how to start work on it
 
 usage: nextup [--effort <path>] [--include <label>]... [--exclude <label>]... [--yes] [--json]
-              [--print-command]
+              [--print-command] [--worktree-root <path>]
 
   --effort <path>    the effort to read; defaults to the single effort under <cwd>/.scratch
+  --worktree-root <path>
+                     where the ticket's worktree goes; relative paths resolve against the primary
+                     checkout. Defaults to .worktrees
   --include <label>  consider only tickets carrying one of these labels; repeatable
   --exclude <label>  never consider a ticket carrying one of these labels; repeatable
   --yes              claim the pick without asking first
@@ -82,9 +94,14 @@ The pick is shown and confirmed before it is claimed. --yes answers in advance, 
 unattended run needs; with neither a terminal nor --yes the run is refused rather than answered on
 your behalf. --print-command claims nothing and never asks.
 
+Once the claim lands the ticket's worktree is ensured: created, or attached to if it is already
+there, so re-running after a partial failure heals rather than errors. Failures from that point on
+keep the claim, because the branch is half made and the ticket is not free.
+
 Exit status: 0 a ticket claimed, or a command printed, 1 nothing started — nothing to recommend, or
 the pick declined, 2 something needing a person — a bad invocation, a ticket set that will not read or
-take a claim, or a claim left behind, 3 a pick another run may find free.
+take a claim, a worktree that will not be ensured, or a claim left behind, 3 a pick another run may
+find free.
 `;
 
 export function run(argv: readonly string[], deps: CliDeps): CliResult {
@@ -135,7 +152,7 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 }
 
 function nothingToStart(options: Options, selection: Selection): CliResult {
-	if (options.json) return { code: 1, stdout: json(selection, null), stderr: "" };
+	if (options.json) return { code: 1, stdout: json(selection, null, null), stderr: "" };
 	const rendered = renderSelection(selection);
 	return options.printCommand ? { code: 1, stdout: "", stderr: rendered } : { code: 1, stdout: rendered, stderr: "" };
 }
@@ -149,7 +166,7 @@ function printCommand(options: Options, selection: Selection, pick: Candidate): 
 		if (cause instanceof CommandBuilderError) return { code: 2, stdout: "", stderr: `${message(cause)}\n` };
 		throw cause;
 	}
-	if (options.json) return { code: 0, stdout: json(selection, { kind: "planned", plan }), stderr: "" };
+	if (options.json) return { code: 0, stdout: json(selection, { kind: "planned", plan }, null), stderr: "" };
 	// Why this ticket won goes to stderr, so stdout stays a command a caller can pipe into a shell
 	// while a person running the same invocation still sees the reasoning.
 	return { code: 0, stdout: `${formatCommand(plan.command)}\n`, stderr: renderSelection(selection) };
@@ -232,12 +249,13 @@ function startWork(
 		};
 	}
 
+	const claimer = markdownClaimer(ticket, { runner: deps.runner });
 	let outcome;
 	try {
 		outcome = prepareLaunch({
 			ref: pick.ref,
 			slashCommand: DEFAULT_SLASH_COMMAND,
-			claimer: markdownClaimer(ticket, { runner: deps.runner }),
+			claimer,
 			confirm,
 			recheck: () => stillStartable(effortRoot, pick.ref, filter, deps),
 		});
@@ -249,26 +267,105 @@ function startWork(
 		if (cause instanceof ClaimError) {
 			return { code: CLAIM_FAILURE_STATUS[cause.kind], stdout: "", stderr: `${message(cause)}\n` };
 		}
-		if (cause instanceof LaunchError) return { code: 3, stdout: "", stderr: `${message(cause)}\n` };
+		// A stranded claim, like `CLAIM_FAILURE_STATUS.stranded`: the ticket reads as taken and no later
+		// run reaches it, so telling a caller to come back later would have it wait on nothing.
+		if (cause instanceof LaunchError) return { code: 2, stdout: "", stderr: `${message(cause)}\n` };
 		throw cause;
 	}
 
-	if (options.json) return { code: outcome.kind === "launched" ? 0 : 1, stdout: json(selection, outcome), stderr: "" };
-
 	if (outcome.kind === "declined") {
+		if (options.json) return { code: 1, stdout: json(selection, outcome, null), stderr: "" };
 		// The gate printed the pick on its way to asking, so repeating it here would show it twice.
 		return { code: 1, stdout: `${formatTicketRef(pick.ref)} not claimed\n`, stderr: "" };
 	}
 
 	const launch = outcome.launch;
-	const claimed = `claimed ${formatTicketRef(launch.hold.ref)}\n`;
+
+	let plan: WorktreePlan;
+	try {
+		// Everything planning reads leaves nothing behind, so a failure here can still hand the claim
+		// back. The one call that cannot be taken back is below, outside this.
+		plan = beforeWorktreeExists(claimer, () =>
+			planWorktree({
+				runner: deps.runner,
+				repo: deps.cwd,
+				branch: branchName(ticket),
+				...(options.worktreeRoot === null ? {} : { root: options.worktreeRoot }),
+			}),
+		);
+	} catch (cause) {
+		if (cause instanceof WorktreeError || cause instanceof LaunchError) {
+			return { code: 2, stdout: "", stderr: `${message(cause)}\n` };
+		}
+		throw cause;
+	}
+
+	try {
+		ensureWorktree(plan, deps.runner);
+	} catch (cause) {
+		if (!(cause instanceof WorktreeError)) throw cause;
+		// The claim stays, per the spec: a ticket carrying a branch somebody has to look at is not one
+		// to hand to the next run. Said out loud, because the alternative is finding it later.
+		return { code: 2, stdout: "", stderr: `${message(cause)}; ${formatTicketRef(launch.hold.ref)} stays claimed\n` };
+	}
+
+	const stderr = [...plan.warnings, ...reachWarning(plan, effortRoot, pick.ref)]
+		.map((warning) => `${WARNING_PREFIX}${warning}\n`)
+		.join("");
+
+	if (options.json) return { code: 0, stdout: json(selection, outcome, plan), stderr };
+
+	const claimed = `claimed ${formatTicketRef(launch.hold.ref)}\n${WORKTREE_VERB[plan.kind]} ${plan.branch} at ${plan.path}\n`;
 	// --yes was never shown the gate's rendering, so it gets the whole answer here.
-	if (!options.yes) return { code: 0, stdout: claimed, stderr: "" };
+	if (!options.yes) return { code: 0, stdout: claimed, stderr };
 	return {
 		code: 0,
 		stdout: `${renderSelection(selection)}${claimed}would run: ${formatCommand(launch.command)}\n`,
-		stderr: "",
+		stderr,
 	};
+}
+
+/** What the run did about the worktree, in the voice of the line that reports it. */
+const WORKTREE_VERB: Record<WorktreePlan["kind"], string> = {
+	created: "created",
+	"checked-out": "checked out",
+	attached: "attached to",
+};
+
+export const WARNING_PREFIX = "warning: ";
+
+/**
+ * Whether a session started in the worktree could resolve the reference it would be handed.
+ *
+ * A markdown reference names a ticket of the effort under the session's own `.scratch` and carries no
+ * path of its own, so it resolves in the worktree only where the effort reaches it — which is to say,
+ * only where the effort is committed on the branch. Nothing here copies it: an effort deliberately
+ * left untracked is not something this tool should be putting into a branch. ADR-0014 has the
+ * alternatives and why this one.
+ */
+function reachWarning(plan: WorktreePlan, effortRoot: string, ref: TicketRef): readonly string[] {
+	const inside = relative(plan.primary, resolveReal(effortRoot));
+	if (inside.startsWith("..") || isAbsolute(inside)) {
+		return [`${effortRoot} is outside ${plan.primary}, so a session in ${plan.path} cannot resolve ${formatTicketRef(ref)}`];
+	}
+	if (existsSync(join(plan.path, inside))) return [];
+	return [
+		`${inside} is not in ${plan.path}, so a session started there cannot resolve ${formatTicketRef(ref)}; commit the effort on the branch, or start the session in ${plan.primary}`,
+	];
+}
+
+/**
+ * The path as git would report it, so that a comparison against one git reported is not decided by a
+ * symlink — macOS hands out temporary directories under one. A path that will not resolve is passed
+ * through: it has just been read from, so this is a race rather than a state, and the reach check
+ * below answers it correctly either way.
+ */
+function resolveReal(path: string): string {
+	try {
+		return realpathSync(path);
+	} catch {
+		return path;
+	}
 }
 
 /**
@@ -291,13 +388,15 @@ function gate(selection: Selection, plan: LaunchPlan): string {
 /**
  * The selection document, plus what this invocation did about it. Both fields are read off the outcome
  * rather than passed alongside it, so no branch can report a claim on a path that took none, or drop a
- * command that was worked out and shown. Both keys are always present, so a consumer can read either
+ * command that was worked out and shown. Every key is always present, so a consumer can read any of them
  * without first testing whether it is there.
  */
-function json(selection: Selection, outcome: LaunchOutcome | null): string {
+function json(selection: Selection, outcome: LaunchOutcome | null, plan: WorktreePlan | null): string {
 	const command = outcome === null ? null : outcome.kind === "launched" ? outcome.launch.command : outcome.plan.command;
 	const claimed = outcome?.kind === "launched";
-	return `${JSON.stringify({ ...selectionJson(selection), claimed, command }, null, "\t")}\n`;
+	const worktree =
+		plan === null ? null : { kind: plan.kind, branch: plan.branch, path: plan.path, warnings: plan.warnings };
+	return `${JSON.stringify({ ...selectionJson(selection), claimed, command, worktree }, null, "\t")}\n`;
 }
 
 class CliError extends Error {}
@@ -308,6 +407,7 @@ interface Options {
 	readonly yes: boolean;
 	readonly printCommand: boolean;
 	readonly effort: string | null;
+	readonly worktreeRoot: string | null;
 	readonly filter: LabelFilterSpec;
 }
 
@@ -317,6 +417,7 @@ function parse(argv: readonly string[]): Options {
 	let yes = false;
 	let printCommand = false;
 	let effort: string | null = null;
+	let worktreeRoot: string | null = null;
 	const include: string[] = [];
 	const exclude: string[] = [];
 
@@ -339,6 +440,9 @@ function parse(argv: readonly string[]): Options {
 			case "--effort":
 				effort = value(argv, ++i, flag);
 				break;
+			case "--worktree-root":
+				worktreeRoot = value(argv, ++i, flag);
+				break;
 			case "--include":
 				include.push(value(argv, ++i, flag));
 				break;
@@ -352,7 +456,15 @@ function parse(argv: readonly string[]): Options {
 
 	// The default exclusion is a floor, not a starting point a filter flag replaces: `--include backend`
 	// would otherwise hand out a wayfinder ticket labelled `backend`.
-	return { help, json, yes, printCommand, effort, filter: { include, exclude: [...DEFAULT_LABEL_FILTER.exclude, ...exclude] } };
+	return {
+		help,
+		json,
+		yes,
+		printCommand,
+		effort,
+		worktreeRoot,
+		filter: { include, exclude: [...DEFAULT_LABEL_FILTER.exclude, ...exclude] },
+	};
 }
 
 function value(argv: readonly string[], index: number, flag: string): string {

@@ -1,0 +1,18 @@
+{
+	"description": "A worktree for a branch that already exists, where -b would be a fatal error instead.",
+	"input": {
+		"repo": "/repo",
+		"path": "/repo/.worktrees/reader-8",
+		"branch": "feature/reader-8",
+		"create": false
+	},
+	"argv": [
+		"git",
+		"-C",
+		"/repo",
+		"worktree",
+		"add",
+		"/repo/.worktrees/reader-8",
+		"feature/reader-8"
+	]
+}
