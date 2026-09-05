@@ -39,7 +39,7 @@ export interface CliDeps {
  *
  * `1` separates "nothing was started" from `2`, "this invocation or this ticket set is wrong". A
  * caller polling for work needs to tell a quiet day from a broken one, and folding both into a single
- * non-zero code makes a misspelled flag look like an empty backlog. Nothing to recommend and a pick
+ * non-zero code makes a misspelled flag look like an empty ticket set. Nothing to recommend and a pick
  * declined at the gate are both `1`: to a caller they are the same answer, that there is no session to
  * go to, and the rendering says which. `3` is the same argument again: a pick somebody else took is a
  * different answer from a ticket set that will not read, and only one of the two is worth coming back
@@ -72,8 +72,7 @@ excluded ticket still blocks.
 
 The pick is shown and confirmed before it is claimed. --yes answers in advance, which is what an
 unattended run needs; with neither a terminal nor --yes the run is refused rather than answered on
-your behalf. --print-command claims nothing and never asks. Claiming comes before anything local is
-created, so a failure leaves a visible wrong state rather than an invisible one.
+your behalf. --print-command claims nothing and never asks.
 
 Exit status: 0 a ticket claimed, 1 nothing started — nothing to recommend, or the pick declined,
 2 a bad invocation or a ticket set that could not be read, 3 a pick that could not be claimed.
@@ -166,7 +165,7 @@ function startWork(
 	}
 
 	// Refused rather than treated as a no: an unattended run that meant to claim is one flag away, and
-	// silently declining every one of them would look exactly like an empty backlog.
+	// silently declining every one of them would look exactly like an empty ticket set.
 	const ask = deps.confirm;
 	if (!options.yes && ask === null) {
 		return { code: 2, stdout: "", stderr: "there is no terminal to confirm on; pass --yes to claim without asking\n" };
@@ -182,10 +181,11 @@ function startWork(
 			confirm: options.yes || ask === null ? () => true : (plan) => ask(gate(selection, plan)),
 		});
 	} catch (cause) {
-		// A ticket this tool cannot write is a ticket set to fix rather than a claim to retry, and the
-		// same goes for a command that could not be built — which, per `beforeWorktreeExists`, has been
-		// given back by the time it arrives here. A LaunchError says the release failed too, so a claim
-		// really is outstanding, which is the one thing 3 is for.
+		// 2 and 3 split on whether a later run could do better. A ticket set that will not take a claim
+		// stays wrong until somebody edits it, and so does a command that could not be built — which
+		// claimed nothing at all, since the plan is made before the claim. An unavailable pick is the
+		// other answer: the ticket was fine and somebody else had it. A stranded claim is 3 as well,
+		// with something outstanding to go and clear.
 		if (cause instanceof CommandBuilderError) return { code: 2, stdout: "", stderr: `${message(cause)}\n` };
 		if (cause instanceof ClaimError) {
 			return { code: cause.kind === "ticket-set" ? 2 : 3, stdout: "", stderr: `${message(cause)}\n` };

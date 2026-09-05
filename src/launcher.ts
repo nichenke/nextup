@@ -55,8 +55,8 @@ export function prepareLaunch(input: LaunchInput): Launch | null {
  * half-finished branch is never handed to somebody else — so ticket 08's worktree step goes *outside*
  * this call rather than inside it.
  *
- * Nothing between the claim and the worktree can fail yet, so ticket 08 is the first caller with work
- * to pass. It is written and tested here because it is this ticket that decides where the line falls.
+ * No caller passes work between the two yet; ticket 08's checks for a branch attached elsewhere are the
+ * first, and they read git state that only a claim already taken makes it worth reading.
  *
  * @throws LaunchError only when the claim is left stranded, naming both failures — a caller told just
  * the first would not know there is a claim to go and clear. A claimer that never claimed has nothing

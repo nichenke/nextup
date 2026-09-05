@@ -772,10 +772,14 @@ describe("withStatus", () => {
 		}
 	});
 
-	// Not a grammar shape but a file-encoding one: a checkout can hand back CRLF, and rewriting one
-	// line in LF leaves a file whose endings disagree with themselves.
+	// Not a grammar shape but a file-encoding one: a checkout can hand back CRLF, and writing one line
+	// in LF leaves a file whose endings disagree with themselves. Both the line this rewrites and the
+	// line it adds, since they are two writers of the same property.
 	test("leaves the file's line endings as it found them", () => {
 		expect(withStatus("# 01 — A\r\n\r\nStatus: open\r\n", "claimed", PATH)).toBe("# 01 — A\r\n\r\nStatus: claimed\r\n");
+		expect(withStatus("# 01 — A\r\n\r\nType: task\r\n", "claimed", PATH)).toBe(
+			"# 01 — A\r\n\r\nStatus: claimed\r\n\r\nType: task\r\n",
+		);
 	});
 
 	// The endings a lexer normalises away that a line split does not: the counts drift, so no line is

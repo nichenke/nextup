@@ -472,7 +472,10 @@ function rewrites(region: HeaderRegion, lines: readonly string[], value: string)
 }
 
 function inserted(lines: readonly string[], at: number, value: string): string {
-	return [...lines.slice(0, at), "", `Status: ${value}`, ...lines.slice(at)].join("\n");
+	// Ended the way its neighbour is ended, so adding a field to a CRLF file does not leave it with two
+	// conventions. `readsAsOnly` cannot catch this: the lexer normalises endings before it sees them.
+	const ending = lines[at - 1]?.endsWith("\r") === true ? "\r" : "";
+	return [...lines.slice(0, at), ending, `Status: ${value}${ending}`, ...lines.slice(at)].join("\n");
 }
 
 /**

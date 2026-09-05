@@ -86,7 +86,7 @@ export function markdownClaimer(ticket: MarkdownTicketFile, deps: MarkdownClaimD
 			}
 
 			const before = read(path);
-			const current = ticketSet(path, () => parseTicketText(before, path, deps));
+			const current = asTicketSetFailure(path, () => parseTicketText(before, path, deps));
 			if (current.state === "closed") {
 				throw new ClaimError(
 					`${formatTicketRef(ticket.ref)} closed since it was selected; nothing was claimed`,
@@ -100,7 +100,7 @@ export function markdownClaimer(ticket: MarkdownTicketFile, deps: MarkdownClaimD
 				);
 			}
 
-			const after = ticketSet(path, () => withStatus(before, CLAIMED, path));
+			const after = asTicketSetFailure(path, () => withStatus(before, CLAIMED, path));
 			replace(path, after, before);
 
 			// Verified through the reader the selector was fed, so a claim counts as landed only when it
@@ -108,7 +108,7 @@ export function markdownClaimer(ticket: MarkdownTicketFile, deps: MarkdownClaimD
 			// claim advertises the ticket as neither taken nor free.
 			let verified: MarkdownTicketFile;
 			try {
-				verified = ticketSet(path, () => readBack(path));
+				verified = asTicketSetFailure(path, () => readBack(path));
 			} catch (cause) {
 				revert(path, after, before);
 				throw cause;
@@ -162,6 +162,10 @@ function revert(path: string, after: string, before: string): ReleaseOutcome {
  * leaves the ticket as it was. Writing in place opens with O_TRUNC, which empties the file before the
  * first byte lands — and this is the one step whose failure has nothing left to restore from.
  *
+ * A scratch file already at that name is overwritten. Only this function ever writes one, so it can
+ * only be debris from a claim that died mid-write, and refusing would turn that into a ticket nobody
+ * can claim until somebody deletes a file by hand.
+ *
  * @param recover what the file should still hold if the rename never happens, used only in the message.
  */
 function replace(path: string, content: string, recover: string): void {
@@ -189,7 +193,7 @@ function read(path: string): string {
 }
 
 /** A refusal from the markdown grammar, which says the ticket is wrong rather than busy. */
-function ticketSet<T>(path: string, read: () => T): T {
+function asTicketSetFailure<T>(path: string, read: () => T): T {
 	try {
 		return read();
 	} catch (cause) {

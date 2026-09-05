@@ -117,8 +117,6 @@ describe("sessionCommand", () => {
 });
 
 describe("authStatusCommand", () => {
-	// gh exits 1 when any account on a host has a problem, including an inactive one, so the question
-	// has to be narrowed to the account that would actually be used.
 	test("narrows the GitHub question to the active account, and asks GitLab plainly", () => {
 		expect(authStatusCommand("github", "example.test")).toContain("--active");
 		expect(authStatusCommand("gitlab", "example.test")).not.toContain("--active");

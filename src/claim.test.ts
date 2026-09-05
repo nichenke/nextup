@@ -87,8 +87,8 @@ describe("markdownClaimer", () => {
 			expect.objectContaining({ kind: "unavailable" }),
 		);
 
-		const unwritable = ticketFile("# 01 — A\n\n**Status: op**en\n");
-		expect(() => markdownClaimer(readTicketFile(unwritable)).claim()).toThrow(
+		const malformed = ticketFile("# 01 — A\n\n**Status: op**en\n");
+		expect(() => markdownClaimer(readTicketFile(malformed)).claim()).toThrow(
 			expect.objectContaining({ kind: "ticket-set" }),
 		);
 	});
@@ -131,6 +131,19 @@ describe("markdownClaimer", () => {
 	test("leaves no working file behind, whether the claim landed or not", () => {
 		const path = ticketFile("# 01 — A\n\nStatus: open\n");
 		markdownClaimer(readTicketFile(path)).claim();
+		expect(readdirSync(dirname(path))).toEqual(["01-a.md"]);
+	});
+
+	// The atomic write is a destructive step against a file it did not create. Nothing else writes that
+	// name, so debris from a claim that died mid-write is all it can ever find — and a refusal there
+	// would leave a ticket nobody can claim until somebody deletes a file by hand.
+	test("claims over debris left by a claim that died mid-write", () => {
+		const path = ticketFile("# 01 — A\n\nStatus: open\n");
+		writeFileSync(`${path}.nextup`, "half a ticket, from a run that never finished\n");
+
+		markdownClaimer(readTicketFile(path)).claim();
+
+		expect(read(path)).toBe("# 01 — A\n\nStatus: claimed\n");
 		expect(readdirSync(dirname(path))).toEqual(["01-a.md"]);
 	});
 

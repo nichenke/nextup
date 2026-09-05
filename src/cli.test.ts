@@ -333,9 +333,9 @@ describe("claiming the pick", () => {
 		expect(refused.code).toBe(3);
 		expect(refused.stderr).toContain("01-first.md");
 
-		const unwritable = tempRepo();
-		writeEffort(unwritable, "an-effort", { "01-first.md": "# 01 — A\n\n**Status: op**en\n" });
-		expect(run([], deps(unwritable)).code).toBe(2);
+		const malformed = tempRepo();
+		writeEffort(malformed, "an-effort", { "01-first.md": "# 01 — A\n\n**Status: op**en\n" });
+		expect(run([], deps(malformed)).code).toBe(2);
 	});
 
 	test("carries the claim and the command in the JSON, so a caller needs no second invocation", () => {
@@ -442,7 +442,7 @@ describe("the confirmation gate", () => {
 	});
 
 	// Answering on the user's behalf is the one thing a gate must not do, in either direction: a silent
-	// yes claims unasked, and a silent no looks exactly like an empty backlog.
+	// yes claims unasked, and a silent no looks exactly like an empty ticket set.
 	test("refuses with nothing to ask on, naming the flag that means yes", () => {
 		const repo = tempRepo();
 		const effort = chainedEffort(repo);
