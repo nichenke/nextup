@@ -3,7 +3,13 @@ import { ClaimError, markdownClaimer } from "./claim";
 import { CommandBuilderError, DEFAULT_SLASH_COMMAND, formatCommand } from "./command-builders";
 import { type LaunchOutcome, type LaunchPlan, LaunchError, planLaunch, prepareLaunch } from "./launcher";
 import { MarkdownEffortError, type MarkdownTicket, discoverEfforts, readEffort } from "./markdown-adapter";
-import { DEFAULT_LABEL_FILTER, LabelFilterError, type LabelFilterSpec, compileLabelFilter } from "./label-filter";
+import {
+	DEFAULT_LABEL_FILTER,
+	LabelFilterError,
+	type LabelFilter,
+	type LabelFilterSpec,
+	compileLabelFilter,
+} from "./label-filter";
 import type { Runner } from "./runner";
 import { renderSelection, selectionJson } from "./selection-output";
 import { type Candidate, type Selection, SelectionError, select } from "./selector";
@@ -125,7 +131,7 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 
 	return options.printCommand
 		? printCommand(options, selection, pick)
-		: startWork(options, selection, pick, effort.tickets, deps, effort.root);
+		: startWork(options, selection, pick, effort.tickets, deps, effort.root, filter);
 }
 
 function nothingToStart(options: Options, selection: Selection): CliResult {
@@ -150,18 +156,21 @@ function printCommand(options: Options, selection: Selection, pick: Candidate): 
 }
 
 /**
- * Refuses where the pick has stopped being one to start, reading the whole effort rather than the one
- * ticket. Blockedness is derived against the effort's graph, so it is the one check the claim step
- * cannot make for itself — it reads a single file, which cannot say whether something else now waits
- * on this one, or whether a blocker reopened.
+ * Refuses where the pick is no longer the ticket this tool would start.
  *
- * Confirmed blocked only. A pick whose blocking has gone unknown is not refused: the ladder ranks
- * unknown candidates itself when nothing confirmed is left, so refusing here would refuse a state the
- * selector will recommend on the next run.
+ * By running the selection again against the re-read effort, rather than by testing the conditions
+ * that seemed to matter. Every rule about what is startable already lives in `select`, and a second
+ * set here would be a second answer to the same question — the first draft of this checked only for a
+ * confirmed-blocked pick, and so let through a pick that had gone `unknown` while another candidate
+ * stayed confirmed-unblocked, which ADR-0003's partition says wins outright.
  *
- * @throws ClaimError, so this reports as what it is — a pick another run may find free.
+ * The gate is why this is needed at all: selection and the claim used to be microseconds apart, and a
+ * question put to a person holds them however long an answer takes.
+ *
+ * @throws ClaimError, so a pick the ticket set moved out from under reports as one another run may
+ * find free.
  */
-function stillStartable(effortRoot: string, ref: TicketRef, deps: CliDeps): void {
+function stillStartable(effortRoot: string, ref: TicketRef, filter: LabelFilter, deps: CliDeps): void {
 	let current;
 	try {
 		current = readEffort(effortRoot, { runner: deps.runner });
@@ -171,14 +180,21 @@ function stillStartable(effortRoot: string, ref: TicketRef, deps: CliDeps): void
 		});
 	}
 
-	const id = ticketId(ref);
-	const now = current.tickets.find((candidate) => ticketId(candidate.ref) === id);
-	if (now === undefined) {
-		throw new ClaimError(`${formatTicketRef(ref)} left the effort before it could be claimed`, "unavailable");
+	let now;
+	try {
+		now = select({ tickets: current.tickets, graph: current.graph, filter, truncated: current.truncated });
+	} catch (cause) {
+		throw new ClaimError(`${effortRoot} could not be ranked again before claiming: ${message(cause)}`, "ticket-set", {
+			cause,
+		});
 	}
-	if (now.blocked === "blocked") {
-		throw new ClaimError(`${formatTicketRef(ref)} became blocked before it could be claimed`, "unavailable");
-	}
+
+	if (now.pick !== null && ticketId(now.pick.ref) === ticketId(ref)) return;
+	const instead = now.pick === null ? "nothing is startable now" : `${formatTicketRef(now.pick.ref)} is now`;
+	throw new ClaimError(
+		`${formatTicketRef(ref)} is no longer the ticket to start; ${instead}`,
+		"unavailable",
+	);
 }
 
 function startWork(
@@ -188,6 +204,7 @@ function startWork(
 	tickets: readonly MarkdownTicket[],
 	deps: CliDeps,
 	effortRoot: string,
+	filter: LabelFilter,
 ): CliResult {
 	const id = ticketId(pick.ref);
 	const ticket = tickets.find((candidate) => ticketId(candidate.ref) === id);
@@ -222,7 +239,7 @@ function startWork(
 			slashCommand: DEFAULT_SLASH_COMMAND,
 			claimer: markdownClaimer(ticket, { runner: deps.runner }),
 			confirm,
-			recheck: () => stillStartable(effortRoot, pick.ref, deps),
+			recheck: () => stillStartable(effortRoot, pick.ref, filter, deps),
 		});
 	} catch (cause) {
 		// Neither of these claimed anything: both come before the claim.

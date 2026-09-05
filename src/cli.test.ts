@@ -449,8 +449,35 @@ describe("the confirmation gate", () => {
 		});
 
 		expect(result.code).toBe(3);
-		expect(result.stderr).toContain("became blocked");
+		expect(result.stderr).toContain("no longer the ticket to start");
 		expect(readFileSync(first, "utf8")).not.toContain("claimed");
+	});
+
+	// Not blocked — unknown, with another candidate still confirmed unblocked. ADR-0003's partition
+	// says the confirmed one wins outright, so claiming the stale pick would contradict the ranking
+	// this tool exists to apply. Checking conditions by hand missed this; re-running the ladder cannot.
+	test("refuses a pick that another candidate would now beat", () => {
+		const repo = tempRepo();
+		const effort = writeEffort(repo, "two-ready", {
+			"01-first.md": "# 01 — Settle the format\n\nStatus: open\n",
+			"02-second.md": "# 02 — Write the reader\n\nStatus: open\n",
+		});
+		const first = join(effort, "issues", "01-first.md");
+
+		const result = run([], {
+			cwd: repo,
+			runner: refuseToRun,
+			confirm: () => {
+				// A blocker no file in this effort carries: the pick goes unknown rather than blocked.
+				writeFileSync(first, "# 01 — Settle the format\n\nStatus: open\nBlocked by: 99\n");
+				return true;
+			},
+		});
+
+		expect(result.code).toBe(3);
+		expect(result.stderr).toContain("md:2 is now");
+		expect(readFileSync(first, "utf8")).not.toContain("claimed");
+		expect(readFileSync(join(effort, "issues", "02-second.md"), "utf8")).not.toContain("claimed");
 	});
 
 	test("reports a gate it could not put as a bad run, not as a decline", () => {
