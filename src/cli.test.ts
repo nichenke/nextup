@@ -421,13 +421,31 @@ describe("the confirmation gate", () => {
 		expect(readFileSync(join(effort, "issues", "01-first.md"), "utf8")).not.toContain("claimed");
 	});
 
-	test("a declined pick is a quiet day to a caller reading JSON, not a claim", () => {
+	// The command was worked out and shown at the gate, so reporting it as absent would lose what the
+	// answer was about. Only `claimed` separates this from an approved run.
+	test("a declined pick reports the command it did not run, and no claim", () => {
 		const repo = tempRepo();
 		chainedEffort(repo);
-		const document = JSON.parse(run(["--json"], deps(repo, terminal(false).confirm)).stdout);
+		const declined = run(["--json"], deps(repo, terminal(false).confirm));
+		const document = JSON.parse(declined.stdout);
 
+		expect(declined.code).toBe(1);
 		expect(document.claimed).toBe(false);
-		expect(document.command).toBeNull();
+		expect(document.command).toEqual(["claude", "/implement md:1"]);
+	});
+
+	// A gate that broke is not a gate that said no, and 1 is the answer that means the user declined.
+	test("reports a gate it could not put as a bad run, not as a decline", () => {
+		const repo = tempRepo();
+		const effort = chainedEffort(repo);
+		const broken = () => {
+			throw new Error("/dev/tty went away");
+		};
+
+		const result = run([], deps(repo, broken));
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("could not be put");
+		expect(readFileSync(join(effort, "issues", "01-first.md"), "utf8")).not.toContain("claimed");
 	});
 
 	test("--yes claims without asking, which is what an unattended run needs", () => {

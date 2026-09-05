@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { ClaimError, markdownClaimer } from "./claim";
 import { CommandBuilderError, DEFAULT_SLASH_COMMAND, formatCommand } from "./command-builders";
-import { type Launch, type LaunchPlan, LaunchError, planLaunch, prepareLaunch } from "./launcher";
+import { type LaunchOutcome, type LaunchPlan, LaunchError, planLaunch, prepareLaunch } from "./launcher";
 import { MarkdownEffortError, type MarkdownTicket, discoverEfforts, readEffort } from "./markdown-adapter";
 import { DEFAULT_LABEL_FILTER, LabelFilterError, type LabelFilterSpec, compileLabelFilter } from "./label-filter";
 import type { Runner } from "./runner";
@@ -16,6 +16,9 @@ import { formatTicketRef } from "./ticket-ref";
  * shown would be an answer to nothing.
  */
 export type Confirm = (question: string) => boolean;
+
+/** A gate that could not be put. Never a no: the two are the same exit status only by accident. */
+class ConfirmError extends Error {}
 
 export interface CliDeps {
 	readonly cwd: string;
@@ -143,7 +146,7 @@ function printCommand(options: Options, selection: Selection, pick: Candidate): 
 		if (cause instanceof CommandBuilderError) return { code: 2, stdout: "", stderr: `${message(cause)}\n` };
 		throw cause;
 	}
-	if (options.json) return { code: 0, stdout: json(selection, plan), stderr: "" };
+	if (options.json) return { code: 0, stdout: json(selection, { kind: "planned", plan }), stderr: "" };
 	// Why this ticket won goes to stderr, so stdout stays a command a caller can pipe into a shell
 	// while a person running the same invocation still sees the reasoning.
 	return { code: 0, stdout: `${formatCommand(plan.command)}\n`, stderr: renderSelection(selection) };
@@ -164,21 +167,31 @@ function startWork(
 		return { code: 2, stdout: "", stderr: `${formatTicketRef(pick.ref)} is not in the effort it was picked from\n` };
 	}
 
-	// Refused rather than treated as a no: an unattended run that meant to claim is one flag away, and
-	// silently declining every one of them would look exactly like an empty ticket set.
-	const ask = deps.confirm;
-	if (!options.yes && ask === null) {
+	// Built by branching rather than by a condition over both fields, so the corner where there is
+	// nobody to ask has to return rather than falling into an arm that answers yes on their behalf.
+	let confirm: (plan: LaunchPlan) => boolean;
+	if (options.yes) {
+		confirm = () => true;
+	} else if (deps.confirm === null) {
 		return { code: 2, stdout: "", stderr: "there is no terminal to confirm on; pass --yes to claim without asking\n" };
+	} else {
+		const ask = deps.confirm;
+		confirm = (plan) => {
+			try {
+				return ask(gate(selection, plan));
+			} catch (cause) {
+				throw new ConfirmError(`the gate could not be put: ${message(cause)}`);
+			}
+		};
 	}
 
-	let launch;
+	let outcome;
 	try {
-		launch = prepareLaunch({
+		outcome = prepareLaunch({
 			ref: pick.ref,
 			slashCommand: DEFAULT_SLASH_COMMAND,
 			claimer: markdownClaimer(ticket, { runner: deps.runner }),
-			// `ask` is null here only when --yes was given, which the guard above is what guarantees.
-			confirm: options.yes || ask === null ? () => true : (plan) => ask(gate(selection, plan)),
+			confirm,
 		});
 	} catch (cause) {
 		// 2 and 3 split on whether a later run could do better. A ticket set that will not take a claim
@@ -186,7 +199,9 @@ function startWork(
 		// claimed nothing at all, since the plan is made before the claim. An unavailable pick is the
 		// other answer: the ticket was fine and somebody else had it. A stranded claim is 3 as well,
 		// with something outstanding to go and clear.
-		if (cause instanceof CommandBuilderError) return { code: 2, stdout: "", stderr: `${message(cause)}\n` };
+		if (cause instanceof CommandBuilderError || cause instanceof ConfirmError) {
+			return { code: 2, stdout: "", stderr: `${message(cause)}\n` };
+		}
 		if (cause instanceof ClaimError) {
 			return { code: cause.kind === "ticket-set" ? 2 : 3, stdout: "", stderr: `${message(cause)}\n` };
 		}
@@ -194,13 +209,14 @@ function startWork(
 		throw cause;
 	}
 
-	if (launch === null) {
+	if (options.json) return { code: outcome.kind === "launched" ? 0 : 1, stdout: json(selection, outcome), stderr: "" };
+
+	if (outcome.kind === "declined") {
 		// The gate printed the pick on its way to asking, so repeating it here would show it twice.
-		const declined = `${formatTicketRef(pick.ref)} not claimed\n`;
-		return options.json ? { code: 1, stdout: json(selection, null), stderr: "" } : { code: 1, stdout: declined, stderr: "" };
+		return { code: 1, stdout: `${formatTicketRef(pick.ref)} not claimed\n`, stderr: "" };
 	}
 
-	if (options.json) return { code: 0, stdout: json(selection, launch), stderr: "" };
+	const launch = outcome.launch;
 	const claimed = `claimed ${formatTicketRef(launch.hold.ref)}\n`;
 	// The gate printed the pick and the command on its way to asking, so an approved run reports only
 	// what has changed since. --yes was never shown either, and gets the whole answer here.
@@ -218,13 +234,15 @@ function gate(selection: Selection, plan: LaunchPlan): string {
 }
 
 /**
- * The selection document, plus what this invocation did about it. `claimed` is read off the plan rather
- * than passed alongside it, so the flag cannot say a claim was taken on a path that took none. Both
- * keys are always present, so a consumer can read either without first testing whether it is there.
+ * The selection document, plus what this invocation did about it. Both fields are read off the outcome
+ * rather than passed alongside it, so no branch can report a claim on a path that took none, or drop a
+ * command that was worked out and shown. Both keys are always present, so a consumer can read either
+ * without first testing whether it is there.
  */
-function json(selection: Selection, plan: LaunchPlan | Launch | null): string {
-	const claimed = plan !== null && "hold" in plan;
-	return `${JSON.stringify({ ...selectionJson(selection), claimed, command: plan?.command ?? null }, null, "\t")}\n`;
+function json(selection: Selection, outcome: LaunchOutcome | null): string {
+	const command = outcome === null ? null : outcome.kind === "launched" ? outcome.launch.command : outcome.plan.command;
+	const claimed = outcome?.kind === "launched";
+	return `${JSON.stringify({ ...selectionJson(selection), claimed, command }, null, "\t")}\n`;
 }
 
 class CliError extends Error {}

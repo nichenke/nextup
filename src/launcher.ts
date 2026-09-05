@@ -29,6 +29,25 @@ export interface Launch extends LaunchPlan {
 }
 
 /**
+ * What a run did about its plan. Tagged rather than `Launch | null`, because `null` is already how a
+ * run with no plan at all is reported and the two would be indistinguishable to a consumer — a
+ * declined pick would read as one that was never worked out, losing the command the gate had already
+ * shown. `planned` is the run that never asked, which is `--print-command`.
+ */
+export type LaunchOutcome =
+	| { readonly kind: "planned"; readonly plan: LaunchPlan }
+	| PreparedLaunch;
+
+/**
+ * The two a run that went through the gate can end on. Narrower than `LaunchOutcome` so that reaching
+ * for the claim has to exclude the decline first — `planned` belongs to the path that never asked, and
+ * leaving it in would put a case in every caller that none of them can reach.
+ */
+export type PreparedLaunch =
+	| { readonly kind: "declined"; readonly plan: LaunchPlan }
+	| { readonly kind: "launched"; readonly launch: Launch };
+
+/**
  * The launch as a plan: what would be run, worked out from the pick alone. Nothing here reads or
  * writes anything outside the process, which is what makes `--print-command` safe to run confined —
  * ADR-0002 has why the tool is split this way.
@@ -38,14 +57,13 @@ export function planLaunch(input: LaunchPlanInput): LaunchPlan {
 }
 
 /**
- * The plan, and a claim on the ticket it is for, or `null` where the plan was not approved. The claim
- * is the last thing that happens and the first thing that writes: everything before it is pure, so
- * both a wrong input and a declined plan cost no tracker write to find out.
+ * The plan, and a claim on the ticket it is for where the plan was approved. The claim is the last
+ * thing that happens and the first thing that writes.
  */
-export function prepareLaunch(input: LaunchInput): Launch | null {
+export function prepareLaunch(input: LaunchInput): PreparedLaunch {
 	const plan = planLaunch(input);
-	if (!input.confirm(plan)) return null;
-	return { ...plan, hold: input.claimer.claim() };
+	if (!input.confirm(plan)) return { kind: "declined", plan };
+	return { kind: "launched", launch: { ...plan, hold: input.claimer.claim() } };
 }
 
 /**

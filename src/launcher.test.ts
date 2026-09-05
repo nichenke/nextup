@@ -33,11 +33,13 @@ function recordingClaimer(options: { claim?: () => ClaimHold; release?: () => Re
 describe("prepareLaunch", () => {
 	test("claims the ticket, and carries the command that would start work on it", () => {
 		const { claimer, calls } = recordingClaimer();
-		const launch = prepareLaunch({ ref: REF, claimer, slashCommand: DEFAULT_SLASH_COMMAND, confirm: approve });
+		const outcome = prepareLaunch({ ref: REF, claimer, slashCommand: DEFAULT_SLASH_COMMAND, confirm: approve });
 
 		expect(calls).toEqual(["claim"]);
-		expect(launch?.hold).toEqual({ ref: REF, claimant: { by: null } });
-		expect(launch?.command).toEqual(["claude", "/implement md:1"]);
+		expect(outcome.kind).toBe("launched");
+		if (outcome.kind !== "launched") return;
+		expect(outcome.launch.hold).toEqual({ ref: REF, claimant: { by: null } });
+		expect(outcome.launch.command).toEqual(["claude", "/implement md:1"]);
 	});
 
 	// The gate is asked with the finished plan and answered before the only write, so declining costs
@@ -46,7 +48,7 @@ describe("prepareLaunch", () => {
 		const { claimer, calls } = recordingClaimer();
 		const asked: LaunchPlan[] = [];
 
-		const launch = prepareLaunch({
+		const outcome = prepareLaunch({
 			ref: REF,
 			claimer,
 			slashCommand: DEFAULT_SLASH_COMMAND,
@@ -56,7 +58,8 @@ describe("prepareLaunch", () => {
 			},
 		});
 
-		expect(launch).toBeNull();
+		// The plan survives the decline, so a caller can still report what it was going to run.
+		expect(outcome).toEqual({ kind: "declined", plan: { command: ["claude", "/implement md:1"] } });
 		expect(calls).toEqual([]);
 		expect(asked).toEqual([{ command: ["claude", "/implement md:1"] }]);
 	});
