@@ -462,6 +462,63 @@ describe("planWorktree", () => {
 		);
 	});
 
+	test("takes an absolute root as written, however it was spelled", () => {
+		const { repo, state } = primaryOn();
+		const elsewhere = tempDir("nextup-elsewhere-");
+		const git = stubGit(state);
+
+		// A shell completion adds the trailing slash, and comparing a path against its resolved form
+		// called that a symlink and refused before anything was created.
+		for (const spelling of [elsewhere, `${elsewhere}/`, `${elsewhere}/./`, `${elsewhere}/sub/..`]) {
+			const plan = planWorktree({ runner: git.runner, repo, branch: "feature/reader-8", root: spelling });
+			expect(plan.path).toBe(join(elsewhere, "reader-8"));
+		}
+	});
+
+	test("refuses a root reached through a dangling symlink, which resolves to nothing to compare", () => {
+		const { repo, state } = primaryOn();
+		symlinkSync(join(repo, "never-created"), join(repo, "dangling"));
+		const git = stubGit(state);
+
+		// A broken link and a directory that does not exist yet both make `realpath` raise ENOENT, so
+		// comparing resolved paths let this through to a `git worktree add` past the claim boundary.
+		expect(kindOf(() => planWorktree({ runner: git.runner, repo, branch: "feature/reader-8", root: join(repo, "dangling") }))).toBe(
+			"stale-directory",
+		);
+	});
+
+	test("refuses to attach where the registered path is no longer a directory", () => {
+		const { repo, state } = primaryOn();
+		const path = join(repo, DEFAULT_WORKTREE_ROOT, "reader-8");
+		mkdirSync(join(repo, DEFAULT_WORKTREE_ROOT), { recursive: true });
+		writeFileSync(path, "a file where the worktree used to be\n");
+		const git = stubGit({
+			...state,
+			worktrees: [...state.worktrees, [`worktree ${path}`, "HEAD abc", "branch refs/heads/feature/reader-8", "locked keep"]],
+		});
+
+		// Something is there, so `gone` is false and the lock keeps git from saying prunable — only
+		// asking what the entry actually is catches it.
+		expect(() => planWorktree({ runner: git.runner, repo, branch: "feature/reader-8" })).toThrow(/not a directory/);
+	});
+
+	test("applies the symlink refusal to an attach too, not only to a worktree it is about to make", () => {
+		const { repo, state } = primaryOn();
+		const path = join(repo, DEFAULT_WORKTREE_ROOT, "reader-8");
+		const moved = join(repo, "moved-away");
+		mkdirSync(moved, { recursive: true });
+		mkdirSync(join(repo, DEFAULT_WORKTREE_ROOT), { recursive: true });
+		symlinkSync(moved, path);
+		const git = stubGit({
+			...state,
+			worktrees: [...state.worktrees, [`worktree ${path}`, "HEAD abc", "branch refs/heads/feature/reader-8"]],
+		});
+
+		// A registration records a path, not what is at it now, so a matching one is not on its own a
+		// reason to skip the check the create path applies.
+		expect(() => planWorktree({ runner: git.runner, repo, branch: "feature/reader-8" })).toThrow(/is a symlink/);
+	});
+
 	test("reports a git that will not answer as a git failure rather than as a missing worktree", () => {
 		const runner: Runner = () => ({ code: 128, stdout: "", stderr: "fatal: not a git repository" });
 
@@ -643,23 +700,6 @@ describe("planWorktree and ensureWorktree against real git", () => {
 		expect(kindOf(() => planWorktree({ runner: defaultRunner, repo, branch: "feature/reader-8", root: linked }))).toBe(
 			"stale-directory",
 		);
-	});
-
-	test("applies the symlink refusal to an attach too, not only to a worktree it is about to make", () => {
-		const { repo, state } = primaryOn();
-		const path = join(repo, DEFAULT_WORKTREE_ROOT, "reader-8");
-		const moved = join(repo, "moved-away");
-		mkdirSync(moved, { recursive: true });
-		mkdirSync(join(repo, DEFAULT_WORKTREE_ROOT), { recursive: true });
-		symlinkSync(moved, path);
-		const git = stubGit({
-			...state,
-			worktrees: [...state.worktrees, [`worktree ${path}`, "HEAD abc", "branch refs/heads/feature/reader-8"]],
-		});
-
-		// A registration records a path, not what is at it now, so a matching one is not on its own a
-		// reason to skip the check the create path applies.
-		expect(() => planWorktree({ runner: git.runner, repo, branch: "feature/reader-8" })).toThrow(/is a symlink/);
 	});
 
 	test("refuses a locked registration whose directory is gone, which git never calls prunable", () => {

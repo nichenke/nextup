@@ -1,5 +1,5 @@
-import { existsSync, lstatSync, readdirSync, realpathSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { existsSync, lstatSync, readdirSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { branchExistsCommand, defaultBranchCommand, worktreeAddCommand, worktreeListCommand } from "./command-builders";
 import type { Runner } from "./runner";
 import type { Ticket } from "./ticket";
@@ -148,7 +148,10 @@ export function planWorktree(input: WorktreePlanInput): WorktreePlan {
 	const primary = main.path;
 
 	const root = input.root ?? DEFAULT_WORKTREE_ROOT;
-	const container = isAbsolute(root) ? root : resolve(primary, root);
+	// `resolve` takes an absolute root as given and a relative one against the primary checkout, and
+	// normalizes either — so a trailing slash or a `..` in `--worktree-root` is the same path rather
+	// than a different spelling of it.
+	const container = resolve(primary, root);
 	refuseIfReachedThroughLink(container);
 	const path = join(container, leafOf(input.branch));
 	const warnings = driftWarnings(input.runner, primary, main.head);
@@ -176,8 +179,13 @@ export function planWorktree(input: WorktreePlanInput): WorktreePlan {
 		}
 		// The same invariant the create path applies. A registration is git's record of a path, not a
 		// promise about what is at it now, so attaching without asking would enforce "not a symlink" on
-		// one route into the worktree and not the other.
-		refuseIfLink(path, inspect(path));
+		// one route into the worktree and not the other — and `gone` above only asks whether something
+		// is there, which a file replacing a deleted worktree satisfies.
+		const entry = inspect(path);
+		refuseIfLink(path, entry);
+		if (entry?.isDirectory() !== true) {
+			throw new WorktreeError(`${path} is registered as a worktree but is not a directory`, "stale-directory");
+		}
 		return { kind: "attached", path, branch: input.branch, command: null, primary, warnings };
 	}
 
@@ -303,37 +311,30 @@ function branchExists(runner: Runner, repo: string, branch: string): boolean {
 }
 
 /**
- * @throws WorktreeError `"stale-directory"` where any part of `root` is a symlink.
+ * @throws WorktreeError `"stale-directory"` where any component of `root` is a symlink.
  *
  * git registers a worktree under the path with its symlinks resolved, so a root reached through one
  * registers as a path this would look for elsewhere, and the next run reports the branch checked out
  * somewhere else rather than attaching to what the last one made. Refused rather than resolved: a
  * worktree root reached through a link is not something this tool needs to support, and following one
  * would leave two names for the same directory with only one of them ever matching git.
+ *
+ * Asked component by component rather than by comparing the path against its resolved form. That
+ * comparison could not tell a dangling symlink from a component that does not exist yet — both make
+ * `realpath` raise `ENOENT` — so a root reached through a broken link passed the guard and failed at
+ * `git worktree add` instead, which runs past the point the claim goes back. It also refused paths
+ * that were merely spelled differently, so a `--worktree-root` with the trailing slash a shell
+ * completion adds was rejected as though it were a link.
  */
 function refuseIfReachedThroughLink(root: string): void {
-	const resolved = canonicalize(root);
-	if (resolved !== root) {
-		throw new WorktreeError(`${root} is reached through a symlink, which resolves to ${resolved}`, "stale-directory");
-	}
-}
-
-/**
- * `path` with the symlinks in it resolved. Resolves the deepest part that exists and re-appends the
- * rest, because the directory being asked about need not be there yet.
- */
-function canonicalize(path: string): string {
-	const tail: string[] = [];
-	let head = path;
+	let at = root;
 	for (;;) {
-		try {
-			return join(realpathSync(head), ...tail);
-		} catch {
-			const parent = dirname(head);
-			if (parent === head) return path;
-			tail.unshift(basename(head));
-			head = parent;
+		if (inspect(at)?.isSymbolicLink() === true) {
+			throw new WorktreeError(`${at} is a symlink, and a worktree root has to be reached without one`, "stale-directory");
 		}
+		const parent = dirname(at);
+		if (parent === at) return;
+		at = parent;
 	}
 }
 
