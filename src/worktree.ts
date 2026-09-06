@@ -174,6 +174,10 @@ export function planWorktree(input: WorktreePlanInput): WorktreePlan {
 		if (atPath.head.kind !== "branch" || atPath.head.name !== input.branch) {
 			throw new WorktreeError(`${path} is already a worktree on ${describe(atPath.head)}, not on ${input.branch}`, "stale-directory");
 		}
+		// The same invariant the create path applies. A registration is git's record of a path, not a
+		// promise about what is at it now, so attaching without asking would enforce "not a symlink" on
+		// one route into the worktree and not the other.
+		refuseIfLink(path, inspect(path));
 		return { kind: "attached", path, branch: input.branch, command: null, primary, warnings };
 	}
 
@@ -240,11 +244,9 @@ function describe(head: Head): string {
  * boundary rather than as this refusal before it.
  */
 function refuseIfOccupied(path: string): void {
-	const entry = asking(path, "inspected", () => lstatSync(path, { throwIfNoEntry: false }));
+	const entry = inspect(path);
 	if (entry === undefined) return;
-	if (entry.isSymbolicLink()) {
-		throw new WorktreeError(`${path} is a symlink; a worktree has to be the directory itself`, "stale-directory");
-	}
+	refuseIfLink(path, entry);
 	if (!entry.isDirectory()) {
 		throw new WorktreeError(`${path} is where the worktree goes, and it is not a directory`, "stale-directory");
 	}
@@ -253,6 +255,17 @@ function refuseIfOccupied(path: string): void {
 			`${path} already holds files and is not a registered worktree; move it aside`,
 			"stale-directory",
 		);
+	}
+}
+
+function inspect(path: string): ReturnType<typeof lstatSync> | undefined {
+	return asking(path, "inspected", () => lstatSync(path, { throwIfNoEntry: false }));
+}
+
+/** @throws WorktreeError `"stale-directory"` where `path` is a symlink rather than the directory. */
+function refuseIfLink(path: string, entry: ReturnType<typeof inspect>): void {
+	if (entry?.isSymbolicLink() === true) {
+		throw new WorktreeError(`${path} is a symlink; a worktree has to be the directory itself`, "stale-directory");
 	}
 }
 

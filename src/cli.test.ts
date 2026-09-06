@@ -572,6 +572,22 @@ describe("ensuring the worktree", () => {
 		expect(result.stderr).toContain("could not be determined");
 	});
 
+	test("does not warn about an effort reached through a committed symlink, which resolves fine", () => {
+		const repo = tempRepo();
+		const real = join(repo, "efforts", "an-effort");
+		mkdirSync(join(real, "issues"), { recursive: true });
+		writeFileSync(join(real, "map.md"), "## Destination\n\nSomewhere.\n");
+		writeFileSync(join(real, "issues", "01-first.md"), "# 01 — Settle the format\n\nStatus: open\n");
+		mkdirSync(join(repo, ".scratch"), { recursive: true });
+		symlinkSync(real, join(repo, ".scratch", "an-effort"));
+
+		// Both checkouts resolve `md:1` through `.scratch`, so the only thing a resolved effort path
+		// changes is that it stops matching what discovery reports.
+		const result = run([], deps(repo));
+		expect(result.code).toBe(0);
+		expect(result.stderr).toBe("");
+	});
+
 	test("warns when the effort is outside the checkout the worktree was cut from", () => {
 		const repo = tempRepo();
 		const elsewhere = tempRepo();

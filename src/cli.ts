@@ -1,4 +1,4 @@
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { ClaimError, markdownClaimer } from "./claim";
 import { CommandBuilderError, DEFAULT_SLASH_COMMAND, formatCommand } from "./command-builders";
@@ -301,7 +301,7 @@ function startWork(
 		};
 	}
 
-	const warnings = [...plan.warnings, ...reachWarning(plan, effortRoot, pick.ref)];
+	const warnings = [...plan.warnings, ...reachWarning(plan, deps.cwd, effortRoot, pick.ref)];
 	const stderr = warnings.map((warning) => `${WARNING_PREFIX}${warning}\n`).join("");
 
 	if (options.json) return { code: 0, stdout: json(selection, outcome, plan, warnings), stderr };
@@ -347,11 +347,15 @@ export const WARNING_PREFIX = "warning: ";
  * Discoverable, not committed: an attached worktree may hold an untracked copy, and what the session
  * can open is what matters. ADR-0014 has why this warns rather than copying the effort or refusing.
  */
-function reachWarning(plan: WorktreePlan, effortRoot: string, ref: TicketRef): readonly string[] {
+function reachWarning(plan: WorktreePlan, cwd: string, effortRoot: string, ref: TicketRef): readonly string[] {
 	const reference = formatTicketRef(ref);
-	const inside = relative(plan.primary, resolveReal(effortRoot));
+	// Relative to the checkout this ran in, which is what `effortRoot` was derived from, so the two
+	// need no resolving to be compared. Resolving the effort instead made a committed symlink under
+	// `.scratch` come back as its target and match nothing discovery reports, which warned that a run
+	// that would have resolved perfectly well could not.
+	const inside = relative(cwd, effortRoot);
 	if (inside.startsWith("..") || isAbsolute(inside)) {
-		return [`${effortRoot} is outside ${plan.primary}, so a session in ${plan.path} cannot resolve ${reference}`];
+		return [`${effortRoot} is outside ${cwd}, so a session in ${plan.path} cannot resolve ${reference}`];
 	}
 
 	const wanted = join(plan.path, inside);
@@ -375,8 +379,8 @@ function reachWarning(plan: WorktreePlan, effortRoot: string, ref: TicketRef): r
 	// Committing helps only where the effort is absent; where several are present, nothing this tool
 	// writes makes a bare reference pick one.
 	const remedy = missing
-		? `commit the effort on the branch, or start the session in ${plan.primary}`
-		: `start the session in ${plan.primary}, where the reference was resolved`;
+		? `commit the effort on the branch, or start the session in ${cwd}`
+		: `start the session in ${cwd}, where the reference was resolved`;
 	return [`${why}, so a session started there cannot resolve ${reference}; ${remedy}`];
 }
 
@@ -403,20 +407,6 @@ function gate(selection: Selection, plan: LaunchPlan): string {
  * command that was worked out and shown. Every key is always present, so a consumer can read any of them
  * without first testing whether it is there.
  */
-/**
- * The effort root as git would report it, so a comparison against the primary checkout git reported is
- * not decided by a symlink — macOS hands out temporary directories under one. A path that will not
- * resolve is passed through unchanged, which still warns, though with the wording for an effort
- * outside the checkout rather than for one missing from the worktree.
- */
-function resolveReal(path: string): string {
-	try {
-		return realpathSync(path);
-	} catch {
-		return path;
-	}
-}
-
 function json(
 	selection: Selection,
 	outcome: LaunchOutcome | null,

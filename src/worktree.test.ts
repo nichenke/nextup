@@ -645,6 +645,23 @@ describe("planWorktree and ensureWorktree against real git", () => {
 		);
 	});
 
+	test("applies the symlink refusal to an attach too, not only to a worktree it is about to make", () => {
+		const { repo, state } = primaryOn();
+		const path = join(repo, DEFAULT_WORKTREE_ROOT, "reader-8");
+		const moved = join(repo, "moved-away");
+		mkdirSync(moved, { recursive: true });
+		mkdirSync(join(repo, DEFAULT_WORKTREE_ROOT), { recursive: true });
+		symlinkSync(moved, path);
+		const git = stubGit({
+			...state,
+			worktrees: [...state.worktrees, [`worktree ${path}`, "HEAD abc", "branch refs/heads/feature/reader-8"]],
+		});
+
+		// A registration records a path, not what is at it now, so a matching one is not on its own a
+		// reason to skip the check the create path applies.
+		expect(() => planWorktree({ runner: git.runner, repo, branch: "feature/reader-8" })).toThrow(/is a symlink/);
+	});
+
 	test("refuses a locked registration whose directory is gone, which git never calls prunable", () => {
 		const repo = realRepo();
 		const plan = planWorktree({ runner: defaultRunner, repo, branch: "feature/reader-8" });
