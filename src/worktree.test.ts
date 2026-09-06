@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Runner, defaultRunner } from "./runner";
@@ -169,6 +169,7 @@ describe("planWorktree", () => {
 	test("attaches to the worktree already at the expected path, issuing nothing", () => {
 		const { repo, state } = primaryOn();
 		const path = join(repo, DEFAULT_WORKTREE_ROOT, "reader-8");
+		mkdirSync(path, { recursive: true });
 		const git = stubGit({
 			...state,
 			worktrees: [...state.worktrees, [`worktree ${path}`, "HEAD abc", "branch refs/heads/feature/reader-8"]],
@@ -209,7 +210,7 @@ describe("planWorktree", () => {
 		});
 
 		expect(() => planWorktree({ runner: git.runner, repo, branch: "feature/reader-8" })).toThrow(
-			/a directory that is gone/,
+			/a directory that is not there/,
 		);
 	});
 
@@ -263,6 +264,7 @@ describe("planWorktree", () => {
 	test("refuses a worktree at the expected path that is on another branch", () => {
 		const { repo, state } = primaryOn();
 		const path = join(repo, DEFAULT_WORKTREE_ROOT, "reader-8");
+		mkdirSync(path, { recursive: true });
 		const git = stubGit({
 			...state,
 			worktrees: [...state.worktrees, [`worktree ${path}`, "HEAD abc", "branch refs/heads/feature/something-else"]],
@@ -276,6 +278,7 @@ describe("planWorktree", () => {
 	test("refuses a worktree at the expected path that is on a detached HEAD", () => {
 		const { repo, state } = primaryOn();
 		const path = join(repo, DEFAULT_WORKTREE_ROOT, "reader-8");
+		mkdirSync(path, { recursive: true });
 		const git = stubGit({
 			...state,
 			worktrees: [...state.worktrees, [`worktree ${path}`, "HEAD abc", "detached"]],
@@ -372,6 +375,24 @@ describe("planWorktree", () => {
 		]);
 	});
 
+	test("refuses a directory it cannot list, rather than letting the listing error escape", () => {
+		const { repo, state } = primaryOn();
+		const path = join(repo, DEFAULT_WORKTREE_ROOT, "reader-8");
+		mkdirSync(path, { recursive: true });
+		chmodSync(path, 0o000);
+		const git = stubGit(state);
+
+		try {
+			// `lstat` answers about an unreadable directory; `readdir` is the call that throws, one line
+			// below the one already guarded.
+			expect(kindOf(() => planWorktree({ runner: git.runner, repo, branch: "feature/reader-8" }))).toBe(
+				"stale-directory",
+			);
+		} finally {
+			chmodSync(path, 0o755);
+		}
+	});
+
 	test("refuses a dangling symlink at the path, which following the link would have read as nothing", () => {
 		const { repo, state } = primaryOn();
 		const path = join(repo, DEFAULT_WORKTREE_ROOT, "reader-8");
@@ -461,29 +482,29 @@ describe("parseWorktreeList", () => {
 		const odd = "/tmp/a\nb";
 		const parsed = parseWorktreeList(record([`worktree ${odd}`, "HEAD abc", "branch refs/heads/main"]));
 
-		expect(parsed).toEqual([{ path: odd, head: { kind: "branch", name: "main" }, prunable: false }]);
+		expect(parsed).toEqual([{ path: odd, head: { kind: "branch", name: "main" }, prunable: false, locked: false }]);
 	});
 
 	test("keeps reading past an attribute it does not know", () => {
 		const parsed = parseWorktreeList(
-			record([`worktree /a`, "HEAD abc", "locked", "something-git-learned later", "branch refs/heads/main"]),
+			record([`worktree /a`, "HEAD abc", "something-git-learned later", "branch refs/heads/main"]),
 		);
 
-		expect(parsed).toEqual([{ path: "/a", head: { kind: "branch", name: "main" }, prunable: false }]);
+		expect(parsed).toEqual([{ path: "/a", head: { kind: "branch", name: "main" }, prunable: false, locked: false }]);
 	});
 
 	test("keeps a bare primary and a detached one apart, rather than as two absent branches", () => {
 		expect(parseWorktreeList(record(["worktree /a", "bare"]))).toEqual([
-			{ path: "/a", head: { kind: "bare" }, prunable: false },
+			{ path: "/a", head: { kind: "bare" }, prunable: false, locked: false },
 		]);
 		expect(parseWorktreeList(record(["worktree /b", "HEAD abc", "detached"]))).toEqual([
-			{ path: "/b", head: { kind: "detached" }, prunable: false },
+			{ path: "/b", head: { kind: "detached" }, prunable: false, locked: false },
 		]);
 	});
 
 	test("calls a record naming no head at all opaque, rather than reading it as any of the three", () => {
 		expect(parseWorktreeList(record(["worktree /a", "HEAD abc"]))).toEqual([
-			{ path: "/a", head: { kind: "opaque" }, prunable: false },
+			{ path: "/a", head: { kind: "opaque" }, prunable: false, locked: false },
 		]);
 	});
 });
@@ -622,6 +643,22 @@ describe("planWorktree and ensureWorktree against real git", () => {
 		expect(kindOf(() => planWorktree({ runner: defaultRunner, repo, branch: "feature/reader-8", root: linked }))).toBe(
 			"stale-directory",
 		);
+	});
+
+	test("refuses a locked registration whose directory is gone, which git never calls prunable", () => {
+		const repo = realRepo();
+		const plan = planWorktree({ runner: defaultRunner, repo, branch: "feature/reader-8" });
+		ensureWorktree(plan, defaultRunner);
+		expect(defaultRunner(["git", "-C", repo, "worktree", "lock", "--reason", "keep", plan.path]).code).toBe(0);
+		rmSync(plan.path, { recursive: true, force: true });
+
+		// Locking is what suppresses `prunable`, so trusting that attribute planned an attach to a path
+		// holding nothing: the run reported a worktree it had not made and kept the claim.
+		expect(defaultRunner(["git", "-C", repo, "worktree", "list", "--porcelain"]).stdout).not.toContain("prunable");
+		expect(kindOf(() => planWorktree({ runner: defaultRunner, repo, branch: "feature/reader-8" }))).toBe(
+			"stale-directory",
+		);
+		expect(() => planWorktree({ runner: defaultRunner, repo, branch: "feature/reader-8" })).toThrow(/unlock it/);
 	});
 
 	test("does not tell a bare repository it is on a detached HEAD, which it has no checkout to be", () => {

@@ -1,4 +1,4 @@
-import { lstatSync, readdirSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { branchExistsCommand, defaultBranchCommand, worktreeAddCommand, worktreeListCommand } from "./command-builders";
 import type { Runner } from "./runner";
@@ -126,6 +126,8 @@ interface Registration {
 	readonly head: Head;
 	/** Set where git reports the registration's directory is gone, which no attach can use. */
 	readonly prunable: boolean;
+	/** Locked worktrees are never reported prunable, so this changes what clearing one takes. */
+	readonly locked: boolean;
 }
 
 /**
@@ -153,18 +155,19 @@ export function planWorktree(input: WorktreePlanInput): WorktreePlan {
 
 	const onBranch = registrations.find((one) => one.head.kind === "branch" && one.head.name === input.branch);
 	if (onBranch !== undefined && onBranch.path !== path) {
-		const where = onBranch.prunable ? `${onBranch.path}, a directory that is gone` : onBranch.path;
+		const where = gone(onBranch) ? `${onBranch.path}, a directory that is not there` : onBranch.path;
 		throw new WorktreeError(`${input.branch} is already checked out at ${where}, not at ${path}`, "branch-elsewhere");
 	}
 
 	const atPath = registrations.find((one) => one.path === path);
 	if (atPath !== undefined) {
-		if (atPath.prunable) {
-			// Refused rather than healed, though `git worktree prune` would clear it: prune takes no path
-			// and would drop every other stale registration in the repository, and it writes, which this
-			// half of the step may not do — the claim is given back on a failure here.
+		if (gone(atPath)) {
+			// Refused rather than healed, though `git worktree prune` would clear an unlocked one: prune
+			// takes no path and would drop every other stale registration in the repository, and it
+			// writes, which this half of the step may not do — the claim is given back on a failure here.
+			const cure = atPath.locked ? `unlock it and clear it with "git worktree prune"` : `clear it with "git worktree prune"`;
 			throw new WorktreeError(
-				`${path} is registered as a worktree but the directory is gone; clear it with "git worktree prune"`,
+				`${path} is registered as a worktree but the directory is not there; ${cure}`,
 				"stale-directory",
 			);
 		}
@@ -210,6 +213,16 @@ function leafOf(branch: string): string {
 	return branch.slice(branch.lastIndexOf("/") + 1);
 }
 
+/**
+ * Whether a registration names a directory that is not there. Asked of the filesystem rather than read
+ * off `prunable`, which git does not set on a locked worktree however missing its directory is — so an
+ * attach was planned for a path holding nothing, and the run reported a worktree it had not made while
+ * keeping the claim.
+ */
+function gone(registration: Registration): boolean {
+	return registration.prunable || !existsSync(registration.path);
+}
+
 function describe(head: Head): string {
 	if (head.kind === "branch") return head.name;
 	if (head.kind === "bare") return "a bare repository";
@@ -227,16 +240,7 @@ function describe(head: Head): string {
  * boundary rather than as this refusal before it.
  */
 function refuseIfOccupied(path: string): void {
-	let entry;
-	try {
-		entry = lstatSync(path, { throwIfNoEntry: false });
-	} catch (cause) {
-		// `throwIfNoEntry` covers a path that is not there; it does not cover a path that cannot be
-		// asked about, which is what an ancestor being a file (ENOTDIR) or unreadable (EACCES) gives.
-		// Raw, that error is not a WorktreeError and no caller catches it, so the command died rather
-		// than reporting the refusal it documents.
-		throw new WorktreeError(`${path} could not be inspected: ${message(cause)}`, "stale-directory");
-	}
+	const entry = asking(path, "inspected", () => lstatSync(path, { throwIfNoEntry: false }));
 	if (entry === undefined) return;
 	if (entry.isSymbolicLink()) {
 		throw new WorktreeError(`${path} is a symlink; a worktree has to be the directory itself`, "stale-directory");
@@ -244,11 +248,27 @@ function refuseIfOccupied(path: string): void {
 	if (!entry.isDirectory()) {
 		throw new WorktreeError(`${path} is where the worktree goes, and it is not a directory`, "stale-directory");
 	}
-	if (readdirSync(path).length > 0) {
+	if (asking(path, "listed", () => readdirSync(path)).length > 0) {
 		throw new WorktreeError(
 			`${path} already holds files and is not a registered worktree; move it aside`,
 			"stale-directory",
 		);
+	}
+}
+
+/**
+ * Every filesystem question this guard asks, classified. `throwIfNoEntry` covers a path that is not
+ * there and nothing else, so an ancestor that is a file (ENOTDIR), a directory that cannot be read
+ * (EACCES), or a path that goes away mid-check all raise a plain error — which no caller catches, so
+ * the command died rather than reporting the refusal this documents. One wrapper rather than a
+ * try/catch per call, because the first of the two was fixed on its own and the second went on
+ * throwing one line below it.
+ */
+function asking<T>(path: string, verb: string, work: () => T): T {
+	try {
+		return work();
+	} catch (cause) {
+		throw new WorktreeError(`${path} could not be ${verb}: ${message(cause)}`, "stale-directory");
 	}
 }
 
@@ -355,12 +375,14 @@ export function parseWorktreeList(text: string): readonly Registration[] {
 	let path: string | null = null;
 	let head: Head = { kind: "opaque" };
 	let prunable = false;
+	let locked = false;
 
 	const close = (): void => {
-		if (path !== null) registrations.push({ path, head, prunable });
+		if (path !== null) registrations.push({ path, head, prunable, locked });
 		path = null;
 		head = { kind: "opaque" };
 		prunable = false;
+		locked = false;
 	};
 
 	for (const attribute of text.split("\0")) {
@@ -382,6 +404,8 @@ export function parseWorktreeList(text: string): readonly Registration[] {
 			head = { kind: "bare" };
 		} else if (name === "prunable") {
 			prunable = true;
+		} else if (name === "locked") {
+			locked = true;
 		}
 	}
 	close();
