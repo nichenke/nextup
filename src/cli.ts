@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { ClaimError, markdownClaimer } from "./claim";
 import { CommandBuilderError, DEFAULT_SLASH_COMMAND, formatCommand } from "./command-builders";
@@ -23,7 +23,7 @@ import { renderSelection, selectionJson } from "./selection-output";
 import { type Candidate, type Selection, SelectionError, select } from "./selector";
 import { ticketId } from "./ticket";
 import { type TicketRef, formatTicketRef } from "./ticket-ref";
-import { type WorktreePlan, WorktreeError, branchName, canonicalize, ensureWorktree, planWorktree } from "./worktree";
+import { type WorktreePlan, WorktreeError, branchName, ensureWorktree, planWorktree } from "./worktree";
 
 /**
  * Puts the pick to the person running this and reports what they said. It prints `question` itself,
@@ -349,7 +349,7 @@ export const WARNING_PREFIX = "warning: ";
  */
 function reachWarning(plan: WorktreePlan, effortRoot: string, ref: TicketRef): readonly string[] {
 	const reference = formatTicketRef(ref);
-	const inside = relative(plan.primary, canonicalize(effortRoot));
+	const inside = relative(plan.primary, resolveReal(effortRoot));
 	if (inside.startsWith("..") || isAbsolute(inside)) {
 		return [`${effortRoot} is outside ${plan.primary}, so a session in ${plan.path} cannot resolve ${reference}`];
 	}
@@ -403,6 +403,20 @@ function gate(selection: Selection, plan: LaunchPlan): string {
  * command that was worked out and shown. Every key is always present, so a consumer can read any of them
  * without first testing whether it is there.
  */
+/**
+ * The effort root as git would report it, so a comparison against the primary checkout git reported is
+ * not decided by a symlink — macOS hands out temporary directories under one. A path that will not
+ * resolve is passed through unchanged, which still warns, though with the wording for an effort
+ * outside the checkout rather than for one missing from the worktree.
+ */
+function resolveReal(path: string): string {
+	try {
+		return realpathSync(path);
+	} catch {
+		return path;
+	}
+}
+
 function json(
 	selection: Selection,
 	outcome: LaunchOutcome | null,

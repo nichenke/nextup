@@ -384,19 +384,15 @@ describe("planWorktree", () => {
 		);
 	});
 
-	test("follows a symlink at the path to the empty directory behind it, as git would", () => {
+	test("refuses a symlink where the worktree goes, whatever is behind it", () => {
 		const { repo, state } = primaryOn();
 		const real = join(repo, "somewhere-real");
 		mkdirSync(real, { recursive: true });
 		mkdirSync(join(repo, DEFAULT_WORKTREE_ROOT), { recursive: true });
 		symlinkSync(real, join(repo, DEFAULT_WORKTREE_ROOT, "reader-8"));
 		const git = stubGit(state);
-		const plan = planWorktree({ runner: git.runner, repo, branch: "feature/reader-8" });
 
-		// The path git will register, so the next run attaches to it rather than reporting the branch
-		// checked out somewhere it did not expect.
-		expect(plan.path).toBe(real);
-		expect(plan.kind).toBe("created");
+		expect(() => planWorktree({ runner: git.runner, repo, branch: "feature/reader-8" })).toThrow(/is a symlink/);
 	});
 
 	test("refuses a symlink at the path when the directory behind it holds files", () => {
@@ -614,22 +610,18 @@ describe("planWorktree and ensureWorktree against real git", () => {
 		);
 	});
 
-	test("attaches on a second run when the worktree root is reached through a symlink", () => {
+	test("refuses a worktree root reached through a symlink rather than resolving it", () => {
 		const repo = realRepo();
 		const real = join(tempDir("nextup-linked-root-"), "trees");
 		mkdirSync(real, { recursive: true });
 		const linked = join(repo, "trees-by-link");
 		symlinkSync(real, linked);
 
-		// git registers the worktree under the path with its symlinks resolved. Compared lexically, the
-		// second run finds the branch at a path it did not expect and calls it checked out elsewhere.
-		const first = planWorktree({ runner: defaultRunner, repo, branch: "feature/reader-8", root: linked });
-		expect(first.kind).toBe("created");
-		ensureWorktree(first, defaultRunner);
-
-		const second = planWorktree({ runner: defaultRunner, repo, branch: "feature/reader-8", root: linked });
-		expect(second.kind).toBe("attached");
-		expect(second.path).toBe(first.path);
+		// git would register the worktree under the resolved path, leaving two names for one directory
+		// and only one of them ever matching a porcelain listing.
+		expect(kindOf(() => planWorktree({ runner: defaultRunner, repo, branch: "feature/reader-8", root: linked }))).toBe(
+			"stale-directory",
+		);
 	});
 
 	test("does not tell a bare repository it is on a detached HEAD, which it has no checkout to be", () => {

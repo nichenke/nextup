@@ -21,6 +21,12 @@ The branch is cut from the primary checkout's HEAD for the same reason, which is
 drift warning — "the primary checkout is on X, not on Y" — worth printing at all. A branch based on
 whichever worktree happened to invoke the tool would be based on something the output never names.
 
+Symlinks along that path are refused rather than resolved, at the root and at the worktree itself.
+git registers a worktree under the path with its links resolved, so following one leaves two names
+for a directory and only the resolved one ever matches a porcelain listing — which showed up as a
+second run reporting the branch checked out elsewhere instead of attaching. Resolving them silently
+would make that work and would also accept a symlinked worktree, which nothing here needs.
+
 ## Consequences
 
 Nothing removes these worktrees, and nothing is going to: removal is out of scope per ADR-0002, which

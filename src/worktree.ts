@@ -146,11 +146,9 @@ export function planWorktree(input: WorktreePlanInput): WorktreePlan {
 	const primary = main.path;
 
 	const root = input.root ?? DEFAULT_WORKTREE_ROOT;
-	// Canonical, because git registers a worktree under the path with its symlinks resolved and every
-	// path here is compared against one git reported. Left lexical, a root reached through a symlink
-	// registered as one path and was looked for at another, so the second run reported the branch
-	// checked out elsewhere instead of attaching to what the first run made.
-	const path = canonicalize(join(isAbsolute(root) ? root : resolve(primary, root), leafOf(input.branch)));
+	const container = isAbsolute(root) ? root : resolve(primary, root);
+	refuseIfReachedThroughLink(container);
+	const path = join(container, leafOf(input.branch));
 	const warnings = driftWarnings(input.runner, primary, main.head);
 
 	const onBranch = registrations.find((one) => one.head.kind === "branch" && one.head.name === input.branch);
@@ -224,8 +222,8 @@ function describe(head: Head): string {
  * into one needing a person, which is the opposite of what ensuring is for.
  *
  * Asked with `lstat`, which does not follow the link, so a symlink is refused whether or not it
- * resolves. Following it, a dangling symlink read as nothing there and the run went on to a
- * `git worktree add` that refuses it — arriving as an unclassified git failure after the claim
+ * resolves. `stat` follows, and on a dangling one it answers that nothing is there — the run then went
+ * on to a `git worktree add` that refuses it, arriving as an unclassified git failure after the claim
  * boundary rather than as this refusal before it.
  */
 function refuseIfOccupied(path: string): void {
@@ -240,6 +238,9 @@ function refuseIfOccupied(path: string): void {
 		throw new WorktreeError(`${path} could not be inspected: ${message(cause)}`, "stale-directory");
 	}
 	if (entry === undefined) return;
+	if (entry.isSymbolicLink()) {
+		throw new WorktreeError(`${path} is a symlink; a worktree has to be the directory itself`, "stale-directory");
+	}
 	if (!entry.isDirectory()) {
 		throw new WorktreeError(`${path} is where the worktree goes, and it is not a directory`, "stale-directory");
 	}
@@ -269,11 +270,26 @@ function branchExists(runner: Runner, repo: string, branch: string): boolean {
 }
 
 /**
- * `path` with the symlinks in it resolved, as git reports a worktree's path. Resolves the deepest part
- * that exists and re-appends the rest, because the worktree's own directory is not there yet on the
- * run that creates it while the root above it may still be reached through a link.
+ * @throws WorktreeError `"stale-directory"` where any part of `root` is a symlink.
+ *
+ * git registers a worktree under the path with its symlinks resolved, so a root reached through one
+ * registers as a path this would look for elsewhere, and the next run reports the branch checked out
+ * somewhere else rather than attaching to what the last one made. Refused rather than resolved: a
+ * worktree root reached through a link is not something this tool needs to support, and following one
+ * would leave two names for the same directory with only one of them ever matching git.
  */
-export function canonicalize(path: string): string {
+function refuseIfReachedThroughLink(root: string): void {
+	const resolved = canonicalize(root);
+	if (resolved !== root) {
+		throw new WorktreeError(`${root} is reached through a symlink, which resolves to ${resolved}`, "stale-directory");
+	}
+}
+
+/**
+ * `path` with the symlinks in it resolved. Resolves the deepest part that exists and re-appends the
+ * rest, because the directory being asked about need not be there yet.
+ */
+function canonicalize(path: string): string {
 	const tail: string[] = [];
 	let head = path;
 	for (;;) {
