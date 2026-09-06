@@ -572,18 +572,16 @@ describe("ensuring the worktree", () => {
 		expect(result.stderr).toContain("could not be determined");
 	});
 
-	test("does not warn about an effort reached through a committed symlink, which resolves fine", () => {
+	test("asks where the effort sits in its own checkout, not where it sits in the primary one", () => {
 		const repo = tempRepo();
-		const real = join(repo, "efforts", "an-effort");
-		mkdirSync(join(real, "issues"), { recursive: true });
-		writeFileSync(join(real, "map.md"), "## Destination\n\nSomewhere.\n");
-		writeFileSync(join(real, "issues", "01-first.md"), "# 01 — Settle the format\n\nStatus: open\n");
-		mkdirSync(join(repo, ".scratch"), { recursive: true });
-		symlinkSync(real, join(repo, ".scratch", "an-effort"));
+		const primary = join(repo, "primary");
+		mkdirSync(primary, { recursive: true });
+		const invokedIn = join(repo, "linked");
+		chainedEffort(invokedIn);
 
-		// Both checkouts resolve `md:1` through `.scratch`, so the only thing a resolved effort path
-		// changes is that it stops matching what discovery reports.
-		const result = run([], deps(repo));
+		// Measured against the primary checkout the effort is at `../linked/.scratch/an-effort`, which
+		// reads as outside it; measured against the checkout it was found in, it is where it belongs.
+		const result = run([], deps(invokedIn, terminal().confirm, fakeGit(primary)));
 		expect(result.code).toBe(0);
 		expect(result.stderr).toBe("");
 	});
