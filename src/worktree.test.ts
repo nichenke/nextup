@@ -24,7 +24,9 @@ afterEach(() => {
 function tempDir(prefix: string): string {
 	const root = mkdtempSync(join(tmpdir(), prefix));
 	roots.push(root);
-	return root;
+	// Real, because git reports worktree paths with their symlinks resolved and every path here is
+	// compared against one git reported; macOS hands `mkdtemp` a symlinked path.
+	return realpathSync(root);
 }
 
 const markdown: TicketRef = { tracker: "markdown", repo: null, host: null, key: "8" };
@@ -382,10 +384,26 @@ describe("planWorktree", () => {
 		);
 	});
 
-	test("refuses a symlink at the path even where it does resolve to a directory", () => {
+	test("follows a symlink at the path to the empty directory behind it, as git would", () => {
 		const { repo, state } = primaryOn();
 		const real = join(repo, "somewhere-real");
 		mkdirSync(real, { recursive: true });
+		mkdirSync(join(repo, DEFAULT_WORKTREE_ROOT), { recursive: true });
+		symlinkSync(real, join(repo, DEFAULT_WORKTREE_ROOT, "reader-8"));
+		const git = stubGit(state);
+		const plan = planWorktree({ runner: git.runner, repo, branch: "feature/reader-8" });
+
+		// The path git will register, so the next run attaches to it rather than reporting the branch
+		// checked out somewhere it did not expect.
+		expect(plan.path).toBe(real);
+		expect(plan.kind).toBe("created");
+	});
+
+	test("refuses a symlink at the path when the directory behind it holds files", () => {
+		const { repo, state } = primaryOn();
+		const real = join(repo, "somewhere-real");
+		mkdirSync(real, { recursive: true });
+		writeFileSync(join(real, "leftover"), "half a checkout\n");
 		mkdirSync(join(repo, DEFAULT_WORKTREE_ROOT), { recursive: true });
 		symlinkSync(real, join(repo, DEFAULT_WORKTREE_ROOT, "reader-8"));
 		const git = stubGit(state);
@@ -393,6 +411,26 @@ describe("planWorktree", () => {
 		expect(kindOf(() => planWorktree({ runner: git.runner, repo, branch: "feature/reader-8" }))).toBe(
 			"stale-directory",
 		);
+	});
+
+	test("refuses when the repository cannot say whether the branch exists, rather than assuming it does not", () => {
+		const { repo, state } = primaryOn();
+		const git = stubGit(state);
+		const failing: Runner = (argv) =>
+			argv.includes("show-ref")
+				? { code: 128, stdout: "", stderr: "fatal: unexpected line in .git/packed-refs" }
+				: git.runner(argv);
+
+		// Read as absent, this would plan a `-b` add and fail there instead — past the point the claim
+		// is given back, leaving a ticket claimed with no branch and no worktree to show for it.
+		expect(kindOf(() => planWorktree({ runner: failing, repo, branch: "feature/reader-8" }))).toBe("git");
+	});
+
+	test("still reads exit 1 as absent, which is what a name git will not accept also returns", () => {
+		const { repo, state } = primaryOn();
+		const git = stubGit(state);
+
+		expect(planWorktree({ runner: git.runner, repo, branch: "feature/reader-8" }).kind).toBe("created");
 	});
 
 	test("reports a git that will not answer as a git failure rather than as a missing worktree", () => {
@@ -562,6 +600,24 @@ describe("planWorktree and ensureWorktree against real git", () => {
 		expect(kindOf(() => planWorktree({ runner: defaultRunner, repo, branch: "feature/reader-8" }))).toBe(
 			"stale-directory",
 		);
+	});
+
+	test("attaches on a second run when the worktree root is reached through a symlink", () => {
+		const repo = realRepo();
+		const real = join(tempDir("nextup-linked-root-"), "trees");
+		mkdirSync(real, { recursive: true });
+		const linked = join(repo, "trees-by-link");
+		symlinkSync(real, linked);
+
+		// git registers the worktree under the path with its symlinks resolved. Compared lexically, the
+		// second run finds the branch at a path it did not expect and calls it checked out elsewhere.
+		const first = planWorktree({ runner: defaultRunner, repo, branch: "feature/reader-8", root: linked });
+		expect(first.kind).toBe("created");
+		ensureWorktree(first, defaultRunner);
+
+		const second = planWorktree({ runner: defaultRunner, repo, branch: "feature/reader-8", root: linked });
+		expect(second.kind).toBe("attached");
+		expect(second.path).toBe(first.path);
 	});
 
 	test("does not tell a bare repository it is on a detached HEAD, which it has no checkout to be", () => {

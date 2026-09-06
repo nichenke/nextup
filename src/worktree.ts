@@ -1,5 +1,5 @@
-import { lstatSync, readdirSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { lstatSync, readdirSync, realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { branchExistsCommand, defaultBranchCommand, worktreeAddCommand, worktreeListCommand } from "./command-builders";
 import type { Runner } from "./runner";
 import type { Ticket } from "./ticket";
@@ -146,7 +146,11 @@ export function planWorktree(input: WorktreePlanInput): WorktreePlan {
 	const primary = main.path;
 
 	const root = input.root ?? DEFAULT_WORKTREE_ROOT;
-	const path = join(isAbsolute(root) ? root : resolve(primary, root), leafOf(input.branch));
+	// Canonical, because git registers a worktree under the path with its symlinks resolved and every
+	// path here is compared against one git reported. Left lexical, a root reached through a symlink
+	// registered as one path and was looked for at another, so the second run reported the branch
+	// checked out elsewhere instead of attaching to what the first run made.
+	const path = canonicalize(join(isAbsolute(root) ? root : resolve(primary, root), leafOf(input.branch)));
 	const warnings = driftWarnings(input.runner, primary, main.head);
 
 	const onBranch = registrations.find((one) => one.head.kind === "branch" && one.head.name === input.branch);
@@ -238,11 +242,41 @@ function refuseIfOccupied(path: string): void {
 	}
 }
 
+/**
+ * @throws WorktreeError `"git"` where the repository could not answer. Exit 1 is "no such ref", and is
+ * also what a name `--verify --quiet` will not accept returns, so both count as absent — such a name
+ * reaches `git worktree add`, which says so. Every other status is the repository failing rather than
+ * answering, and 128 is what it uses; read as absent, that failure would surface at the add instead,
+ * which runs past the point where the claim is given back.
+ */
 function branchExists(runner: Runner, repo: string, branch: string): boolean {
-	// Exit 1 is returned both for a branch that is absent and for a name `--verify --quiet` will not
-	// accept, so only success answers the question. A name git refuses reaches `git worktree add`,
-	// which says so.
-	return runner([...branchExistsCommand(repo, branch)]).code === 0;
+	const result = runner([...branchExistsCommand(repo, branch)]);
+	if (result.code === 0) return true;
+	if (result.code === 1) return false;
+	throw new WorktreeError(
+		`${repo} could not be asked whether ${branch} exists: ${gitFailure(result.stderr, result.code)}`,
+		"git",
+	);
+}
+
+/**
+ * `path` with the symlinks in it resolved, as git reports a worktree's path. Resolves the deepest part
+ * that exists and re-appends the rest, because the worktree's own directory is not there yet on the
+ * run that creates it while the root above it may still be reached through a link.
+ */
+export function canonicalize(path: string): string {
+	const tail: string[] = [];
+	let head = path;
+	for (;;) {
+		try {
+			return join(realpathSync(head), ...tail);
+		} catch {
+			const parent = dirname(head);
+			if (parent === head) return path;
+			tail.unshift(basename(head));
+			head = parent;
+		}
+	}
 }
 
 /**

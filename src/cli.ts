@@ -1,4 +1,4 @@
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { ClaimError, markdownClaimer } from "./claim";
 import { CommandBuilderError, DEFAULT_SLASH_COMMAND, formatCommand } from "./command-builders";
@@ -23,7 +23,7 @@ import { renderSelection, selectionJson } from "./selection-output";
 import { type Candidate, type Selection, SelectionError, select } from "./selector";
 import { ticketId } from "./ticket";
 import { type TicketRef, formatTicketRef } from "./ticket-ref";
-import { type WorktreePlan, WorktreeError, branchName, ensureWorktree, planWorktree } from "./worktree";
+import { type WorktreePlan, WorktreeError, branchName, canonicalize, ensureWorktree, planWorktree } from "./worktree";
 
 /**
  * Puts the pick to the person running this and reports what they said. It prints `question` itself,
@@ -343,34 +343,37 @@ export const WARNING_PREFIX = "warning: ";
 /**
  * Whether a session started in the worktree could resolve the reference it would be handed.
  *
- * A markdown reference names a ticket of the effort under the session's own `.scratch` and carries no
- * path of its own, so it resolves only where the effort is present in the worktree. Present, not
- * committed: an attached worktree may hold an untracked copy, and what the session can open is what
- * matters. ADR-0014 has why this warns rather than copying the effort or refusing the run.
+ * A markdown reference carries no path, so it names a ticket of the *sole* effort discoverable under
+ * the session's own `.scratch` — which is why this asks `discoverEfforts` of the worktree rather than
+ * whether the directory is there. An effort that is present but is one of several, or that sits
+ * outside `.scratch`, is a reference that resolves to nothing while every file it names is on disk.
+ *
+ * Discoverable, not committed: an attached worktree may hold an untracked copy, and what the session
+ * can open is what matters. ADR-0014 has why this warns rather than copying the effort or refusing.
  */
 function reachWarning(plan: WorktreePlan, effortRoot: string, ref: TicketRef): readonly string[] {
-	const inside = relative(plan.primary, resolveReal(effortRoot));
+	const reference = formatTicketRef(ref);
+	const inside = relative(plan.primary, canonicalize(effortRoot));
 	if (inside.startsWith("..") || isAbsolute(inside)) {
-		return [`${effortRoot} is outside ${plan.primary}, so a session in ${plan.path} cannot resolve ${formatTicketRef(ref)}`];
+		return [`${effortRoot} is outside ${plan.primary}, so a session in ${plan.path} cannot resolve ${reference}`];
 	}
-	if (existsSync(join(plan.path, inside))) return [];
-	return [
-		`${inside} is not in ${plan.path}, so a session started there cannot resolve ${formatTicketRef(ref)}; commit the effort on the branch, or start the session in ${plan.primary}`,
-	];
-}
 
-/**
- * The path as git would report it, so that a comparison against one git reported is not decided by a
- * symlink — macOS hands out temporary directories under one. A path that will not resolve is passed
- * through unchanged, which still warns, though with the wording for an effort outside the checkout
- * rather than for one missing from the worktree.
- */
-function resolveReal(path: string): string {
-	try {
-		return realpathSync(path);
-	} catch {
-		return path;
-	}
+	const wanted = join(plan.path, inside);
+	const found = discoverEfforts(plan.path);
+	if (found.length === 1 && found[0] === wanted) return [];
+
+	const missing = !existsSync(wanted);
+	const why = missing
+		? `${inside} is not in ${plan.path}`
+		: found.length > 1
+			? `${plan.path} holds ${found.length} efforts rather than one`
+			: `${inside} is in ${plan.path} but is not the effort discovered there`;
+	// Committing helps only where the effort is absent; where several are present, nothing this tool
+	// writes makes a bare reference pick one.
+	const remedy = missing
+		? `commit the effort on the branch, or start the session in ${plan.primary}`
+		: `start the session in ${plan.primary}, where the reference was resolved`;
+	return [`${why}, so a session started there cannot resolve ${reference}; ${remedy}`];
 }
 
 /**

@@ -42,7 +42,7 @@ function terminal(answer = true): { confirm: CliDeps["confirm"]; questions: stri
  * runner that reported an add without creating anything would be answering a question git does not.
  */
 function fakeGit(primary: string, over: Partial<FakeGit> = {}): Runner {
-	const { branch, branches, effort, effortReaches }: FakeGit = { ...FAKE_GIT, ...over };
+	const { branch, branches, efforts }: FakeGit = { ...FAKE_GIT, ...over };
 	const added: { path: string; branch: string }[] = [];
 	return (argv) => {
 		const words = argv.join(" ");
@@ -59,7 +59,12 @@ function fakeGit(primary: string, over: Partial<FakeGit> = {}): Runner {
 		if (words.includes("worktree add")) {
 			const path = argv[argv.indexOf("add") + 1]!;
 			mkdirSync(path, { recursive: true });
-			if (effortReaches) mkdirSync(join(path, ".scratch", effort, "issues"), { recursive: true });
+			for (const carried of efforts) {
+				// A whole effort, not just the directory: `isEffortRoot` wants a `map.md` beside `issues/`,
+				// and a checkout of a branch carrying the effort produces both.
+				mkdirSync(join(path, carried, "issues"), { recursive: true });
+				writeFileSync(join(path, carried, "map.md"), "## Destination\n\nSomewhere.\n");
+			}
 			added.push({ path, branch: argv[argv.length - 1]! });
 			return { code: 0, stdout: "", stderr: "" };
 		}
@@ -72,12 +77,14 @@ interface FakeGit {
 	readonly branch: string;
 	/** Branches the repository already has, which decides between creating and checking out. */
 	readonly branches: readonly string[];
-	readonly effort: string;
-	/** Whether the effort is committed on the branch, and so present in a fresh worktree. */
-	readonly effortReaches: boolean;
+	/**
+	 * Effort directories the checkout carries, relative to the repo root. Empty stands for an effort
+	 * left untracked, which no worktree of the branch holds.
+	 */
+	readonly efforts: readonly string[];
 }
 
-const FAKE_GIT: FakeGit = { branch: "main", branches: [], effort: "an-effort", effortReaches: true };
+const FAKE_GIT: FakeGit = { branch: "main", branches: [], efforts: [".scratch/an-effort"] };
 
 function deps(cwd: string, confirm: CliDeps["confirm"] = terminal().confirm, runner = fakeGit(cwd)): CliDeps {
 	return { cwd, runner, confirm };
@@ -485,7 +492,7 @@ describe("ensuring the worktree", () => {
 	test("warns when the effort does not reach the worktree, since md:1 there would resolve to nothing", () => {
 		const repo = tempRepo();
 		chainedEffort(repo);
-		const result = run([], deps(repo, terminal().confirm, fakeGit(repo, { effortReaches: false })));
+		const result = run([], deps(repo, terminal().confirm, fakeGit(repo, { efforts: [] })));
 
 		expect(result.code).toBe(0);
 		expect(result.stderr).toContain("cannot resolve md:1");
@@ -495,7 +502,7 @@ describe("ensuring the worktree", () => {
 	test("gives the JSON the same warnings it printed, not the shorter list the plan carried", () => {
 		const repo = tempRepo();
 		chainedEffort(repo);
-		const result = run(["--json"], deps(repo, terminal().confirm, fakeGit(repo, { branch: "wip", effortReaches: false })));
+		const result = run(["--json"], deps(repo, terminal().confirm, fakeGit(repo, { branch: "wip", efforts: [] })));
 		const warnings: string[] = JSON.parse(result.stdout).worktree.warnings;
 
 		expect(warnings).toHaveLength(2);
@@ -504,6 +511,33 @@ describe("ensuring the worktree", () => {
 
 	test("exits 2 on every way of failing to ensure one, since none leaves a ticket another run can take", () => {
 		expect(new Set(Object.values(WORKTREE_FAILURE_STATUS))).toEqual(new Set([2]));
+	});
+
+	test("warns when the worktree carries several efforts, since a bare reference then names none", () => {
+		const repo = tempRepo();
+		chainedEffort(repo);
+		const carried = [".scratch/an-effort", ".scratch/another-effort"];
+		const result = run([], deps(repo, terminal().confirm, fakeGit(repo, { efforts: carried })));
+
+		expect(result.code).toBe(0);
+		expect(result.stderr).toContain("holds 2 efforts rather than one");
+		expect(result.stderr).toContain("cannot resolve md:1");
+	});
+
+	test("warns when the effort is in the worktree but not where an effort is looked for", () => {
+		const repo = tempRepo();
+		const outside = join("docs", "efforts", "an-effort");
+		const effortRoot = join(repo, outside);
+		mkdirSync(join(effortRoot, "issues"), { recursive: true });
+		writeFileSync(join(effortRoot, "map.md"), "## Destination\n\nSomewhere.\n");
+		writeFileSync(join(effortRoot, "issues", "01-first.md"), "# 01 — Settle the format\n\nStatus: open\n");
+		const result = run(["--effort", effortRoot], deps(repo, terminal().confirm, fakeGit(repo, { efforts: [outside] })));
+
+		// Present on disk and still unreachable: `md:1` is resolved through `.scratch`, so an effort
+		// committed anywhere else is a reference that finds nothing while every file it names is there.
+		expect(result.code).toBe(0);
+		expect(result.stderr).toContain("is not the effort discovered there");
+		expect(result.stderr).toContain("cannot resolve md:1");
 	});
 
 	test("warns when the effort is outside the checkout the worktree was cut from", () => {
