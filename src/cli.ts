@@ -519,14 +519,26 @@ function effortFor(cwd: string, given: string | null): string {
 			`several efforts are under ${cwd}/.scratch and this tool reads one to a checkout; keep one and move the rest:\n  ${efforts.join("\n  ")}`,
 		);
 	}
+	const discovered = efforts[0];
+	if (given === null) {
+		if (discovered === undefined) {
+			throw new CliError(`no effort found under ${cwd}/.scratch; name one with --effort`);
+		}
+		return discovered;
+	}
+
 	// Resolved against the same root discovery uses, so a relative `--effort` cannot mean one
 	// directory here and another below.
-	if (given !== null) return resolve(cwd, given);
-	const only = efforts[0];
-	if (only === undefined) {
-		throw new CliError(`no effort found under ${cwd}/.scratch; name one with --effort`);
+	const named = resolve(cwd, given);
+	// One to a checkout counts what the checkout holds, not what `.scratch` holds: naming a second
+	// effort from outside is the same two-efforts-one-branch collision arriving by another door, and
+	// counting only the discovered ones let it through.
+	if (discovered !== undefined && discovered !== named) {
+		throw new CliError(
+			`${cwd} already holds ${discovered} and this tool reads one effort to a checkout; move one of them out, or name the one that is here`,
+		);
 	}
-	return only;
+	return named;
 }
 
 function usageError(cause: unknown): CliResult {

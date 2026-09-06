@@ -39,9 +39,14 @@ rather than from a reference.
 
 ## Consequences
 
-Two efforts under one `.scratch` is now a refusal naming both and saying to keep one. That is a
-narrower tool than before: the configuration was accepted, and any ticket set relying on it has to
-move an effort to another checkout.
+Two efforts under one `.scratch` is now a refusal naming both and saying to keep one. So is naming a
+second from outside with `--effort` while the checkout already holds one — the rule counts what the
+checkout holds, not what `.scratch` holds, and an earlier version counting only the discovered ones
+left the same collision reachable by naming its second effort instead of discovering it. Naming the
+effort that is already there is not a second one and is accepted.
+
+That is a narrower tool than before: the configuration was accepted, and any ticket set relying on it
+has to move an effort to another checkout.
 
 The reachability warning keeps its "holds N efforts" arm even so. This constrains the checkout the
 command is invoked in; the branch it checks out is free to carry a second effort that the invoking

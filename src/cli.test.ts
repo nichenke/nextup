@@ -183,6 +183,31 @@ describe("run", () => {
 		expect(result.stderr).toContain("one to a checkout");
 	});
 
+	test("refuses an effort from outside when the checkout already holds one", () => {
+		const repo = tempRepo();
+		chainedEffort(repo);
+		const outside = join(repo, "docs", "efforts", "another");
+		mkdirSync(join(outside, "issues"), { recursive: true });
+		writeFileSync(join(outside, "map.md"), "## Destination\n\nSomewhere.\n");
+		writeFileSync(join(outside, "issues", "01-first.md"), "# 01 — Settle the format\n\nStatus: open\n");
+
+		// Both number from 1 and share a title, so they name one branch at one path — the same
+		// collision as two under .scratch, reached by naming the second one instead of discovering it.
+		const result = run(["--yes", "--effort", outside], deps(repo));
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("one effort to a checkout");
+	});
+
+	test("lets --effort name the effort the checkout already holds, which is not a second one", () => {
+		const absolute = tempRepo();
+		expect(run(["--print-command", "--effort", chainedEffort(absolute)], deps(absolute)).code).toBe(0);
+
+		// The same directory named the other way, which `resolve` has to make the same answer.
+		const relative = tempRepo();
+		chainedEffort(relative);
+		expect(run(["--print-command", "--effort", ".scratch/an-effort"], deps(relative)).code).toBe(0);
+	});
+
 	test("says plainly when there is no effort to read", () => {
 		const result = run([], deps(tempRepo()));
 		expect(result.code).toBe(2);
