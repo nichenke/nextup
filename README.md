@@ -25,7 +25,10 @@ bun bin/nextup.ts --json            # the selection, the claim, the worktree, an
 bun bin/nextup.ts --help            # every flag
 ```
 
-It reads the single effort under `<cwd>/.scratch`, or the one `--effort <path>` names. `--help` has the
+It reads the single effort under `<cwd>/.scratch`, or the one `--effort <path>` points at. A checkout
+holds one effort — the flag says where an effort is, never which of several to take, and several is
+refused. ADR-0015 has why: an effort is the one concept here with no tracker analogue, and the
+trackers scope an invocation from the checkout's remote rather than from a flag. `--help` has the
 label-filter semantics and the exit codes. A degraded answer — a truncated fetch, or a pick whose
 blockers nothing could confirm — carries one `degraded: ` line per reason, which is the sentinel to
 grep for.

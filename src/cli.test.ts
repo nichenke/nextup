@@ -42,7 +42,7 @@ function terminal(answer = true): { confirm: CliDeps["confirm"]; questions: stri
  * runner that reported an add without creating anything would be answering a question git does not.
  */
 function fakeGit(primary: string, over: Partial<FakeGit> = {}): Runner {
-	const { branch, branches, efforts }: FakeGit = { ...FAKE_GIT, ...over };
+	const { branch, branches, efforts, scratchIsAFile }: FakeGit = { ...FAKE_GIT, ...over };
 	const added: { path: string; branch: string }[] = [];
 	return (argv) => {
 		const words = argv.join(" ");
@@ -59,6 +59,7 @@ function fakeGit(primary: string, over: Partial<FakeGit> = {}): Runner {
 		if (words.includes("worktree add")) {
 			const path = argv[argv.indexOf("add") + 1]!;
 			mkdirSync(path, { recursive: true });
+			if (scratchIsAFile) writeFileSync(join(path, ".scratch"), "a file where .scratch should be\n");
 			for (const carried of efforts) {
 				// A whole effort, not just the directory: `isEffortRoot` wants a `map.md` beside `issues/`,
 				// and a checkout of a branch carrying the effort produces both.
@@ -82,9 +83,11 @@ interface FakeGit {
 	 * left untracked, which no worktree of the branch holds.
 	 */
 	readonly efforts: readonly string[];
+	/** A worktree whose `.scratch` cannot be listed, which is what makes discovery throw. */
+	readonly scratchIsAFile: boolean;
 }
 
-const FAKE_GIT: FakeGit = { branch: "main", branches: [], efforts: [".scratch/an-effort"] };
+const FAKE_GIT: FakeGit = { branch: "main", branches: [], efforts: [".scratch/an-effort"], scratchIsAFile: false };
 
 function deps(cwd: string, confirm: CliDeps["confirm"] = terminal().confirm, runner = fakeGit(cwd)): CliDeps {
 	return { cwd, runner, confirm };
@@ -144,24 +147,40 @@ describe("run", () => {
 		expect(JSON.parse(result.stdout).pick.ref).toBe("md:1");
 	});
 
-	test("reads the effort named on the command line", () => {
+	test("reads an effort the command line points at, wherever it is kept", () => {
 		const repo = tempRepo();
-		chainedEffort(repo, "one");
-		const other = writeEffort(repo, "two", { "05-only.md": "# 05 — Something else\n\nStatus: open\n" });
-		const result = run(["--yes", "--effort", other], deps(repo));
+		const elsewhere = join(repo, "docs", "efforts", "an-effort");
+		mkdirSync(join(elsewhere, "issues"), { recursive: true });
+		writeFileSync(join(elsewhere, "map.md"), "## Destination\n\nSomewhere.\n");
+		writeFileSync(join(elsewhere, "issues", "05-only.md"), "# 05 — Something else\n\nStatus: open\n");
+		const result = run(["--yes", "--effort", elsewhere], deps(repo, terminal().confirm, fakeGit(repo, { efforts: [] })));
+
 		expect(result.code).toBe(0);
 		expect(result.stdout).toContain("md:5 — Something else");
 	});
 
-	test("refuses to guess which of several efforts was meant, and names them", () => {
+	test("refuses a checkout holding several efforts, and does not offer --effort as the way out", () => {
 		const repo = tempRepo();
 		chainedEffort(repo, "one");
 		chainedEffort(repo, "two");
 		const result = run([], deps(repo));
+
 		expect(result.code).toBe(2);
-		expect(result.stderr).toContain("--effort");
+		expect(result.stderr).toContain("one to a checkout");
 		expect(result.stderr).toContain("one");
 		expect(result.stderr).toContain("two");
+	});
+
+	test("refuses several efforts even when --effort picks between them, since that is the collision", () => {
+		const repo = tempRepo();
+		chainedEffort(repo, "one");
+		const other = writeEffort(repo, "two", { "01-first.md": "# 01 — Settle the format\n\nStatus: open\n" });
+
+		// Both efforts number from 1, so both give md:1 the same identity and the same branch at the
+		// same path — starting the second would attach to the first's worktree.
+		const result = run(["--yes", "--effort", other], deps(repo));
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("one to a checkout");
 	});
 
 	test("says plainly when there is no effort to read", () => {
@@ -538,6 +557,19 @@ describe("ensuring the worktree", () => {
 		expect(result.code).toBe(0);
 		expect(result.stderr).toContain("is not the effort discovered there");
 		expect(result.stderr).toContain("cannot resolve md:1");
+	});
+
+	test("warns rather than dying when the worktree cannot be asked what efforts it holds", () => {
+		const repo = tempRepo();
+		chainedEffort(repo);
+		const git = fakeGit(repo, { efforts: [], scratchIsAFile: true });
+
+		// The claim landed and the worktree was built, so there is nothing left to refuse. Thrown from
+		// here the error reached no catch and killed a run that had already succeeded.
+		const result = run([], deps(repo, terminal().confirm, git));
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain("claimed md:1");
+		expect(result.stderr).toContain("could not be determined");
 	});
 
 	test("warns when the effort is outside the checkout the worktree was cut from", () => {

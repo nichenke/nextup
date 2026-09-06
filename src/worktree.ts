@@ -229,7 +229,16 @@ function describe(head: Head): string {
  * boundary rather than as this refusal before it.
  */
 function refuseIfOccupied(path: string): void {
-	const entry = lstatSync(path, { throwIfNoEntry: false });
+	let entry;
+	try {
+		entry = lstatSync(path, { throwIfNoEntry: false });
+	} catch (cause) {
+		// `throwIfNoEntry` covers a path that is not there; it does not cover a path that cannot be
+		// asked about, which is what an ancestor being a file (ENOTDIR) or unreadable (EACCES) gives.
+		// Raw, that error is not a WorktreeError and no caller catches it, so the command died rather
+		// than reporting the refusal it documents.
+		throw new WorktreeError(`${path} could not be inspected: ${message(cause)}`, "stale-directory");
+	}
 	if (entry === undefined) return;
 	if (!entry.isDirectory()) {
 		throw new WorktreeError(`${path} is where the worktree goes, and it is not a directory`, "stale-directory");
@@ -368,4 +377,8 @@ const REF_HEADS = "refs/heads/";
 function gitFailure(stderr: string, code: number): string {
 	const said = stderr.trim();
 	return said === "" ? `git exited ${code}` : said;
+}
+
+function message(cause: unknown): string {
+	return cause instanceof Error ? cause.message : String(cause);
 }

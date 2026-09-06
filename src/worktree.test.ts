@@ -433,6 +433,18 @@ describe("planWorktree", () => {
 		expect(planWorktree({ runner: git.runner, repo, branch: "feature/reader-8" }).kind).toBe("created");
 	});
 
+	test("refuses when the path cannot be inspected at all, rather than letting the error escape", () => {
+		const { repo, state } = primaryOn();
+		// An ancestor that is a file: `lstat` throws ENOTDIR here rather than answering "nothing there",
+		// and raw that error is not a WorktreeError, so nothing in the CLI catches it.
+		writeFileSync(join(repo, DEFAULT_WORKTREE_ROOT), "a placeholder, not a directory\n");
+		const git = stubGit(state);
+
+		expect(kindOf(() => planWorktree({ runner: git.runner, repo, branch: "feature/reader-8" }))).toBe(
+			"stale-directory",
+		);
+	});
+
 	test("reports a git that will not answer as a git failure rather than as a missing worktree", () => {
 		const runner: Runner = () => ({ code: 128, stdout: "", stderr: "fatal: not a git repository" });
 

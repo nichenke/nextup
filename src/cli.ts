@@ -73,7 +73,8 @@ const USAGE = `nextup — picks the ticket to start next, claims it, and says ho
 usage: nextup [--effort <path>] [--include <label>]... [--exclude <label>]... [--yes] [--json]
               [--print-command] [--worktree-root <path>]
 
-  --effort <path>    the effort to read; defaults to the single effort under <cwd>/.scratch
+  --effort <path>    where the effort is; defaults to the single one under <cwd>/.scratch. A
+                     checkout holds one effort — this says where it is, not which to take
   --worktree-root <path>
                      where the ticket's worktree goes; relative paths resolve against the primary
                      checkout. Defaults to .worktrees
@@ -123,12 +124,7 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 
 	let effort;
 	try {
-		// Resolved against the same root discovery uses, so a relative `--effort` cannot mean one
-		// directory here and another in `soleEffort`.
-		effort = readEffort(
-			options.effort === null ? soleEffort(deps.cwd) : resolve(deps.cwd, options.effort),
-			{ runner: deps.runner },
-		);
+		effort = readEffort(effortFor(deps.cwd, options.effort), { runner: deps.runner });
 	} catch (cause) {
 		if (cause instanceof MarkdownEffortError || cause instanceof CliError) {
 			return { code: 2, stdout: "", stderr: `${message(cause)}\n` };
@@ -359,7 +355,15 @@ function reachWarning(plan: WorktreePlan, effortRoot: string, ref: TicketRef): r
 	}
 
 	const wanted = join(plan.path, inside);
-	const found = discoverEfforts(plan.path);
+	let found;
+	try {
+		found = discoverEfforts(plan.path);
+	} catch (cause) {
+		// This runs after the claim landed and the worktree was built, where there is nothing left to
+		// refuse — the run succeeded. Thrown from here it reached no catch at all and killed the
+		// command, turning a warning into the loudest possible failure of a successful run.
+		return [`whether ${plan.path} holds the effort could not be determined: ${message(cause)}`];
+	}
 	if (found.length === 1 && found[0] === wanted) return [];
 
 	const missing = !existsSync(wanted);
@@ -490,18 +494,33 @@ function value(argv: readonly string[], index: number, flag: string): string {
 }
 
 /**
- * The one effort under `.scratch`, or a refusal. Choosing among several would be a decision made on
- * directory order, which is the non-determinism the fixed ladder exists to remove — so the refusal
- * names them and hands the choice back.
+ * The effort this invocation reads: the one under `.scratch`, or wherever `--effort` says it is.
+ *
+ * A checkout holds one effort, and several is refused even when `--effort` picks between them — so
+ * the flag says *where* an effort is, never *which* of them to take. That is the shape the three
+ * trackers to come actually have: `CONTEXT.md` defines an effort as the markdown equivalent of a
+ * scoped query, "which no other tracker's ticket set does", and each of them scopes an invocation
+ * from the checkout's own remote or from user-level config rather than from a flag. Supporting a
+ * choice markdown alone can express builds machinery for markdown alone — ADR-0015, and ADR-0010 for
+ * the rule it follows.
+ *
+ * The collision this closes is concrete: two efforts numbering from 1 give two tickets one identity,
+ * and `ticket.ts` says why that is unsafe. `worktree.ts` then builds one branch name at one path for
+ * both, so starting the second attaches to the first's worktree and hands the session the wrong task.
  */
-function soleEffort(cwd: string): string {
+function effortFor(cwd: string, given: string | null): string {
 	const efforts = discoverEfforts(cwd);
+	if (efforts.length > 1) {
+		throw new CliError(
+			`several efforts are under ${cwd}/.scratch and this tool reads one to a checkout; keep one and move the rest:\n  ${efforts.join("\n  ")}`,
+		);
+	}
+	// Resolved against the same root discovery uses, so a relative `--effort` cannot mean one
+	// directory here and another below.
+	if (given !== null) return resolve(cwd, given);
 	const only = efforts[0];
 	if (only === undefined) {
 		throw new CliError(`no effort found under ${cwd}/.scratch; name one with --effort`);
-	}
-	if (efforts.length > 1) {
-		throw new CliError(`several efforts are under ${cwd}/.scratch; name one with --effort:\n  ${efforts.join("\n  ")}`);
 	}
 	return only;
 }
