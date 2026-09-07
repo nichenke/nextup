@@ -123,7 +123,17 @@ describe("provisionTestTree", () => {
 			expect(built?.labels).toEqual([...issue.labels]);
 			expect(built?.state).toBe(issue.closed ? "CLOSED" : "OPEN");
 			expect((built?.assignees ?? []).length > 0).toBe(issue.claimed);
-			expect(built?.blockedBy).toHaveLength(issue.blockedBy.length);
+			// Identity, not just count: an edge wired to the wrong blocker satisfies a length check, and it is
+			// the only failure a mis-resolved key or a confused id would actually produce. The fake mints ids
+			// as number + 1000 precisely so the two cannot be swapped unnoticed.
+			const expected = issue.blockedBy.map((key) => {
+				const blocker = GITHUB_TEST_TREE.issues.find((candidate) => candidate.key === key);
+				const number = tracker.issues.find((candidate) => candidate.title === blocker?.title)?.number;
+				// Loud rather than compared as undefined, which would make two failed lookups match each other.
+				if (number === undefined) throw new Error(`no built issue for blocker ${key}`);
+				return number;
+			});
+			expect([...(built?.blockedBy ?? [])].sort()).toEqual([...expected].sort());
 		}
 	});
 
@@ -266,6 +276,17 @@ describe("provisionTestTree", () => {
 	test("accepts an empty blocker listing, which is what an issue with no edges yet returns", () => {
 		const tracker = fakeTracker();
 		expect(() => provisionTestTree(GITHUB_TEST_TREE, tracker.runner)).not.toThrow();
+	});
+
+	// `gh api --jq .id` prints nothing and exits 0 when the field is absent, so an unchecked read POSTs an
+	// empty `issue_id` and the 422 that comes back names the wrong cause. Same guard as `createIssue`'s.
+	test("refuses a blocker id that came back empty", () => {
+		// A fresh tracker, so no edges exist yet and the id fetch is actually reached.
+		const tracker = fakeTracker();
+		const blanked: Runner = (argv) =>
+			argv[1] === "api" && argv[3] === "--jq" && argv[4] === ".id" ? ok("\n") : tracker.runner(argv);
+
+		expect(() => provisionTestTree(GITHUB_TEST_TREE, blanked)).toThrow(/is not an issue id/);
 	});
 
 	test("refuses a create whose output carries no issue number", () => {

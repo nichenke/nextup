@@ -50,6 +50,14 @@ describe("validateTestTree", () => {
 		expect(() => validateTestTree(spec)).toThrow(TestTreeError);
 	});
 
+	// A key naming its own issue is in `keys`, so the resolvable-blocker check passes it through — and GitHub
+	// then refuses the edge mid-provision, which is the fail-after-partial-write this function exists to
+	// prevent.
+	test("refuses an issue that blocks itself", () => {
+		const spec: TestTreeSpec = { ...tree, issues: [{ ...issue("chain-tip"), blockedBy: ["chain-tip"] }] };
+		expect(() => validateTestTree(spec)).toThrow(TestTreeError);
+	});
+
 	test("refuses a blocker that names no issue", () => {
 		const spec: TestTreeSpec = { ...tree, issues: [{ ...issue("no-priority"), blockedBy: ["absent"] }] };
 		expect(() => validateTestTree(spec)).toThrow(TestTreeError);

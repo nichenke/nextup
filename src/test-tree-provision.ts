@@ -79,7 +79,13 @@ export function provisionTestTree(spec: TestTreeSpec, runner: Runner): TestTreeR
 		for (const blockerKey of issue.blockedBy) {
 			const blockerNumber = numberOf(numbers, blockerKey);
 			if (present.includes(blockerNumber)) continue;
+			// Checked for the same reason `blockedBy` is: `--jq` prints nothing and exits 0 when the field is
+			// absent, so an unchecked read POSTs an empty `issue_id` and the 422 that comes back blames the
+			// edge rather than the id.
 			const id = run(runner, ["gh", "api", `repos/${spec.repo}/issues/${blockerNumber}`, "--jq", ".id"]).trim();
+			if (!/^[0-9]+$/.test(id)) {
+				throw new TestTreeError(`${JSON.stringify(id)} is not an issue id for ${blockerKey}`);
+			}
 			run(runner, [
 				"gh",
 				"api",

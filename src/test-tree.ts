@@ -216,6 +216,9 @@ export function validateTestTree(spec: TestTreeSpec): void {
 	const declared = new Set(spec.labels.map((label) => label.name));
 	for (const issue of spec.issues) {
 		for (const blocker of issue.blockedBy) {
+			// Self-reference before resolvability, because a key naming its own issue passes the check below:
+			// it is in `keys`. GitHub refuses that edge, so it would fail partway through provisioning.
+			if (blocker === issue.key) throw new TestTreeError(`${issue.key} blocks itself`);
 			if (!keys.has(blocker)) throw new TestTreeError(`${issue.key} is blocked by ${blocker}, which is not an issue`);
 		}
 		for (const label of issue.labels) {
