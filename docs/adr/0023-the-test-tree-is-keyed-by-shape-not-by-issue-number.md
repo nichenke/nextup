@@ -2,7 +2,7 @@
 
 [0019](./0019-every-recording-is-captured-from-a-test-tree.md) makes a test tree the only thing a recording
 is captured from, and calls the trees a maintained asset. This ADR is what that asset is: for GitHub, the
-public repository `nichenke/nextup-test-tree-github`, described by `src/test-tree.ts` and built by
+private repository `nichenke/nextup-test-tree-github`, described by `src/test-tree.ts` and built by
 `bun run provision:test-tree`.
 
 The spec keys every issue on a synthetic name — `chain-tip`, `mixed-blockers`, `write-target` — and never
@@ -12,9 +12,38 @@ starting at 6. A spec keyed on numbers would describe one instance of the tree i
 the first person to rebuild it would find every edge pointing at the wrong issue. Numbers are resolved at
 provisioning time by matching titles, so a title is load-bearing and an edit to one orphans its issue.
 
-The repository is public because 0019's argument for a tree over a judgment is that "whether a test tree
-*does* produce it" is "a fact anyone can check by looking at the tree". Anyone can only check what anyone
-can read. Nothing there is private by construction: every issue is fictional, and the bodies say so.
+## The repository is private, and its visibility is a security control
+
+It was created public, on the reasoning that 0019's argument for a tree over a judgment — "whether a test
+tree *does* produce it" is "a fact anyone can check by looking at the tree" — needs a tree anyone can read.
+That was wrong, and adversarial review is what found it.
+
+A public tree is third-party **writable**, not merely readable. The spec titles are published in
+`src/test-tree.ts` in a public repository, so they are known; provisioning adopts any issue whose title
+matches a spec title; and a ticket's body, its labels and its comments are never reconciled. Those three
+facts are individually defensible and jointly a hole: a stranger opens an issue under a known spec title
+before the tree exists, provisioning adopts it, gives it real dependency edges, and leaves its body exactly
+as written — after which recordings captured from that issue carry a stranger's content while claiming
+test-tree provenance. Commenting on an existing issue needs no timing at all.
+
+That defeats the specific thing 0019 buys. Its consequence is that continuous integration stays free of
+foreign content "by construction rather than by review"; content anyone can write is content review is the
+only defence for.
+
+So visibility is load-bearing here, not cosmetic. Making this repository public again reopens both paths and
+requires replacing them with something else first — validating each issue's author against the provisioning
+identity is the cheap version, since `author` rides along in the listing call already made.
+
+What that costs is real but smaller than 0019's wording suggests. The check "does the tree produce this
+shape?" is still performed by looking at the tree, by whoever holds a token for it — the maintainer, and any
+agent acting for them. What a public reader loses is the tree, not the claim: `src/test-tree.ts` is public
+and is the authoritative description of every shape, `src/test-tree.test.ts` asserts the shapes are present
+in it, and this repository's own continuous integration never contacts the tree at all, so nothing about
+verifying the code depends on reaching it.
+
+The duplicate-title refusal below still catches a title collision independently, and would have stopped the
+squat on an already-provisioned tree. It is not what closes this: it fires after the fact, and it does not
+apply to a tree that does not exist yet, nor to comments at all.
 
 ## What provisioning reconciles, and what it leaves alone
 

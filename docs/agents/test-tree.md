@@ -42,6 +42,10 @@ limit below its size rather than by adding issues.
 
 ## Rules
 
+- **Leave the repository private.** Its visibility is a security control, not a preference: public means
+  anyone can open an issue under a known spec title or comment on an existing one, and provisioning adopts
+  by title while never reconciling bodies, labels or comments. ADR-0023 has the path and what would have to
+  replace it first.
 - **Claim only `write-target`.** Every other issue's claim is a captured shape. If a run leaves a
   stray claim behind, `bun run provision:test-tree` releases it.
 - **Never capture from a real repository.** A shape found in one is recreated here first, per ADR-0019.
