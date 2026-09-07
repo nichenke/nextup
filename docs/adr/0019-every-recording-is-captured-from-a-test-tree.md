@@ -1,6 +1,14 @@
-# Every fixture is captured from a test tree we can recreate
+# Every recording is captured from a test tree we can recreate
 
-Fixtures are captured from dedicated test issue trees and from nowhere else. Real project repositories
+This rule governs **recordings** — captured exchanges with a tracker's CLI. It does not govern
+**scenario inputs**, which are sets of already-normalized tickets exercising the pure selector. The
+distinction is what each artifact claims: a recording asserts that a tracker produces a shape, so it has
+to come from one; a scenario input asserts only how the ladder ranks tickets whose shape is ours by
+definition, so authoring one by hand claims nothing about any tracker and stays legitimate. Without that
+line drawn, the loop the scenario suite exists for — add the smallest set that produces a bad pick, watch
+it fail, fix the rule — would require a tracker round-trip per ranking bug.
+
+Recordings are captured from dedicated test issue trees and from nowhere else. Real project repositories
 are never a capture source. Identifiers in a captured exchange are replaced with a small allowlisted
 synthetic set, one host per tracker.
 

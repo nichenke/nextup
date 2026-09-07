@@ -29,7 +29,6 @@ free, and it is loud.
 
 Tests assert one argv sequence with no failure-branch matrix, because the failure behaviour is to stop.
 
-This does not make concurrent claims safe across machines. GitHub assignees are a set with no atomic
-test-and-set, so no compare-and-swap primitive exists to build on; claiming is best-effort because that
-is what the API offers, not as a deferral. `agent-bakeoff` issue 151 asks for the stronger guarantee
-that two concurrent starts cannot both end claimed, and that guarantee is unavailable at this layer.
+This does not make concurrent claims safe across machines, and does not try to —
+[0018](./0018-concurrent-claim-arbitration-is-out-of-scope.md) has why that is a scope boundary rather
+than an unfinished edge.

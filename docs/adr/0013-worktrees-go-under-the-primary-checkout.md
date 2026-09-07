@@ -30,8 +30,7 @@ would make that work and would also accept a symlinked worktree, which nothing h
 ## Consequences
 
 Nothing removes these worktrees, and nothing is going to: removal is out of scope per ADR-0002, which
-ADR-0005 now records as the settled reading. They accumulate under the root above until somebody
-removes them by hand.
+ADR-0005 now records as the settled reading, along with what that costs.
 
 That decision does not rescue the spec's sentence about the root. Spec issue 2 justifies
 `.claude/worktrees/` by a session-exit cleanup ADR-0005 reproduced and found does not reach these

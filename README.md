@@ -79,8 +79,8 @@ is a ticket set and the filter applied to it, and `<name>.expected.json` is the 
 currently produces.
 
 1. Add a `<name>.input.json` holding the smallest ticket set that produces the bad pick. Its
-   `description` says which tracker behaviour the shape stands in for — the same standard `CLAUDE.md`
-   sets for fixture provenance.
+   `description` says what ranking behaviour the set pins. A scenario input is authored rather than
+   captured, and ADR-0019 says why that is legitimate here and not for a recording.
 2. Write `<name>.expected.json` by hand, or run `UPDATE_SCENARIOS=1 bun test src/scenario.test.ts` and
    read the diff. Regenerating without reading is how a bad pick becomes the recorded expectation.
 3. Watch it fail, then change the ladder until it passes.

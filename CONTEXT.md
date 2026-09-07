@@ -78,8 +78,7 @@ _Avoid_: tier, weight, criterion
 
 **Claim**:
 The signal, written into the tracker, that a ticket is being worked: the assignee, which every remaining
-tracker has. Advisory — nothing enforces it, and it cannot distinguish one of the author's sessions from
-another, because they share an identity.
+tracker has. Advisory — nothing enforces it, and it does not distinguish concurrent sessions.
 _Avoid_: lock, reservation, assignment
 
 **Selector**:
@@ -88,8 +87,8 @@ side effects.
 _Avoid_: picker, chooser, engine
 
 **Launcher**:
-The layer that writes. Ensures a worktree, claims the ticket, starts a session — in that order, so that
-no failure needs undoing. The only part that cannot be sandboxed.
+The layer that writes. Ensures a worktree, claims the ticket, starts a session, in that order. The only
+part that cannot be sandboxed.
 _Avoid_: runner, executor, starter
 
 **Runner**:
@@ -99,8 +98,7 @@ _Avoid_: shell, executor, spawner
 
 **Ensure**:
 Bringing a worktree into the required state — creating it, or attaching to an existing one at the
-expected path. Idempotent, so re-running after a partial failure heals rather than errors, which is why
-recovery needs no separate path.
+expected path. Idempotent, so re-running after a partial failure heals rather than errors.
 _Avoid_: create, setup, init
 
 ### Testing against real trackers

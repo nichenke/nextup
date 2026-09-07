@@ -5,7 +5,7 @@ Blockers come from a tracker's structured links or they resolve to `Unknown`.
 
 ## Why the format goes
 
-The four markdown ADRs this supersedes are the evidence, and they should be read rather than summarised:
+The four markdown ADRs this supersedes carry the evidence in full; the tally below is a pointer into them, not a substitute:
 [0008](./0008-markdown-grammar-is-closed.md), [0009](./0009-block-structure-comes-from-a-commonmark-lexer.md),
 [0010](./0010-the-markdown-reader-infers-nothing.md), [0012](./0012-claiming-overwrites-the-markdown-status.md).
 
@@ -50,4 +50,4 @@ Numbers 0014 and 0015 are permanently unused. Both were markdown ADRs written on
 closed pull request, and reusing spent numbers is worse than a gap.
 
 The rule that governed which markdown shapes were legal is replaced, and strengthened, by
-[0019](./0019-every-fixture-is-captured-from-a-test-tree.md).
+[0019](./0019-every-recording-is-captured-from-a-test-tree.md).
