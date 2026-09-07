@@ -5,7 +5,8 @@
  */
 export const GITHUB_PLACEHOLDER_HOST = "github-test-tree";
 
-// One rule per host shape the guard matches, applied in the order they are declared. Each consumes what
+// One rule per host shape the guard matches, applied in the order they are declared, after the unescaping
+// the guard also does first. Each consumes what
 // the next would otherwise mangle: a scheme carrying userinfo has to be taken whole rather than split at
 // its `@`, and a host inside a scheme has to be gone before the schemeless rule runs, or that rule leaves
 // the scheme standing in front of the placeholder and the result trips the guard it was meant to satisfy.
@@ -37,13 +38,21 @@ const BARE_HOST = /[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}(?=[:/])/g;
 
 /**
  * A captured exchange with each host the identifier guard would flag replaced by `placeholderHost`, leaving
- * paths intact so a reader can still tell one issue's URL from another's.
+ * paths intact so a reader can still tell one issue's URL from another's. The scheme goes with the host, so
+ * the result is not a parseable URL — ADR-0024 says why that is the intent.
  *
  * Not a proof of absence: `scripts/check-identifiers.sh` stays the backstop, and a recording that trips
  * it means extending this rather than adding an allowlist line — ADR-0024.
  */
 export function redactRecordingIdentifiers(text: string, placeholderHost: string): string {
+	// Unescaping first, because the guard's own normalization does it first: a URL whose slashes are
+	// backslash-escaped carries no literal `://`, so every rule below misses it while the guard — which
+	// unescapes before matching — still flags the host. Left alone, that is a real host stored verbatim in a
+	// recording. Rewriting the bytes is safe where a JSON `\/` and a `/` denote the same character; the
+	// guard's other normalization, turning `\n` into a real newline, is deliberately not copied, since that
+	// would break the JSON a recording is made of.
 	return text
+		.replaceAll("\\/", "/")
 		.replace(SCHEME_AUTHORITY, placeholderHost)
 		.replace(EMAIL_HOST, placeholderHost)
 		.replace(BARE_HOST, placeholderHost);

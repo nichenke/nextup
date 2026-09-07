@@ -51,6 +51,29 @@ guard's shapes deliberately, and widening the guard means widening these.
 It is still not a proof of absence, for the same reason the guard's own header gives about its
 normalization: an encoding neither recognises passes through.
 
+The rules also have to copy the guard's *normalization*, not only its shapes. A URL whose slashes are
+backslash-escaped carries no literal `://`, so every rule missed it while the guard — which unescapes
+first — flagged the host: a real host stored verbatim in a recording. Redaction now unescapes `\/` before
+matching, and deliberately does not copy the guard's other normalization, since turning `\n` into a real
+newline would break the JSON a recording is made of.
+
+That class of bug is why the parity test runs the **real** guard over the redacted corpus, in a throwaway
+git repository, rather than a copy of its pattern in TypeScript. The copy agreed with the code it was
+transcribed from, and neither agreed with the guard. A transcription cannot catch a divergence in the thing
+it was transcribed from; only the original can.
+
+A redacted URL is no longer a URL. The scheme is consumed along with the authority, so what remains is the
+placeholder followed by the path, and `new URL()` on it throws. That is intended: leaving the scheme in
+place would leave a token the guard matches whatever the host is, because its scheme shape needs no dot at
+all. Whoever reads a recording's `url` field must treat it as an opaque string.
+
+**Considered and not taken:** replacing the tree's known host strings literally instead of matching host
+*shapes*, which would retire the grammar this reintroduces — the same argument ADR-0006 accepted when it
+chose whole-token comparison over URL parsing. It is a real objection. It is not taken because a recording
+carries hosts beyond the tree's own, so a literal list has to be complete to be safe, and being wrong is
+silent in exactly the way a shape rule is not. What makes the shape rules defensible is that the guard, not
+a transcription of it, is the oracle: a divergence fails a test rather than shipping.
+
 The guard has a fourth shape that redaction cannot reach at all: a slug reference like `owner/repo` and a
 `#` before digits, which carries no host, so rewriting hosts does nothing to it.
 

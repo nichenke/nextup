@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { runGuardOn } from "../scripts/check-identifiers.test";
 import { GITHUB_PLACEHOLDER_HOST, redactRecordingIdentifiers } from "./recording-identifiers";
 
 const redact = (text: string): string => redactRecordingIdentifiers(text, GITHUB_PLACEHOLDER_HOST);
@@ -95,11 +96,33 @@ describe("redactRecordingIdentifiers", () => {
 		expect(redact(once)).toBe(once);
 	});
 
-	test("leaves behind nothing the identifier guard matches", () => {
-		const redacted = redact(
-			[ISSUE_URL, SSH_URL, USERINFO_URL, SCP_REMOTE, QUERY_URL, BARE_HOST_PATH, USERLESS_SCP, HOST_PORT].join("\n"),
-		);
-		expect(redacted).not.toMatch(/:\/\//);
-		expect(redacted).not.toMatch(/[A-Za-z0-9-](?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}[:/]/);
+	// Asserted against the real bash guard rather than a TypeScript copy of its pattern. A copy is what let an
+	// escaped-slash URL through redaction untouched while the guard flagged it: the transcription agreed with
+	// the code it was transcribed from, and neither agreed with the guard.
+	test("leaves behind nothing the real identifier guard matches", () => {
+		const corpus = [
+			ISSUE_URL,
+			SSH_URL,
+			USERINFO_URL,
+			SCP_REMOTE,
+			QUERY_URL,
+			BARE_HOST_PATH,
+			USERLESS_SCP,
+			HOST_PORT,
+			QUERY_AT_HOST,
+			FRAGMENT_AT_HOST,
+			"https:" + "\\/\\/internal.corp" + ".test\\/group\\/x",
+			"user@" + ".internal.corp" + ".test/p",
+			"mirror.internal.test" + "/team/app:1.2.3",
+		].join("\n");
+
+		const result = runGuardOn(`${redact(corpus)}\n`);
+		expect(result.stderr.toString()).toBe("");
+		expect(result.exitCode).toBe(0);
+	});
+
+	test("refuses to vouch for itself: the guard rejects the same corpus unredacted", () => {
+		const result = runGuardOn(`${"https:" + "//internal.corp" + ".test/x"}\n`);
+		expect(result.exitCode).not.toBe(0);
 	});
 });

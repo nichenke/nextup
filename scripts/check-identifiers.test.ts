@@ -40,7 +40,15 @@ const nestedHostInQuery =
 	"//internal.corp" +
 	".test/x";
 
-function runGuardOn(contents: string) {
+/**
+ * Runs the real guard over `contents` in a throwaway git repository, since the guard reads `git ls-files`
+ * and an untracked file is invisible to it.
+ *
+ * Exported so `src/recording-identifiers.test.ts` can assert redaction against the guard itself rather than
+ * against a second copy of its pattern in TypeScript. A transcription is what let an escaped-slash URL pass
+ * redaction untouched while the guard flagged it.
+ */
+export function runGuardOn(contents: string) {
 	const dir = mkdtempSync(join(tmpdir(), "nextup-guard-"));
 	writeFileSync(join(dir, "fixture.md"), contents);
 	for (const cmd of [

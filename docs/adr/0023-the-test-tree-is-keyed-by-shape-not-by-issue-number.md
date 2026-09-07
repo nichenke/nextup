@@ -45,16 +45,30 @@ sharing a title for the same reason — that collapses two keys onto one number 
 converges — but nothing can detect the rename itself, because a renamed issue and a deleted one look
 identical from the outside.
 
+"Nothing can detect the rename" is true only *given* title identity, and that is worth saying plainly
+rather than leaving as an implication. **Considered and not taken:** writing each `key` into the issue body
+or into a `key:<name>` label and matching on that instead, which would make a rename both detectable and
+repairable with `gh issue edit --title`. It is the better identity, and it is declined here for a reason
+that has nothing to do with the scope paragraph below: a marker lives in captured content. Every recording
+would carry our bookkeeping, and the first ticket to need a body byte-for-byte would be arguing with it.
+Revisit if a rename ever actually happens; the cost of being wrong is one duplicated issue, caught by the
+check below.
+
 What *is* detectable is the state a rename leaves behind, and the two are worth separating. Provisioning
 refuses a listing in which two issues share a title, checked against the tracker rather than the spec,
 because the title map keeps the last of such a pair and strands the rest where no later run can reach them
 and every recording captures them. So the rename is documented and its consequence is caught.
 
-A **label definition** is the exception, and the distinction is easy to lose: the name, colour and
-description of each label in `spec.labels` are re-asserted on every run with `gh label create --force`,
-because a recording captures a label's colour, so the colour is a property of the spec rather than of
-whoever created the label first. That write is unconditional and reports no change, so a hand-edited
-colour is reset silently — the one place provisioning heals without saying so.
+A **label definition** is the exception, and the distinction is easy to lose: the name and colour of each
+label in `spec.labels` are re-asserted on every run with `gh label create --force`, because a recording
+captures a label's colour, so the colour is a property of the spec rather than of whoever created the label
+first. That write is unconditional and reports no change, so a hand-edited colour is reset silently — the
+one place provisioning heals without saying so.
+
+Only the name and the colour, though: `TestTreeLabel` carries no description, and `--force` with no
+`--description` leaves an existing one untouched rather than blanking it — measured against the live tree
+by setting a description by hand and re-provisioning. So a label's description behaves like a body: set by
+hand, never reconciled, and drifting silently if anyone edits it.
 
 That boundary is the point, not a gap to close later. The provisioner exists to make the tree
 reproducible, not to keep it in sync: the four things it reconciles are the ones a rebuild or the write
