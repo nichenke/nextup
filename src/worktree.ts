@@ -224,8 +224,11 @@ function refuseUnlessAttachable(registration: Registration, path: string, branch
 	if (gone(registration)) {
 		// Refused rather than healed, though `git worktree prune` would clear an unlocked one: prune takes
 		// no path, so it would also drop every other stale registration in the repository.
-		const cure = registration.locked ? `unlock it and clear it with "git worktree prune"` : `clear it with "git worktree prune"`;
-		throw new WorktreeError(`${path} is registered as a worktree but the directory is not there; ${cure}`, "stale-directory");
+		const unlock = registration.locked ? "unlock it and " : "";
+		throw new WorktreeError(
+			`${path} is registered as a worktree but the directory is not there; ${unlock}clear it with "git worktree prune"`,
+			"stale-directory",
+		);
 	}
 	if (registration.head.kind !== "branch" || registration.head.name !== branch) {
 		throw new WorktreeError(
@@ -233,10 +236,10 @@ function refuseUnlessAttachable(registration: Registration, path: string, branch
 			"stale-directory",
 		);
 	}
-	const entry = inspect(path);
-	refuseIfLink(path, entry);
-	if (entry?.isDirectory() !== true) {
-		throw new WorktreeError(`${path} is registered as a worktree but is not a directory`, "stale-directory");
+	if (inspectUsable(path, "is registered as a worktree but is not a directory") === undefined) {
+		// `gone` above already refuses an absent path, so reaching here means it went away in between the
+		// two calls. Said plainly rather than left to `git worktree add`, which is not run on this route.
+		throw new WorktreeError(`${path} is registered as a worktree but went away while being checked`, "stale-directory");
 	}
 }
 
@@ -283,26 +286,36 @@ function describe(head: Head): string {
  * worktree add` that refuses the path anyway, turning this typed refusal into an unclassified git fatal.
  */
 function refuseIfOccupied(path: string): void {
-	const entry = inspect(path);
-	if (entry === undefined) return;
-	refuseIfLink(path, entry);
-	if (!entry.isDirectory()) {
-		throw new WorktreeError(`${path} is where the worktree goes, and it is not a directory`, "stale-directory");
-	}
+	if (inspectUsable(path, "is where the worktree goes, and it is not a directory") === undefined) return;
 	if (asking(path, "listed", () => readdirSync(path)).length > 0) {
 		throw new WorktreeError(`${path} already holds files and is not a registered worktree; move it aside`, "stale-directory");
 	}
 }
 
-function inspect(path: string): ReturnType<typeof lstatSync> | undefined {
-	return asking(path, "inspected", () => lstatSync(path, { throwIfNoEntry: false }));
-}
-
-/** @throws WorktreeError `"stale-directory"` where `path` is a symlink rather than the directory. */
-function refuseIfLink(path: string, entry: ReturnType<typeof inspect>): void {
+/**
+ * What is at `path`, having refused it unless a worktree could be there: absent is allowed and reported
+ * as `undefined`, a symlink and a non-directory are not. `complaint` says what the caller wanted it for.
+ *
+ * The one guard both the attach and the create route go through, rather than the same three checks
+ * written twice. Written twice, they drifted: the symlink refusal held on the create route only, and an
+ * attach to a symlinked path went through — so a third check added to one and not the other is the
+ * failure mode this shape exists to make impossible.
+ *
+ * @throws WorktreeError `"stale-directory"`.
+ */
+function inspectUsable(path: string, complaint: string): ReturnType<typeof lstatSync> | undefined {
+	const entry = inspect(path);
 	if (entry?.isSymbolicLink() === true) {
 		throw new WorktreeError(`${path} is a symlink; a worktree has to be the directory itself`, "stale-directory");
 	}
+	if (entry !== undefined && !entry.isDirectory()) {
+		throw new WorktreeError(`${path} ${complaint}`, "stale-directory");
+	}
+	return entry;
+}
+
+function inspect(path: string): ReturnType<typeof lstatSync> | undefined {
+	return asking(path, "inspected", () => lstatSync(path, { throwIfNoEntry: false }));
 }
 
 /**
