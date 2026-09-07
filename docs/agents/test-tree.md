@@ -35,7 +35,7 @@ gh issue list --repo nichenke/nextup-test-tree-github --state all --limit 200 \
 | `needs-triage` | A candidate exclusion the filter is given by hand |
 | `excluded-blocker`, `blocked-by-excluded` | A ticket the default filter excludes, still blocking one it admits |
 | `cycle-first`, `cycle-second`, `cycle-third` | A three-hop dependency cycle — ADR-0023 has why three and not two |
-| `write-target` | The only issue a test may assign and unassign |
+| `write-target` | Reserved for the write path — see the rule below |
 
 The tree holds more open issues than a low fetch limit returns, so truncation is reachable by setting the
 limit below its size rather than by adding issues.
@@ -46,10 +46,10 @@ limit below its size rather than by adding issues.
   anyone can open an issue under a known spec title or comment on an existing one, and provisioning adopts
   by title while never reconciling bodies, labels or comments. ADR-0023 has the path and what would have to
   replace it first.
-- **Claim only `write-target`.** Every other issue's claim is a captured shape. If a run leaves a
-  stray claim behind, `bun run provision:test-tree` releases it.
-- **Never capture from a real repository.** A shape found in one is recreated here first, per ADR-0019.
-  Reading a real repository live is a discovery instrument, not a capture source.
+- **`write-target` is the only issue a test may assign and unassign.** Every other issue's claim is a
+  captured shape. If a run leaves a stray claim behind, `bun run provision:test-tree` releases it.
+- **Never capture from a real repository** — ADR-0019 is the rule and `CLAUDE.md` carries it into every
+  session.
 - **Redact before storing**, with `redactRecordingIdentifiers` in `src/recording-identifiers.ts`. ADR-0024
   has why, and why a recording that trips the identifier guard means extending redaction rather than
   allowlisting.

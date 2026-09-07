@@ -47,10 +47,8 @@ export function provisionTestTree(spec: TestTreeSpec, runner: Runner): TestTreeR
 	const changes: TestTreeChange[] = [];
 
 	for (const label of spec.labels) {
-		// `--force` updates an existing label instead of failing, which is what makes the colour a
-		// property of the spec rather than of whoever created the label first. It writes unconditionally
-		// and reports nothing, so a hand-edited colour is reset without appearing in the change list —
-		// unlike a per-issue label assignment, which is never touched after creation.
+		// `--force` updates rather than failing, and this writes unconditionally and reports no change —
+		// ADR-0023 has why a label definition is reconciled when a per-issue label is not.
 		run(runner, ["gh", "label", "create", label.name, "--repo", spec.repo, "--color", label.color, "--force"]);
 	}
 

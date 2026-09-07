@@ -53,8 +53,8 @@ that do not exist, dependency edges that are missing, the claim, and open or clo
 
 The claim is on that list because the claim path mutates it deliberately. Ticket 37 assigns and unassigns
 for real, so the tree has to be restorable afterwards without being rebuilt. `write-target` is the only
-issue a test may touch: every other issue's claim is itself a captured shape, so claiming one of those
-changes what the next recording says about it.
+issue a test may assign and unassign: every other issue's claim is itself a captured shape, so claiming one
+of those changes what the next recording says about it.
 
 `CONTEXT.md` defines a **Claim** as the assignee written into the tracker, and gives "assignment" as a word
 to avoid for it. What the tree records is therefore whether an issue *carries* a claim, not who holds one:

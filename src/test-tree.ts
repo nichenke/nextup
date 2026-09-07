@@ -17,7 +17,7 @@ export interface TestTreeIssue {
 	readonly labels: readonly string[];
 	/** Keys of the issues this one is blocked by, as native tracker dependency edges. */
 	readonly blockedBy: readonly string[];
-	/** `write-target` is the only issue a test may change. */
+	/** `write-target` is the only issue a test may assign and unassign. */
 	readonly claimed: boolean;
 	readonly closed: boolean;
 }
