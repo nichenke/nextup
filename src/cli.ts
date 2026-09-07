@@ -32,6 +32,9 @@ export interface CliResult {
 
 const USAGE = `nextup — picks the ticket to start next, claims it, and says how to start work on it
 
+No tracker adapter is wired yet, so every invocation but --help exits 2. The flags below are parsed and
+the label filter is validated; nothing else below has an implementation to reach.
+
 usage: nextup [--include <label>]... [--exclude <label>]... [--yes] [--json] [--print-command]
 
   --include <label>  consider only tickets carrying one of these labels; repeatable
