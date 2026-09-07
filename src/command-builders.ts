@@ -62,6 +62,41 @@ export function originRemoteCommand(): readonly string[] {
 	return ["git", "remote", "get-url", "origin"];
 }
 
+export function worktreeListCommand(repo: string): readonly string[] {
+	// `-z`, for the reason `parseWorktreeList` gives.
+	return ["git", "-C", repo, "worktree", "list", "--porcelain", "-z"];
+}
+
+/**
+ * Whether the repository already has this branch. Answered by `show-ref` rather than by scanning the
+ * worktree listing, which sees only branches that are checked out somewhere.
+ */
+export function branchExistsCommand(repo: string, branch: string): readonly string[] {
+	return ["git", "-C", repo, "show-ref", "--verify", "--quiet", `refs/heads/${branch}`];
+}
+
+/**
+ * Which branch the repository treats as its default.
+ *
+ * The full ref, because `--short` shortens only as far as stays unambiguous: with a local branch named
+ * `origin/main` in the repository it answers `remotes/origin/main` rather than `origin/main`, and a
+ * caller stripping `origin/` is then left comparing `remotes/origin/main` against a branch name. The
+ * full form is always `refs/remotes/origin/<branch>`, so the prefix to strip is fixed.
+ */
+export function defaultBranchCommand(repo: string): readonly string[] {
+	return ["git", "-C", repo, "symbolic-ref", "refs/remotes/origin/HEAD"];
+}
+
+/**
+ * The worktree for one branch, at one path. `create` picks between cutting a new branch from `repo`'s
+ * HEAD and checking out one that already exists; `-b` against an existing branch is a fatal error
+ * rather than an attach, so the two cannot share an invocation.
+ */
+export function worktreeAddCommand(repo: string, path: string, branch: string, create: boolean): readonly string[] {
+	const add = ["git", "-C", repo, "worktree", "add", path];
+	return create ? [...add, "-b", branch] : [...add, branch];
+}
+
 /**
  * Argv as one line a POSIX shell parses back into the same words, for a human to read or paste. It is
  * never what the tool executes — the runner takes argv — so this cannot become the path by which a

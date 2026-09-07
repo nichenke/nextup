@@ -1,0 +1,19 @@
+{
+	"description": "A worktree for a branch that does not exist yet, cut from the primary checkout's HEAD.",
+	"input": {
+		"repo": "/repo",
+		"path": "/repo/.worktrees/reader-8",
+		"branch": "feature/reader-8",
+		"create": true
+	},
+	"argv": [
+		"git",
+		"-C",
+		"/repo",
+		"worktree",
+		"add",
+		"/repo/.worktrees/reader-8",
+		"-b",
+		"feature/reader-8"
+	]
+}

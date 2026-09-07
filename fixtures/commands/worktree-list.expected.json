@@ -1,0 +1,15 @@
+{
+	"description": "Every worktree the repository has registered, which is what the worktree step reads first.",
+	"input": {
+		"repo": "/repo"
+	},
+	"argv": [
+		"git",
+		"-C",
+		"/repo",
+		"worktree",
+		"list",
+		"--porcelain",
+		"-z"
+	]
+}

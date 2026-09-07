@@ -12,10 +12,11 @@ treated as unblocked.
 
 ## Status
 
-The selector and the ranking ladder are built and tested against fixtures. No tracker adapter is built
-yet, so there is nothing for a run to read a ticket set from, claim, or start a session on: of the
-invocations below, only `--help` and `-h` do anything today, and every other one exits 2. What follows
-describes the command surface those flags will drive.
+The selector, the ranking ladder, and the worktree step are built and tested. No tracker adapter is
+built yet, so there is nothing for a run to read a ticket set from, claim, or start a session on: of
+the invocations below, only `--help` and `-h` do anything today, and every other one exits 2. The
+worktree step has no live caller for the same reason — it is reached by its own tests and nothing else.
+What follows describes the command surface those flags will drive.
 
 ```sh
 bun bin/nextup.ts                   # show the pick, ask, and claim it if you agree
@@ -59,6 +60,19 @@ and leaves the worktree in place; re-running attaches to it and retries, because
 idempotent. There is no release path and no rollback. The leftover on failure is a worktree, which
 `git worktree list` reports and the next attempt reuses, rather than a claim advertising work nobody is
 doing.
+
+Ensuring the worktree is one of three things, and the outcome says which: the branch and the worktree
+both created, a worktree made for a branch that already existed, or an attach to the worktree already
+at the expected path. Anything else there is refused by kind — a stale directory, a symlink, a
+registration whose directory has gone, the branch checked out somewhere else — rather than left to
+`git worktree add`'s own fatal. The branch is `feature/` or `fix/` by whether the ticket is labelled a
+bug, then the title as a slug, then the ticket's key last so tab-completion reaches the slug. It goes
+under `.worktrees/` in the primary checkout unless a caller names another root;
+[ADR-0013](./docs/adr/0013-worktrees-go-under-the-primary-checkout.md) has why there. Nothing removes
+these worktrees, so they accumulate until you clear them by hand —
+[ADR-0005](./docs/adr/0005-worktree-removal-stays-unimplemented.md) has the reproduction behind that
+being settled rather than pending. A primary checkout that has drifted off the default branch is
+warned about, not refused, because the new branch is cut from that checkout's HEAD.
 
 Everything before the claim — the ranking, the plan, the gate — writes nothing to the tracker, so a
 declined pick and a wrong input both cost no tracker write to find out.

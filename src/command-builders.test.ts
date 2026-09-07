@@ -4,10 +4,14 @@ import { dirname, join } from "node:path";
 import {
 	DEFAULT_SLASH_COMMAND,
 	authStatusCommand,
+	branchExistsCommand,
+	defaultBranchCommand,
 	formatCommand,
 	jiraIdentityCommand,
 	originRemoteCommand,
 	sessionCommand,
+	worktreeAddCommand,
+	worktreeListCommand,
 } from "./command-builders";
 import type { TicketRef } from "./ticket-ref";
 
@@ -26,6 +30,9 @@ interface Case {
 
 const github: TicketRef = { tracker: "github", repo: "example/repo", host: null, key: "1" };
 const jira: TicketRef = { tracker: "jira", repo: null, host: null, key: "ABC-7" };
+
+const BRANCH = "feature/reader-8";
+const WORKTREE_PATH = "/repo/.worktrees/reader-8";
 
 const CASES: readonly Case[] = [
 	{
@@ -69,6 +76,36 @@ const CASES: readonly Case[] = [
 		description: "The remote a repository-scoped short form is resolved against.",
 		input: {},
 		build: () => originRemoteCommand(),
+	},
+	{
+		name: "worktree-list",
+		description: "Every worktree the repository has registered, which is what the worktree step reads first.",
+		input: { repo: "/repo" },
+		build: () => worktreeListCommand("/repo"),
+	},
+	{
+		name: "branch-exists",
+		description: "Whether the branch is already in the repository, which decides between creating and checking out.",
+		input: { repo: "/repo", branch: BRANCH },
+		build: () => branchExistsCommand("/repo", BRANCH),
+	},
+	{
+		name: "default-branch",
+		description: "The branch the primary checkout is warned about drifting off.",
+		input: { repo: "/repo" },
+		build: () => defaultBranchCommand("/repo"),
+	},
+	{
+		name: "worktree-add-new-branch",
+		description: "A worktree for a branch that does not exist yet, cut from the primary checkout's HEAD.",
+		input: { repo: "/repo", path: WORKTREE_PATH, branch: BRANCH, create: true },
+		build: () => worktreeAddCommand("/repo", WORKTREE_PATH, BRANCH, true),
+	},
+	{
+		name: "worktree-add-existing-branch",
+		description: "A worktree for a branch that already exists, where -b would be a fatal error instead.",
+		input: { repo: "/repo", path: WORKTREE_PATH, branch: BRANCH, create: false },
+		build: () => worktreeAddCommand("/repo", WORKTREE_PATH, BRANCH, false),
 	},
 ];
 
