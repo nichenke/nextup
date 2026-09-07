@@ -17,12 +17,19 @@ worktrees `nextup` creates, and if so, on what it keys. Reproduced directly agai
 
 ## Consequences
 
-The assumption this tool was scoped under — "worktree removal is deliberately not implemented, matching
-the existing decision to leave removal to the harness's native session-exit prompt" — does not hold.
+Removal stays out of scope, which is what ADR-0002 says and what this ADR's title asserts. What does
+not survive is the *reason* the spec gave for it: "worktree removal is deliberately not implemented,
+matching the existing decision to leave removal to the harness's native session-exit prompt."
 `nextup`'s launcher issues `git worktree add` through its own injected runner; it never calls the
 harness's `EnterWorktree`, and a spawned process could not reach that in-session flag even if it wanted
-to. Removal is a genuine, unimplemented gap, not a deferred one: ticket 08 either builds explicit
-removal or documents that worktrees `nextup` creates accumulate until removed by hand.
+to. So the decision holds and its stated justification does not — a distinction worth keeping, because
+that justification is also what set the default worktree root, and there it produced a wrong answer.
+
+The cost, stated plainly so that nobody has to rediscover it: nothing removes a worktree `nextup`
+creates. They accumulate under the worktree root until somebody removes them by hand, and no part of
+this tool warns when they do. Reopening that is a new ticket, not an unfinished one — it turns on what
+should happen to uncommitted work in a worktree and to the ticket's claim, neither of which the
+launcher has any basis to decide.
 
 The default worktree root ticket 08 picks needs no alignment with `.claude/worktrees/` for cleanup's
 sake — that path carries no special behavior for a worktree the harness's tools never touched. Root
