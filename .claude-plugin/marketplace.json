@@ -8,7 +8,7 @@
   "plugins": [
     {
       "name": "nextup",
-      "description": "Unblocked Opportunist - picks the best unclaimed, unblocked ticket and starts work on it in its own worktree.",
+      "description": "Unblocked Opportunist - picks the best unclaimed, unblocked ticket and starts work on it in its own worktree. No tracker adapter is wired yet.",
       "source": "./",
       "version": "0.1.0"
     }
