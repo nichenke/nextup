@@ -1,10 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { spawnSync } from "bun";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
-const script = join(import.meta.dir, "check-identifiers.sh");
+import { runGuardOn } from "./guard-harness";
 
 // Fixtures the guard must reject are assembled at runtime, because this file is itself tracked
 // and scanned. Splitting after a scheme's colon is no longer sufficient on its own, because the
@@ -39,29 +34,6 @@ const nestedHostInQuery =
 	"?redirect=https:" +
 	"//internal.corp" +
 	".test/x";
-
-/**
- * Runs the real guard over `contents` in a throwaway git repository, since the guard reads `git ls-files`
- * and an untracked file is invisible to it.
- *
- * Exported so `src/recording-identifiers.test.ts` can assert redaction against the guard itself rather than
- * against a second copy of its pattern in TypeScript. A transcription is what let an escaped-slash URL pass
- * redaction untouched while the guard flagged it.
- */
-export function runGuardOn(contents: string) {
-	const dir = mkdtempSync(join(tmpdir(), "nextup-guard-"));
-	writeFileSync(join(dir, "fixture.md"), contents);
-	for (const cmd of [
-		["git", "init", "-q"],
-		["git", "add", "fixture.md"],
-	]) {
-		const setup = spawnSync({ cmd, cwd: dir });
-		if (setup.exitCode !== 0) {
-			throw new Error(`fixture setup failed: ${cmd.join(" ")}`);
-		}
-	}
-	return spawnSync({ cmd: ["bash", script], cwd: dir });
-}
 
 describe("check-identifiers", () => {
 	test("passes tokens that are on the allowlist", () => {

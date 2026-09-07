@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { runGuardOn } from "../scripts/check-identifiers.test";
+import { runGuardOn } from "../scripts/guard-harness";
 import { GITHUB_PLACEHOLDER_HOST, redactRecordingIdentifiers } from "./recording-identifiers";
 
 const redact = (text: string): string => redactRecordingIdentifiers(text, GITHUB_PLACEHOLDER_HOST);
