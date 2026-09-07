@@ -1,5 +1,9 @@
 # Scope binding lives in user-level config, keyed on the git remote
 
+> Amended in part by
+> [0022](./0022-removing-markdown-left-three-earlier-decisions-partly-void.md). The body below
+> stands as written; 0022 records which clauses no longer bind.
+
 `nextup` infers everything it can from the working directory — the repository from the git remote, the
 markdown ticket directory from the tree — but a Jira project key cannot be inferred from a git remote,
 so that one binding has to be recorded somewhere. We record it in a single user-level config file

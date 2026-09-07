@@ -13,7 +13,9 @@ treated as unblocked.
 ## Status
 
 The selector and the ranking ladder are built and tested against fixtures. No tracker adapter is built
-yet, so there is nothing for a run to read a ticket set from, claim, or start a session on.
+yet, so there is nothing for a run to read a ticket set from, claim, or start a session on: of the
+invocations below, only `--help` and `-h` do anything today, and every other one exits 2. What follows
+describes the command surface those flags will drive.
 
 ```sh
 bun bin/nextup.ts                   # show the pick, ask, and claim it if you agree
@@ -34,8 +36,8 @@ nothing claimed.
 
 - [The spec](https://github.com/nichenke/nextup/issues/2) — problem, solution, user stories, and the
   phased delivery
-- [The ticket set](https://github.com/nichenke/nextup/issues?q=is%3Aissue+label%3Aready-for-agent) — 16
-  tickets, children of the spec, wired with native blocking edges
+- [The ticket set](https://github.com/nichenke/nextup/issues?q=is%3Aissue+label%3Aready-for-agent) —
+  children of the spec, wired with native blocking edges rather than an order written into their titles
 - [`docs/adr/`](./docs/adr/) — the architecture decisions, each one a thing a reader would otherwise try
   to "fix"
 - [`CONTEXT.md`](./CONTEXT.md) — the glossary, and the reason it exists: the concepts here already carry
@@ -48,17 +50,25 @@ Two layers, deliberately separate:
 - **The selector is a pure function.** Ticket set, claim state, and blocking graph in; ranked candidates
   with reasons out, as JSON. No side effects and no model in the decision path, so its output can be
   asserted exactly against a fixture.
-- **The launcher is a thin shell over it.** It claims the ticket, ensures a worktree, and starts a
+- **The launcher is a thin shell over it.** It ensures a worktree, claims the ticket, and starts a
   session. It is the only part that writes anything, and the only part that cannot be sandboxed.
 
-The claim comes first, before anything exists locally, so a failure leaves a visible wrong state in the
-tracker rather than an orphan on a disk nobody is looking at. Everything before it — the ranking, the
-plan, the gate — writes nothing to the tracker, so a declined pick and a wrong input both cost no
-tracker write to find out.
-A claim that cannot land aborts having changed nothing, and one that lands but cannot be verified is
-rolled back — or says plainly that it could not be, because a claim left on a ticket nobody is working
-is the failure the whole step exists to avoid. The boundary past which a claim is kept rather than
-given back is where a worktree starts existing. A claim is advisory — `CONTEXT.md` says what that means.
+The worktree comes first, and the claim second, so that no failure needs undoing — see
+[ADR-0016](./docs/adr/0016-the-worktree-is-created-before-the-claim.md). A failed claim aborts loudly
+and leaves the worktree in place; re-running attaches to it and retries, because `ensure()` is
+idempotent. There is no release path and no rollback. The leftover on failure is a worktree, which
+`git worktree list` reports and the next attempt reuses, rather than a claim advertising work nobody is
+doing.
+
+Everything before the claim — the ranking, the plan, the gate — writes nothing to the tracker, so a
+declined pick and a wrong input both cost no tracker write to find out.
+
+The claim is one write and its exit status is the whole verdict. Nothing is read back, and two starts of
+the same ticket are not arbitrated: every agent here authenticates as one identity and assignees carry no
+atomic test-and-set, so no tracker call can tell this session's write from a sibling's. That is a scope
+boundary rather than an unfinished edge —
+[ADR-0018](./docs/adr/0018-concurrent-claim-arbitration-is-out-of-scope.md). A claim is advisory;
+`CONTEXT.md` says what that means.
 
 Ranking is a fixed ladder, each rung skipped when its signal is absent, with the last rung guaranteeing
 a total order:
