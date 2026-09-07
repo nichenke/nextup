@@ -10,10 +10,6 @@ const refuseToRun: Runner = (argv) => {
 	throw new Error(`nothing may run an external process here: ${argv.join(" ")}`);
 };
 
-/**
- * A terminal that answers the gate, and a record of what it was shown. Approving by default keeps the
- * tests below about what they are named for; the gate has its own describe block.
- */
 function terminal(answer = true): { confirm: CliDeps["confirm"]; questions: string[] } {
 	const questions: string[] = [];
 	return {

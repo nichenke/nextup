@@ -13,8 +13,7 @@ export interface LaunchPlan {
 
 /**
  * The launch as a plan: what would be run, worked out from the pick alone. Nothing here reads or
- * writes anything outside the process, which is what makes `--print-command` safe to run confined —
- * ADR-0002 has why the tool is split this way.
+ * writes anything outside the process — ADR-0002 has why the tool is split this way.
  */
 export function planLaunch(input: LaunchPlanInput): LaunchPlan {
 	return { command: sessionCommand(input) };

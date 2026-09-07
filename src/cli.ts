@@ -2,21 +2,15 @@ import { DEFAULT_LABEL_FILTER, LabelFilterError, type LabelFilterSpec, compileLa
 import type { Runner } from "./runner";
 
 /**
- * Puts the pick to the person running this and reports what they said. It prints `question` itself,
- * because `run` returns its output rather than writing it and an answer given before the pick had been
- * shown would be an answer to nothing.
+ * Prints `question` itself and reports the answer, because `run` returns its output rather than
+ * writing it, so a question held until `run` returns would be asked after the moment it was about.
  */
 export type Confirm = (question: string) => boolean;
 
 export interface CliDeps {
 	readonly cwd: string;
-	/** The one seam every external process passes through. */
 	readonly runner: Runner;
-	/**
-	 * `null` where there is nobody to ask — a pipe, a cron entry, a sandbox with no terminal. Not an
-	 * automatic yes: an unattended run that meant to claim says so with `--yes`, and one that did not
-	 * is refused rather than answered on its behalf.
-	 */
+	/** `null` where there is nobody to ask — a pipe, a cron entry, a sandbox with no terminal. */
 	readonly confirm: Confirm | null;
 }
 
@@ -32,8 +26,7 @@ export interface CliResult {
 
 const USAGE = `nextup — picks the ticket to start next, claims it, and says how to start work on it
 
-No tracker adapter is wired yet, so every invocation but --help exits 2. The flags below are parsed and
-the label filter is validated; nothing else below has an implementation to reach.
+No tracker adapter is wired yet: only --help and -h succeed, and every other invocation exits 2.
 
 usage: nextup [--include <label>]... [--exclude <label>]... [--yes] [--json] [--print-command]
 
@@ -42,7 +35,7 @@ usage: nextup [--include <label>]... [--exclude <label>]... [--yes] [--json] [--
   --yes              claim the pick without asking first
   --print-command    print the launch command and claim nothing
   --json             emit the selection as JSON rather than the human rendering
-  --help             print this
+  --help, -h         print this
 
 A label may end in "*" to match a prefix. --exclude 'wayfinder:*' always applies and --exclude adds
 to it, so the two tracks cannot compete for one ticket on a flag that never mentioned wayfinder.
@@ -55,8 +48,9 @@ unattended run needs; with neither a terminal nor --yes the run is refused rathe
 your behalf. --print-command claims nothing and never asks.
 
 Exit status: 0 a ticket claimed, or a command printed, 1 nothing started — nothing to recommend, or
-the pick declined, 2 something needing a person — a bad invocation, a ticket set that will not read or
-take a claim, or a claim left behind, 3 a pick another run may find free.
+the pick declined, 2 something needing a person — no configured ticket-set source, a bad invocation, a
+ticket set that will not read or take a claim, or a claim left behind, 3 a pick another run may find
+free.
 `;
 
 export function run(argv: readonly string[], deps: CliDeps): CliResult {

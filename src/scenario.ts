@@ -27,8 +27,9 @@ export function loadScenario(path: string): Scenario {
 	const graph = seedGraph(
 		specs.map((spec) => ({
 			id: ticketId(spec.ticket.ref),
-			// Markdown has no containment relation and no other tracker's is modelled here, so every
-			// ticket is a confirmed root rather than an unread one.
+			// Containment is not a blocking channel (ADR-0017), so no adapter reads a parent and the
+			// traversal's ancestor walk is inert. `null` is what the port takes for that; it is not a
+			// claim that these tickets were checked and found to be roots.
 			parent: null,
 			blockers: spec.ticket.blockers === "unknown" ? ("unknown" as const) : spec.ticket.blockers.map(ticketId),
 			open: spec.openness,

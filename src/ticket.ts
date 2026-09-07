@@ -18,8 +18,8 @@ export interface Claim {
  *
  * Every property is `readonly` so that an adapter narrowing one in a subtype cannot be widened back
  * through a `Ticket`-typed alias. Without it, TypeScript's mutable properties make such a narrowing
- * unsound: `(md as Ticket).blockers = "unknown"` type-checks and puts the string into a field the
- * subtype has told its readers is an array.
+ * unsound: `(narrowed as Ticket).blockers = "unknown"` type-checks and puts the string into a field
+ * the subtype has told its readers is an array.
  *
  * `state` and `claim` carry no `"unknown"`, unlike `blockers`, so an adapter that cannot confirm
  * either must throw rather than construct a `Ticket`. Defaulting is what the absent third state
@@ -52,8 +52,8 @@ export interface Ticket {
  * - Refs entering one graph must agree on how much they know. A short form resolved from a git remote
  *   has no host while a pasted URL for the same ticket does, so the two would occupy different nodes —
  *   an adapter must emit one consistent form for a set rather than mixing them.
- * - A Jira short form has neither host nor repo, so its id is unique only among the tenant it was
- *   resolved against. A caller merging ticket sets across tenants must qualify the host first.
+ * - A Jira short form carries neither host nor repo — nothing resolves a tenant — so the same key from
+ *   two tenants lands on one id. A caller merging ticket sets across tenants must qualify the host first.
  */
 export function ticketId(ref: TicketRef): IssueId {
 	// A fixed-arity tuple with its nulls kept, rather than the readable parts joined by a delimiter.
