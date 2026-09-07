@@ -88,11 +88,12 @@ export function branchName(ticket: Pick<Ticket, "ref" | "title" | "labels">): st
  * of git's rules: the denylist has to stay in step with git, and one that falls behind produces a branch
  * name git refuses.
  *
- * `_` is in the set because leaving it out refused keys git accepts. A Jira `PROJ_12` collapsed to
- * `proj-12`, failed `branchName`'s survival test, and was rejected as unspellable — `git
- * check-ref-format --branch feature/proj_12` exits 0, as it does for a leading, trailing or doubled
- * underscore. Keeping it also collapses fewer distinct keys onto one name, which is what that test
- * guards.
+ * `_` is in the set because leaving it out constrained future adapters for nothing: a key like `PROJ_12`
+ * collapsed to `proj-12`, failed `branchName`'s survival test, and was refused as unspellable, while
+ * `git check-ref-format --branch feature/proj_12` exits 0 — as it does for a leading, trailing or
+ * doubled underscore. No reachable input reaches it today, since `resolveTicketRef` admits only digits
+ * for github and gitlab and `PROJECT-<number>` for Jira. Keeping `_` also collapses fewer distinct keys
+ * onto one name, which is the property that survival test guards, so it does not weaken it.
  *
  * Not sufficient on its own: text with nothing in the accepted set returns `""`, and an empty component
  * is the one thing `check-ref-format` still rejects. `branchName` is where that is refused.
