@@ -74,6 +74,12 @@ describe("redactRecordingIdentifiers", () => {
 		);
 	});
 
+	// The guard admits an empty label after the `@`, so redaction has to as well; a stricter rule here left
+	// this shape for the guard to fail the build on.
+	test("replaces a degenerate host whose first label is empty", () => {
+		expect(redact("user@" + ".com")).toBe(HOST);
+	});
+
 	test("leaves a package version alone, which is the other thing spelled with an @", () => {
 		expect(redact("typescript@5.1.2")).toBe("typescript@5.1.2");
 		expect(redact("@types/bun@1.4.0")).toBe("@types/bun@1.4.0");

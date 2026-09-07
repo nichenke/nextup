@@ -42,7 +42,7 @@ limit below its size rather than by adding issues.
 
 ## Rules
 
-- **Claim only `write-target`.** Every other issue's assignment is a captured shape. If a run leaves a
+- **Claim only `write-target`.** Every other issue's claim is a captured shape. If a run leaves a
   stray claim behind, `bun run provision:test-tree` releases it.
 - **Never capture from a real repository.** A shape found in one is recreated here first, per ADR-0019.
   Reading a real repository live is a discovery instrument, not a capture source.

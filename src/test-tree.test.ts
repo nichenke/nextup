@@ -5,6 +5,13 @@ import { GITHUB_TEST_TREE, type TestTreeSpec, TestTreeError, validateTestTree } 
 
 const tree = GITHUB_TEST_TREE;
 
+/**
+ * The fetch limit a truncation test is expected to set. Named rather than written inline as a bare number,
+ * so the tree's size and the limit it has to exceed cannot drift apart silently — the shape ticket 35 asks
+ * for is "enough issues to force truncation", which a comparison against an anonymous constant cannot pin.
+ */
+const LOW_FETCH_LIMIT = 10;
+
 function issue(key: string) {
 	const found = tree.issues.find((candidate) => candidate.key === key);
 	if (found === undefined) throw new Error(`no issue keyed ${key}`);
@@ -112,7 +119,7 @@ describe("the shapes the GitHub test tree carries", () => {
 	});
 
 	test("more open issues than a deliberately low fetch limit returns", () => {
-		expect(tree.issues.filter((candidate) => !candidate.closed).length).toBeGreaterThan(10);
+		expect(tree.issues.filter((candidate) => !candidate.closed).length).toBeGreaterThan(LOW_FETCH_LIMIT);
 	});
 
 	test("exactly one issue reserved for the write path", () => {

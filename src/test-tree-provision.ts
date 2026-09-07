@@ -33,7 +33,6 @@ export interface TestTreeChange {
 
 export interface TestTreeReport {
 	readonly changes: readonly TestTreeChange[];
-	readonly numbers: ReadonlyMap<string, number>;
 }
 
 /**
@@ -58,7 +57,7 @@ export function provisionTestTree(spec: TestTreeSpec, runner: Runner): TestTreeR
 	const existing = listIssues(spec, runner);
 	// Title is the identity, so a title renamed by hand in the tracker or edited in the spec is not drift
 	// that surfaces later — it reads as absent and gets a second issue created beside the original, which
-	// keeps its edges and its assignment. A rename is indistinguishable from a deletion from out here, so
+	// keeps its edges and its claim. A rename is indistinguishable from a deletion from out here, so
 	// this is documented in ADR-0023 rather than detected.
 	const byTitle = new Map(existing.map((issue) => [issue.title, issue]));
 	const numbers = new Map<string, number>();
@@ -74,6 +73,9 @@ export function provisionTestTree(spec: TestTreeSpec, runner: Runner): TestTreeR
 	}
 
 	for (const issue of spec.issues) {
+		// Most of the tree declares no blockers, and an issue cannot gain one without a spec change, so
+		// reading its edges back is a round trip whose answer is discarded.
+		if (issue.blockedBy.length === 0) continue;
 		const number = numberOf(numbers, issue.key);
 		const present = blockedBy(spec, number, runner);
 		for (const blockerKey of issue.blockedBy) {
@@ -102,9 +104,15 @@ export function provisionTestTree(spec: TestTreeSpec, runner: Runner): TestTreeR
 		changes.push(...reconcileState(spec, issue, number, found, runner));
 	}
 
-	return { changes, numbers };
+	return { changes };
 }
 
+/**
+ * `claimed` means the issue carries an assignee, not that it carries a particular one — which is what the
+ * candidate filter reads, and all the tree has to offer it. So any assignee satisfies `claimed: true`,
+ * while `claimed: false` removes every one of them; the two branches are asymmetric only if `claimed` is
+ * misread as "assigned to us".
+ */
 function reconcileClaim(
 	spec: TestTreeSpec,
 	issue: TestTreeIssue,
@@ -133,9 +141,8 @@ function reconcileState(
 ): readonly TestTreeChange[] {
 	const closed = found?.state === "CLOSED";
 	if (issue.closed === closed) return [];
-	const verb = issue.closed ? "close" : "reopen";
-	run(runner, ["gh", "issue", verb, String(number), "--repo", spec.repo]);
-	return [{ key: issue.key, action: verb === "close" ? "closed" : "reopened" }];
+	run(runner, ["gh", "issue", issue.closed ? "close" : "reopen", String(number), "--repo", spec.repo]);
+	return [{ key: issue.key, action: issue.closed ? "closed" : "reopened" }];
 }
 
 function listIssues(spec: TestTreeSpec, runner: Runner): readonly ExistingIssue[] {
@@ -156,10 +163,8 @@ function listIssues(spec: TestTreeSpec, runner: Runner): readonly ExistingIssue[
 	if (issues.length >= LIST_LIMIT) {
 		throw new TestTreeError(`${spec.repo} returned ${LIST_LIMIT} issues, so the listing may be truncated`);
 	}
-	// `validateTestTree` checks the same property over the spec, and the tracker can violate it on its own:
-	// a tree built from a spec that once held a duplicate, or an issue renamed onto another's title. The
-	// title map below would keep the last of the pair and strand the rest, where no run can reach them and
-	// every recording captures them.
+	// `validateTestTree` checks the same property over the spec; the tracker can violate it on its own,
+	// through a rename or a spec that once held a duplicate. ADR-0023 has what a stranded issue costs.
 	const seen = new Set<string>();
 	for (const issue of issues) {
 		if (seen.has(issue.title)) {
@@ -182,8 +187,14 @@ function parseIssues(stdout: string): readonly ExistingIssue[] {
 	const parsed: unknown = JSON.parse(stdout);
 	if (!Array.isArray(parsed)) throw new TestTreeError(`the issue listing is not a list: ${stdout.slice(0, 80)}`);
 	return parsed.map((raw, index) => {
-		const { number, title, state, assignees } = raw as Partial<ExistingIssue>;
 		const at = `issue ${index} of the listing`;
+		// Before the field checks, not with them: destructuring a null element raises a TypeError that
+		// escapes the TestTreeError this promises, while a null *inside* `assignees` is caught below. The
+		// guard was one level too shallow.
+		if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+			throw new TestTreeError(`${at} is not an object: ${JSON.stringify(raw)}`);
+		}
+		const { number, title, state, assignees } = raw as Partial<ExistingIssue>;
 		if (typeof number !== "number" || !Number.isSafeInteger(number) || number <= 0) {
 			throw new TestTreeError(`${at} has no usable number: ${JSON.stringify(number)}`);
 		}
@@ -245,7 +256,10 @@ function numberOf(numbers: ReadonlyMap<string, number>, key: string): number {
 function run(runner: Runner, argv: readonly string[]): string {
 	const result = runner([...argv]);
 	if (result.code !== 0) {
-		throw new TestTreeError(`${argv[0]} ${argv[1]} exited ${result.code}: ${result.stderr.trim() || result.stdout.trim()}`);
+		// Three tokens, because two collapse `create`, `list`, `edit`, `close` and `reopen` into one
+		// indistinguishable "gh issue exited 1" and the operator cannot tell which call failed.
+		const called = argv.slice(0, 3).join(" ");
+		throw new TestTreeError(`${called} exited ${result.code}: ${result.stderr.trim() || result.stdout.trim()}`);
 	}
 	return result.stdout;
 }

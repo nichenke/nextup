@@ -188,7 +188,7 @@ export const GITHUB_TEST_TREE: TestTreeSpec = {
 		{
 			key: "write-target",
 			title: "Write target: the only issue the claim path may assign and unassign",
-			body: "Reserved for the write path. Every other issue's assignment is a captured shape, so a test that claims one of those changes what the next recording says.",
+			body: "Reserved for the write path. Every other issue's claim is a captured shape, so a test that claims one of those changes what the next recording says.",
 			labels: ["P2"],
 			blockedBy: [],
 			claimed: false,
@@ -208,9 +208,8 @@ export function validateTestTree(spec: TestTreeSpec): void {
 	for (const issue of spec.issues) {
 		if (keys.has(issue.key)) throw new TestTreeError(`${issue.key} is used by two issues`);
 		keys.add(issue.key);
-		// Titles matter as much as keys, because reconciliation matches the tracker on title: two issues
-		// sharing one collapse to a single number, stranding an issue no key reaches, and every later run
-		// oscillates between the two specs instead of converging.
+		// Titles matter as much as keys: reconciliation matches the tracker on title, so ADR-0023's title
+		// paragraph applies to a repeat here as much as to one made by hand on the tracker.
 		if (titles.has(issue.title)) throw new TestTreeError(`two issues share the title ${issue.title}`);
 		titles.add(issue.title);
 	}

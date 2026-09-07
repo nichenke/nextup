@@ -178,9 +178,8 @@ describe("provisionTestTree", () => {
 		expect(() => provisionTestTree(GITHUB_TEST_TREE, flooded)).toThrow(/truncated/);
 	});
 
-	// A listing missing `title` used to read as "no spec issue exists", which creates a second copy of the
-	// whole tree on every run. The trigger is the `--json` field list and `ExistingIssue` drifting apart,
-	// so the parse refuses the shape rather than trusting a cast.
+	// A listing missing `title` reads as "no spec issue exists" unless the parse refuses it, and ADR-0023 has
+	// what that costs. The trigger is the `--json` field list and `ExistingIssue` drifting apart.
 	// Each case asserts *why* it was refused, not merely that something threw. An absent `assignees` has to
 	// refuse rather than read as unclaimed: a lenient `?? []` would satisfy a bare `toThrow` by turning the
 	// failure into a silent "nobody is working on this", which is how a claim filter advertises work that
@@ -192,10 +191,11 @@ describe("provisionTestTree", () => {
 		["number", `[{"title":"t","state":"OPEN","assignees":[]}]`, /has no usable number/],
 		["a state nothing recognises", `[{"number":1,"title":"t","state":"MERGED","assignees":[]}]`, /unrecognised state/],
 		["an object instead of a list", `{"number":1}`, /not a list/],
+		["a null entry, which destructuring would raise a TypeError on", `[null]`, /is not an object/],
+		["an array entry, which has no fields at all", `[[]]`, /is not an object/],
 	])("refuses a listing missing %s", (_label, stdout, because) => {
-		// Every other call answers plausibly, so the parse is the only thing that can fail. Answering them
-		// with a bare success instead made all six pass on `createIssue`'s "printed no issue number" throw,
-		// which is the same error class and proves nothing about the listing.
+		// Every other call has to answer plausibly, or these pass on `createIssue`'s "printed no issue
+		// number" throw instead of on the parse — the same error class, proving nothing about the listing.
 		const broken: Runner = (argv) => {
 			if (argv[2] === "list") return ok(stdout);
 			if (argv[2] === "create") return ok(`${GITHUB_PLACEHOLDER_HOST}/owner/repo/issues/1\n`);
@@ -207,9 +207,8 @@ describe("provisionTestTree", () => {
 		expect(() => provisionTestTree(GITHUB_TEST_TREE, broken)).toThrow(because);
 	});
 
-	// The validator checks the spec; this checks the tracker, and the two are independent. A tree already
-	// built from a duplicate-title spec — or one issue renamed onto another's title — keeps an issue that
-	// the title map silently drops, so no later run can see or heal it while every recording captures it.
+	// `validateTestTree` checks the spec; this checks the tracker, and the two can be violated independently
+	// — ADR-0023 has what a stranded issue costs.
 	test("refuses a listing in which two issues share a title", () => {
 		const tracker = fakeTracker();
 		provisionTestTree(GITHUB_TEST_TREE, tracker.runner);
@@ -217,6 +216,33 @@ describe("provisionTestTree", () => {
 		if (first !== undefined && second !== undefined) second.title = first.title;
 
 		expect(() => provisionTestTree(GITHUB_TEST_TREE, tracker.runner)).toThrow(/share the title/);
+	});
+
+	test("names the failing subcommand, not just the binary", () => {
+		const denied: Runner = () => ({ code: 1, stdout: "", stderr: "gh: HTTP 403" });
+		expect(() => provisionTestTree(GITHUB_TEST_TREE, denied)).toThrow(/gh label create/);
+	});
+
+	test("reads edges only for the issues that declare one", () => {
+		const tracker = fakeTracker();
+		provisionTestTree(GITHUB_TEST_TREE, tracker.runner);
+		tracker.calls.length = 0;
+		provisionTestTree(GITHUB_TEST_TREE, tracker.runner);
+
+		const reads = tracker.calls.filter((argv) => argv[2]?.endsWith("/dependencies/blocked_by"));
+		const withBlockers = GITHUB_TEST_TREE.issues.filter((issue) => issue.blockedBy.length > 0);
+		expect(reads).toHaveLength(withBlockers.length);
+		expect(reads.length).toBeLessThan(GITHUB_TEST_TREE.issues.length);
+	});
+
+	test("treats any assignee as satisfying a claim, and releases every one of them", () => {
+		const tracker = fakeTracker();
+		provisionTestTree(GITHUB_TEST_TREE, tracker.runner);
+		const claimed = tracker.issues.find((issue) => issue.title.startsWith("Claimed:"));
+		if (claimed !== undefined) claimed.assignees = [{ login: "somebody-else" }];
+
+		expect(provisionTestTree(GITHUB_TEST_TREE, tracker.runner).changes).toEqual([]);
+		expect(claimed?.assignees).toEqual([{ login: "somebody-else" }]);
 	});
 
 	test("refuses a create whose output carries no issue number", () => {

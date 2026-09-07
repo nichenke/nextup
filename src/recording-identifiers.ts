@@ -22,17 +22,17 @@ const SCHEME_AUTHORITY = /[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s"'<>\\/?#]*/g;
 // through an `@` matches through the `rc` and leaves the `3` behind. The guard's own pattern is unanchored
 // the same way and matches the same token, so parity holds — see `scripts/check-identifiers.sh` on why it
 // accepts that noise rather than tightening.
-const EMAIL_HOST = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
+// The host part is spelled exactly as the guard spells it, including the `*` that admits an empty label:
+// requiring one character there let a degenerate `user@` and a bare dotted suffix through redaction while
+// the guard still flagged it, which is the parity this whole rule exists to hold.
+const EMAIL_HOST = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]*\.[A-Za-z]{2,}/g;
 
-// A dotted host with no scheme and no user, kept deliberately identical to the guard's own schemeless
-// shape: a trailing `/` or `:` and a letters-only final label. Matching what the guard matches is the
-// point — a narrower rule leaves a token that fails the build instead of being redacted, and a wider one
-// rewrites text the guard would have accepted. It runs last, so the two rules above have already consumed
-// the hosts that carry a scheme or a user.
+// A dotted host with no scheme and no user, spelled to match the guard's schemeless shape rather than a
+// tidier subset — ADR-0024 has why parity is the design and what it costs. Runs last, so the two rules
+// above have already consumed the hosts carrying a scheme or a user.
 //
-// The shared final-label rule is also what keeps a dotted version out of it: `1.4.0/` and `2.100.0:` end
-// in digits. The residual over-match is a path segment ending in a short letters-only extension followed
-// by a separator, which would be rewritten inside a fixture rather than reported.
+// A lookahead for the separator rather than consuming it: the guard's shape swallows the rest of the line,
+// and copying that here would destroy the path this function promises to keep.
 const BARE_HOST = /[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}(?=[:/])/g;
 
 /**

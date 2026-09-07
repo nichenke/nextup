@@ -20,12 +20,17 @@ can read. Nothing there is private by construction: every issue is fictional, an
 
 Provisioning is idempotent, in the `Ensure` sense `CONTEXT.md` gives the worktree: a second run against a
 matching tree changes nothing, and a run interrupted halfway heals. It reconciles four things — issues
-that do not exist, dependency edges that are missing, assignment, and open or closed state.
+that do not exist, dependency edges that are missing, the claim, and open or closed state.
 
-Assignment is on that list because the claim path mutates it deliberately. Ticket 37 assigns and
-unassigns for real, so the tree has to be restorable afterwards without being rebuilt. `write-target` is
-the only issue a test may touch: every other issue's assignment is itself a captured shape, so claiming
-one of those changes what the next recording says about it.
+The claim is on that list because the claim path mutates it deliberately. Ticket 37 assigns and unassigns
+for real, so the tree has to be restorable afterwards without being rebuilt. `write-target` is the only
+issue a test may touch: every other issue's claim is itself a captured shape, so claiming one of those
+changes what the next recording says about it.
+
+`CONTEXT.md` defines a **Claim** as the assignee written into the tracker, and gives "assignment" as a word
+to avoid for it. What the tree records is therefore whether an issue *carries* a claim, not who holds one:
+that is what the candidate filter reads, so any assignee satisfies a claimed issue and an unclaimed one is
+released of every assignee it has.
 
 A ticket's **label assignments** and its body are set once at creation and never reconciled. They drift
 only if someone edits the tracker by hand, and a run that silently corrected such an edit would hide it —
@@ -35,7 +40,7 @@ The **title** is not in that category either, and it is the sharp edge of keying
 reconciliation matches the tracker on, so it is load-bearing for identity rather than merely descriptive.
 Renaming an issue by hand does not show up as drift to be noticed later: the next run finds no issue by
 that title and creates a fresh one, leaving the renamed original in the repository with its edges and its
-assignment intact. Editing a title in the spec does the same thing. `validateTestTree` refuses two issues
+claim intact. Editing a title in the spec does the same thing. `validateTestTree` refuses two issues
 sharing a title for the same reason — that collapses two keys onto one number and no run afterwards
 converges — but nothing can detect the rename itself, because a renamed issue and a deleted one look
 identical from the outside.
