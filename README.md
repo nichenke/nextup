@@ -63,9 +63,10 @@ doing.
 
 Ensuring the worktree is one of three things, and the outcome says which: the branch and the worktree
 both created, a worktree made for a branch that already existed, or an attach to the worktree already
-at the expected path. Anything else at that path is refused by kind rather than left to `git worktree
-add`'s own fatal. The branch is `feature/` or `fix/` by whether the ticket is labelled a bug, then the
-title as a slug, then the ticket's key last so tab-completion reaches the slug. It goes under
+at the expected path. Anything else is refused by kind rather than left to `git worktree add`'s own
+fatal — something other than the wanted worktree at that path, or the ticket's branch already checked
+out at a different one. The branch is `feature/` or `fix/` by whether the ticket is labelled a bug,
+then the title as a slug, then the ticket's key last. It goes under
 `.worktrees/` in the primary checkout unless a caller names another root, and never gets removed —
 [ADR-0013](./docs/adr/0013-worktrees-go-under-the-primary-checkout.md) has why there and
 [ADR-0005](./docs/adr/0005-worktree-removal-stays-unimplemented.md) why nothing cleans up. A primary

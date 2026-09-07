@@ -100,6 +100,16 @@ describe("branchName", () => {
 		}
 	});
 
+	test("keeps a key longer than the title limit whole, rather than refusing it as unspellable", () => {
+		const long = "a".repeat(60);
+		const ref: TicketRef = { tracker: "jira", repo: null, host: null, key: long };
+
+		// The limit shortens the title only. Applied to the key it truncated, the truncation then failed the
+		// survival test, and a long-keyed tracker was refused for a reason a person could do nothing about —
+		// while two keys agreeing on their first 48 characters would have shared one branch.
+		expect(branchName(ticket({ ref }))).toBe(`feature/worktree-ensure-and-branch-naming-${long}`);
+	});
+
 	test("lets a key through whose only change is case, which is every real tracker key", () => {
 		for (const key of ["8", "123", "ABC-7", "abc-7", "PROJ-1234"]) {
 			const ref: TicketRef = { tracker: "jira", repo: null, host: null, key };
@@ -450,25 +460,33 @@ describe("ensure", () => {
 		}
 	});
 
-	test("refuses a root that names the primary checkout itself, which is what an empty one resolves to", () => {
+	test("refuses a root naming the primary checkout, where worktrees would sit unignored beside its own files", () => {
 		const { repo, state } = primaryOn();
 		const git = stubGit(state);
 
-		// `resolve` discards an empty segment and `??` does not fire for `""`, so neither reaches the default.
-		for (const root of ["", ".", repo]) {
+		for (const root of [".", repo, `${repo}/`]) {
 			expect(kindOf(() => ensure({ runner: git.runner, repo, ticket: READER, root }))).toBe("stale-directory");
 		}
 	});
 
-	test("still takes the default when the root is absent altogether", () => {
+	test("takes the default for a root that is absent or blank, rather than resolving blank to the checkout", () => {
 		const { repo, state } = primaryOn();
 		const git = stubGit(state);
 
-		for (const root of [undefined, null]) {
+		// `??` does not fire for `""` and `resolve` discards an empty segment, so before blank counted as
+		// unset these landed the worktree at the top of the primary checkout instead of under the default.
+		for (const root of [undefined, null, "", "   ", "\t"]) {
 			expect(ensure({ runner: git.runner, repo, ticket: READER, root }).path).toBe(
 				join(repo, DEFAULT_WORKTREE_ROOT, READER_LEAF),
 			);
 		}
+	});
+
+	test("takes a root inside the checkout as given, which is the caller's business rather than a refusal", () => {
+		const { repo, state } = primaryOn();
+		const git = stubGit(state);
+
+		expect(ensure({ runner: git.runner, repo, ticket: READER, root: "src" }).path).toBe(join(repo, "src", READER_LEAF));
 	});
 
 	test("refuses a root reached through a dangling symlink, which resolves to nothing to compare", () => {

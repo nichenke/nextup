@@ -38,7 +38,7 @@ export const DEFAULT_WORKTREE_ROOT = ".worktrees";
 
 const BUG_LABEL = "bug";
 
-/** How much of any one component — title or key — reaches the branch name, which becomes a directory name. */
+/** How much of the title reaches the branch name, which becomes a directory name under the root. */
 const SLUG_LIMIT = 48;
 
 /**
@@ -54,7 +54,10 @@ const SLUG_LIMIT = 48;
  */
 export function branchName(ticket: Pick<Ticket, "ref" | "title" | "labels">): string {
 	const prefix = ticket.labels.some((label) => label.toLowerCase() === BUG_LABEL) ? "fix" : "feature";
-	const key = slugify(ticket.ref.key);
+	// Normalized without the length limit, which applies to the title alone. Truncating a key would both
+	// refuse a long-keyed tracker as unspellable — the wrong cause, and no fix a person could act on — and
+	// land two keys sharing their first 48 characters on one branch.
+	const key = normalize(ticket.ref.key);
 	if (key === "") {
 		// An empty key survives slugification trivially, so it needs its own refusal. With an unslugifiable
 		// title it produces `feature/`, whose empty component `git check-ref-format` rejects and whose empty
@@ -72,18 +75,26 @@ export function branchName(ticket: Pick<Ticket, "ref" | "title" | "labels">): st
 }
 
 /**
- * Text as one branch-name component.
+ * Text reduced to characters a branch name can carry, at any length.
  *
- * The accepted set is ASCII letters and digits and nothing more, so the result cannot contain any of
- * the characters `git check-ref-format` rejects, and cannot end in `.lock` or begin with `.`. An
+ * The accepted set is ASCII letters and digits and nothing more, so no character `git
+ * check-ref-format` rejects survives, and the result cannot end in `.lock` or begin with `.`. An
  * allowlist rather than a denylist of git's rules: the denylist has to stay in step with git, and one
  * that falls behind produces a branch name git refuses.
+ *
+ * Not sufficient on its own: text with nothing in the accepted set returns `""`, and an empty component
+ * is the one thing `check-ref-format` still rejects. `branchName` is where that is refused.
  */
-function slugify(text: string): string {
-	const collapsed = text
+function normalize(text: string): string {
+	return text
 		.toLowerCase()
 		.replace(/[^a-z0-9]+/g, "-")
 		.replace(/^-+|-+$/g, "");
+}
+
+/** `normalize`, cut to `SLUG_LIMIT` at a separator rather than mid-word. */
+function slugify(text: string): string {
+	const collapsed = normalize(text);
 	if (collapsed.length <= SLUG_LIMIT) return collapsed;
 	const cut = collapsed.slice(0, SLUG_LIMIT + 1);
 	const boundary = cut.lastIndexOf("-");
@@ -175,16 +186,19 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 	// `resolve` takes an absolute root as given and a relative one against the primary checkout, and
 	// normalizes either — so a trailing slash or a `..` in a caller's root is the same path rather than
 	// a different spelling of it.
-	const container = resolve(primary, input.root ?? DEFAULT_WORKTREE_ROOT);
+	// Blank counts as unset. `??` does not fire for `""`, which is what an unset variable or an empty flag
+	// hands over, and `resolve` discards an empty segment — so a blank root became the primary checkout
+	// rather than the default.
+	const container = resolve(primary, input.root?.trim() || DEFAULT_WORKTREE_ROOT);
 	if (container === primary) {
-		// `resolve` discards an empty segment, so `""` and `"."` both land here rather than on the default:
-		// `??` does not fire for `""`, which is what an unset variable or an empty flag hands over. The
-		// worktree would go directly inside the primary checkout's own working tree.
+		// What `"."` and the primary's own path still reach. Refused because worktrees would land beside the
+		// checkout's own tracked files at its top level, where nothing ignores them — not because the root
+		// is inside the working tree, which ADR-0013's default `.worktrees` also is, deliberately. A root
+		// pointed anywhere else inside the checkout is taken as given, tracked directory or not.
 		throw new WorktreeError(`${primary} is the primary checkout, so it cannot also be the worktree root`, "stale-directory");
 	}
 	refuseIfReachedThroughLink(container);
 	const path = join(container, leafOf(branch));
-	const warnings = driftWarnings(input.runner, primary, main.head);
 
 	const onBranch = registrations.find((one) => one.head.kind === "branch" && one.head.name === branch);
 	if (onBranch !== undefined && onBranch.path !== path) {
@@ -195,7 +209,9 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 	const atPath = registrations.find((one) => one.path === path);
 	if (atPath !== undefined) {
 		refuseUnlessAttachable(atPath, path, branch);
-		return { kind: "attached", path, branch, command: null, primary, warnings };
+		// Asked only on the routes that return, since it spawns a process whose answer every refusal above
+		// would discard — and re-running onto an existing worktree is the ordinary path here, not the rare one.
+		return { kind: "attached", path, branch, command: null, primary, warnings: driftWarnings(input.runner, primary, main.head) };
 	}
 
 	refuseIfOccupied(path);
@@ -203,6 +219,7 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 	// A registered worktree at the path is the case above, so a branch that exists at this point is one
 	// checked out nowhere.
 	const create = !branchExists(input.runner, primary, branch);
+	const warnings = driftWarnings(input.runner, primary, main.head);
 	// primary, not input.repo — see `driftWarnings`.
 	const command = worktreeAddCommand(primary, path, branch, create);
 	const result = input.runner([...command]);
