@@ -1,5 +1,8 @@
 # Block structure comes from a CommonMark lexer, not from patterns here
 
+> Superseded by [0020](./0020-local-markdown-is-not-a-tracker.md). Retained as the evidence for that
+> decision, not as a description of the current tool.
+
 `marked` is a dependency. The markdown adapter asks it for the block structure of a ticket file and
 reads fields out of the resulting tokens, instead of deciding with regexes which lines are code, which
 are headings, and where the header region ends.

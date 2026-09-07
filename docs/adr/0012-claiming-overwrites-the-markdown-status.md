@@ -1,5 +1,8 @@
 # Claiming a markdown ticket overwrites its `Status:` field
 
+> Superseded by [0020](./0020-local-markdown-is-not-a-tracker.md). Retained as the evidence for that
+> decision, not as a description of the current tool.
+
 A markdown claim is written as `Status: claimed`, replacing whatever that line said. Releasing the
 claim puts the previous value back verbatim.
 
