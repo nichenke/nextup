@@ -17,8 +17,11 @@ const ok = (stdout = ""): CommandResult => ({ code: 0, stdout, stderr: "" });
 
 /**
  * A tracker that answers the calls provisioning makes. It refuses an edge whose direct reverse already
- * exists, which is the rule the real GitHub enforces — so a spec whose cycle relies on a direct pair
- * fails here rather than at provisioning time.
+ * exists, which is the rule the real GitHub enforces.
+ *
+ * A database id is minted as issue number + 1000, so the two cannot be confused: the dependency endpoint
+ * takes an issue's database id and not its number, and a fake that returned the number would accept the
+ * wrong argument as readily as the right one.
  */
 function fakeTracker(seed: FakeIssue[] = []) {
 	const issues = [...seed];
@@ -81,6 +84,8 @@ function fakeTracker(seed: FakeIssue[] = []) {
 			return ok();
 		}
 
+		// Before the read branch below, which matches the same path: a POST carries it too, so reversing
+		// these answers every edge write with the current edge list and silently writes nothing.
 		if (noun === "api" && argv.includes("--method")) {
 			const blocked = atPath(argv[4] as string);
 			const blockerId = Number((argv[argv.indexOf("-F") + 1] as string).split("=")[1]);

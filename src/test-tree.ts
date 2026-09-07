@@ -1,15 +1,14 @@
 export class TestTreeError extends Error {}
 
-/** A label the tree uses. The colour is pinned because a recording captures it. */
+/** The colour is pinned because a recording captures it. */
 export interface TestTreeLabel {
 	readonly name: string;
 	readonly color: string;
 }
 
 /**
- * One issue on a test tree, keyed by `key` rather than by issue number. A recreated tree gets fresh
- * numbers — GitHub does not reuse a deleted issue's number — so a spec keyed on numbers would describe
- * one instance of the tree instead of the tree.
+ * One issue on a test tree, keyed by `key` rather than by issue number, because a rebuilt tree renumbers.
+ * ADR-0023 has why.
  */
 export interface TestTreeIssue {
 	readonly key: string;
@@ -18,22 +17,19 @@ export interface TestTreeIssue {
 	readonly labels: readonly string[];
 	/** Keys of the issues this one is blocked by, as native tracker dependency edges. */
 	readonly blockedBy: readonly string[];
-	/** Whether the tree holds this issue assigned. `write-target` is the only issue a test may change. */
+	/** `write-target` is the only issue a test may change. */
 	readonly claimed: boolean;
 	readonly closed: boolean;
 }
 
 export interface TestTreeSpec {
-	/** `owner/repo`. Carries no host, so the identifier guard has nothing to match — see ADR-0023. */
+	/** `owner/repo`. Carries no host, so the identifier guard has nothing to match — see ADR-0024. */
 	readonly repo: string;
 	readonly labels: readonly TestTreeLabel[];
 	readonly issues: readonly TestTreeIssue[];
 }
 
-/**
- * The GitHub test tree. Every shape here is one ticket 35 asked the tree to carry; the tests name which
- * requirement each one answers, so dropping a shape fails rather than passing quietly.
- */
+/** The GitHub test tree. Every shape here is one ticket 35 asked the tree to carry. */
 export const GITHUB_TEST_TREE: TestTreeSpec = {
 	repo: "nichenke/nextup-test-tree-github",
 	labels: [
@@ -111,7 +107,7 @@ export const GITHUB_TEST_TREE: TestTreeSpec = {
 		{
 			key: "claimed",
 			title: "Claimed: assigned, so not a candidate",
-			body: "Assigned, and stays assigned. The claim filter needs a ticket that is already taken; the write target is the one a test may reassign.",
+			body: "Assigned, and stays assigned: the claim filter needs a ticket that is already taken.",
 			labels: ["P0"],
 			blockedBy: [],
 			claimed: true,
@@ -165,7 +161,7 @@ export const GITHUB_TEST_TREE: TestTreeSpec = {
 		{
 			key: "cycle-first",
 			title: "Cycle, first hop: blocked by the third hop",
-			body: "One third of a three-issue dependency cycle. GitHub refuses a direct pair and admits this, so the cycle guard is reachable from a recording.",
+			body: "One third of a three-issue dependency cycle.",
 			labels: ["P2"],
 			blockedBy: ["cycle-third"],
 			claimed: false,

@@ -11,7 +11,11 @@ function issue(key: string) {
 	return found;
 }
 
-/** How many hops of open blockers separate `key` from an issue nothing open blocks. */
+/**
+ * How many hops of open blockers separate `key` from an issue nothing open blocks, or
+ * `POSITIVE_INFINITY` when the walk re-enters a key it has already visited — which is how a cycle is
+ * told apart from a deep chain here.
+ */
 function openDepth(key: string, seen: readonly string[] = []): number {
 	if (seen.includes(key)) return Number.POSITIVE_INFINITY;
 	const open = issue(key).blockedBy.filter((blocker) => !issue(blocker).closed);
@@ -85,8 +89,7 @@ describe("the shapes the GitHub test tree carries", () => {
 		expect(issue("blocked-by-excluded").blockedBy).toContain("excluded-blocker");
 	});
 
-	// Three hops rather than two: GitHub refuses an edge whose direct reverse already exists, and admits
-	// one that closes a longer loop. ADR-0023 records the probe.
+	// Three hops rather than two, because GitHub refuses a direct pair — ADR-0023 has the probe.
 	test("a dependency cycle, no two hops of which are a direct pair", () => {
 		expect(openDepth("cycle-first")).toBe(Number.POSITIVE_INFINITY);
 		const hops = ["cycle-first", "cycle-second", "cycle-third"];

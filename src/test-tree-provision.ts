@@ -15,7 +15,7 @@ interface ExistingIssue {
 	readonly assignees: readonly { readonly login: string }[];
 }
 
-/** One thing provisioning did, in the order it did it. An empty report means the tree already matched. */
+/** An empty report means the tree already matched. */
 export interface TestTreeChange {
 	readonly key: string;
 	readonly action: string;
@@ -27,15 +27,8 @@ export interface TestTreeReport {
 }
 
 /**
- * Brings the test tree to the state `spec` describes, and reports what it changed. Idempotent, so a
- * partial run heals on re-run and a run against a matching tree changes nothing — the same `ensure`
- * shape `CONTEXT.md` gives the worktree, for the same reason.
- *
- * What it reconciles is deliberately narrow: issues that do not exist, dependency edges that are
- * missing, assignment, and open/closed state. Assignment is here because the claim path mutates it by
- * design and the tree has to be restorable afterwards. Labels and bodies are set once at creation and
- * never reconciled — they drift only if someone edits the tracker by hand, and healing that silently
- * would hide the edit rather than surface it.
+ * Brings the test tree to the state `spec` describes, and reports what it changed. Idempotent; ADR-0023
+ * has what it reconciles and why it reconciles nothing else.
  *
  * @throws TestTreeError on any failing call. There is no degraded mode: every step is a precondition for
  * the next, so continuing past a failure would report a tree that does not exist.
@@ -172,9 +165,8 @@ function createIssue(spec: TestTreeSpec, issue: TestTreeIssue, runner: Runner): 
 }
 
 /**
- * The blockers a tracker already records, read from the list endpoint rather than from the summary field.
- * `docs/agents/issue-tracker.md` has why: the summary lags a freshly written edge by seconds, and a run
- * that trusted it would write every edge a second time.
+ * The blockers a tracker already records, read from the list endpoint rather than from the summary field —
+ * `docs/agents/issue-tracker.md` has why the summary cannot be trusted here.
  */
 function blockedBy(spec: TestTreeSpec, number: number, runner: Runner): readonly number[] {
 	const stdout = run(runner, [

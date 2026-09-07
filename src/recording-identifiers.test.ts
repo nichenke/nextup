@@ -44,8 +44,6 @@ describe("redactRecordingIdentifiers", () => {
 		expect(redact(once)).toBe(once);
 	});
 
-	// The point of the placeholder is that a stored recording needs no allowlist line, so the property to
-	// assert is the guard's own: no scheme, and no dotted host before a `/` or a `:`.
 	test("leaves behind nothing the identifier guard matches", () => {
 		const redacted = redact([ISSUE_URL, SSH_URL, USERINFO_URL, SCP_REMOTE, QUERY_URL].join("\n"));
 		expect(redacted).not.toMatch(/:\/\//);
