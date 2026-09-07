@@ -42,6 +42,6 @@ fixture that forgot it silently asserted the opposite of what it meant — a def
 the field rather than needing a guard.
 
 The cost, stated plainly: a blocker closed as `wontfix` whose dependents genuinely cannot proceed will
-make those dependents recommendable. The selector reports why it picked — "unblocked because its blocker
-is closed" — so the wrong pick is visible rather than silent, and a session that wants to weigh closure
-reasons can read them itself.
+make those dependents recommendable. The selector reports the pick's blocking state as `unblocked`, which
+is honest but does not name which blocker cleared — so this wrong pick reads exactly like a right one, and
+a session that wants to weigh closure reasons has to read the ticket's own blocker links to do it.

@@ -15,19 +15,24 @@ and stops.
 
 ## Consequences
 
-There is no release path and no rollback. `ensure()` is idempotent, so re-running after any failure
-attaches to the worktree already present and retries the claim — recovery is the ordinary path, not a
-separate one.
+Neither `ensure()` nor the claim exists yet — they are slices 5 and 6 — so everything below is a
+requirement on the launcher when it lands, not a description of behaviour already protected. Today
+`planLaunch` builds a session command and nothing else.
 
-The leftover on failure is a worktree, which `git worktree list` reports, costs nothing, and is reused
-by the next attempt. The alternative leftover, a claim with no work behind it, is visible only inside
+The launcher must have no release path and no rollback. `ensure()` must be idempotent, so that
+re-running after any failure attaches to the worktree already present and retries the claim, making
+recovery the ordinary path rather than a separate one.
+
+The leftover on failure must be a worktree, which `git worktree list` reports, costs nothing, and the
+next attempt reuses. The alternative leftover, a claim with no work behind it, is visible only inside
 the tracker and actively misinforms every other session.
 
-Two sessions racing the same ticket in one repository collide on the branch, and `ensure()`'s
+Two sessions racing the same ticket in one repository will collide on the branch, and `ensure()`'s
 branch-attached-elsewhere refusal fires before any network call. That is a local mutex obtained for
-free, and it is loud.
+free, and it is loud — but it is a consequence of this ordering, not a guarantee this ADR delivers.
 
-Tests assert one argv sequence with no failure-branch matrix, because the failure behaviour is to stop.
+Its tests should assert one argv sequence with no failure-branch matrix, because the failure behaviour
+is to stop.
 
 This does not make concurrent claims safe across machines, and does not try to —
 [0018](./0018-concurrent-claim-arbitration-is-out-of-scope.md) has why that is a scope boundary rather

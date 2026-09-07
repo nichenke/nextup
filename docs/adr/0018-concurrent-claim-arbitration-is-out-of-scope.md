@@ -17,16 +17,19 @@ rediscovered.
 
 ## Consequences
 
-Claiming is a single call. Its failure is classified as outage or defect like any other external call,
-and a failed claim aborts loudly rather than degrading.
+The claim does not exist yet — it is slice 6 — so these are requirements on it rather than behaviour
+already in place.
 
-Two sessions on one machine still collide, because creating the worktree first means the second one is
-refused by the branch — see
+Claiming must be a single call. Its failure is classified as outage or defect like any other external
+call, and a failed claim aborts loudly rather than degrading.
+
+Two sessions on one machine will still collide, because creating the worktree first means the second one
+is refused by the branch — see
 [docs/adr/0016-the-worktree-is-created-before-the-claim.md](./0016-the-worktree-is-created-before-the-claim.md).
 That is a side effect of the ordering, not a guarantee, and it is not advertised as one.
 
-Two sessions on different machines under one identity can both proceed on the same ticket. That is the
-accepted cost.
+Two sessions on different machines under one identity will both be able to proceed on the same ticket.
+That is the accepted cost.
 
 One real compare-and-swap does exist and is deliberately unused: creating a branch ref on the remote is
 atomic, and a push that would create an existing ref fails without forcing. Adopting it would make every
