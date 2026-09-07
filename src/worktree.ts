@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, readdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import {
 	type Argv,
 	branchExistsCommand,
@@ -208,6 +208,14 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 		// is inside the working tree, which ADR-0013's default `.worktrees` also is, deliberately. A root
 		// pointed anywhere else inside the checkout is taken as given, tracked directory or not.
 		throw new WorktreeError(`${primary} is the primary checkout, so it cannot also be the worktree root`, "stale-directory");
+	}
+	// A worktree under `.git` puts git's own administration — `HEAD`, `index`, `index.lock`, `commondir`
+	// — inside the session's working tree as untracked files, where `git clean -fd` deletes them and
+	// `git add -A` commits them. Unlike a root merely inside the checkout, which is the caller's business,
+	// there is no reading of this that a caller wants. Matches the name rather than asking git for its
+	// directory, so a `--separate-git-dir` or `GIT_DIR` elsewhere is not covered.
+	if (container.split(sep).includes(".git")) {
+		throw new WorktreeError(`${container} is inside a git directory, which a worktree cannot be`, "stale-directory");
 	}
 	refuseIfReachedThroughLink(container);
 	const path = join(container, leafOf(branch));

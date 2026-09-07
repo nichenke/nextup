@@ -514,6 +514,17 @@ describe("ensure", () => {
 		}
 	});
 
+	test("refuses a root inside the git directory, whose own files a session would see as untracked", () => {
+		const { repo, state } = primaryOn();
+		const git = stubGit(state);
+
+		// A session there reports git's `HEAD`, `index` and `index.lock` as untracked in its working tree,
+		// so `git clean -fd` deletes the repository's worktree administration and `git add -A` commits it.
+		for (const root of [".git", ".git/worktrees", join(repo, ".git")]) {
+			expect(kindOf(() => ensure({ runner: git.runner, repo, ticket: READER, root }))).toBe("stale-directory");
+		}
+	});
+
 	test("takes a root inside the checkout as given, which is the caller's business rather than a refusal", () => {
 		const { repo, state } = primaryOn();
 		const git = stubGit(state);
@@ -743,6 +754,22 @@ describe("ensure against real git", () => {
 		rmSync(outcome.path, { recursive: true, force: true });
 
 		expect(kindOf(() => ensure({ runner: defaultRunner, repo, ticket: READER }))).toBe("stale-directory");
+	});
+
+	test("refuses a root under the git directory, which real git will otherwise happily create", () => {
+		const repo = realRepo();
+
+		expect(kindOf(() => ensure({ runner: defaultRunner, repo, ticket: READER, root: ".git/worktrees" }))).toBe(
+			"stale-directory",
+		);
+
+		// git itself accepts it, so the refusal is ours and this is what it prevents: the administration
+		// below shows up as untracked files in the session's own working tree.
+		const path = join(repo, ".git", "worktrees", READER_LEAF);
+		expect(defaultRunner(["git", "-C", repo, "worktree", "add", path, "-b", READER_BRANCH]).code).toBe(0);
+		const untracked = defaultRunner(["git", "-C", path, "status", "--short"]).stdout;
+		expect(untracked).toContain("?? HEAD");
+		expect(untracked).toContain("?? index");
 	});
 
 	test("refuses a worktree root reached through a symlink rather than resolving it", () => {
