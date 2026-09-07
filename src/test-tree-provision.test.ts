@@ -245,6 +245,29 @@ describe("provisionTestTree", () => {
 		expect(claimed?.assignees).toEqual([{ login: "somebody-else" }]);
 	});
 
+	// The same treatment `parseIssues` gets, for the same reason: this decides whether an edge already
+	// exists, and a shape it cannot read would report every blocker as absent and re-POST all of them —
+	// which GitHub accepts, so the symptom is a change report claiming work it did not do.
+	test.each([
+		["not a list", `{"a":1}`, /not a list of issue numbers/],
+		["a list of nulls", `[null]`, /not a list of issue numbers/],
+		["a list of strings", `["7"]`, /not a list of issue numbers/],
+		["a list holding zero", `[0]`, /not a list of issue numbers/],
+	])("refuses a blocker listing that is %s", (_label, stdout, because) => {
+		const tracker = fakeTracker();
+		provisionTestTree(GITHUB_TEST_TREE, tracker.runner);
+		const corrupt: Runner = (argv) =>
+			argv[1] === "api" && argv[2]?.endsWith("/dependencies/blocked_by") ? ok(stdout) : tracker.runner(argv);
+
+		expect(() => provisionTestTree(GITHUB_TEST_TREE, corrupt)).toThrow(TestTreeError);
+		expect(() => provisionTestTree(GITHUB_TEST_TREE, corrupt)).toThrow(because);
+	});
+
+	test("accepts an empty blocker listing, which is what an issue with no edges yet returns", () => {
+		const tracker = fakeTracker();
+		expect(() => provisionTestTree(GITHUB_TEST_TREE, tracker.runner)).not.toThrow();
+	});
+
 	test("refuses a create whose output carries no issue number", () => {
 		const spec: TestTreeSpec = { ...GITHUB_TEST_TREE, issues: GITHUB_TEST_TREE.issues.slice(0, 1) };
 		const mute: Runner = (argv) => (argv[2] === "list" ? ok("[]") : ok("created\n"));

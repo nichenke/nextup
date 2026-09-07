@@ -244,7 +244,15 @@ function blockedBy(spec: TestTreeSpec, number: number, runner: Runner): readonly
 		"--jq",
 		"[.[].number]",
 	]);
-	return JSON.parse(stdout.trim() || "[]") as number[];
+	// Checked rather than cast, matching `parseIssues` above: `present.includes(...)` decides whether an edge
+	// exists, and a shape this could not read would report every blocker absent and re-POST all of them.
+	// GitHub accepts that, so the symptom is a change report claiming work it did not do.
+	const parsed: unknown = JSON.parse(stdout.trim() || "[]");
+	const numbers = Array.isArray(parsed) ? parsed : undefined;
+	if (numbers === undefined || numbers.some((one) => !Number.isSafeInteger(one) || Number(one) <= 0)) {
+		throw new TestTreeError(`the blockers of issue ${number} are not a list of issue numbers: ${stdout.trim()}`);
+	}
+	return numbers as number[];
 }
 
 function numberOf(numbers: ReadonlyMap<string, number>, key: string): number {
