@@ -19,6 +19,8 @@ const HOST = GITHUB_PLACEHOLDER_HOST;
 // guard flags, and the guard reads this file, so spelling either one whole fails the build it belongs to.
 const SOURCE_REF = "src/test-tree" + ".ts:27";
 const LOCKFILE_REF = "bun" + ".lockb:1";
+const QUERY_AT_HOST = "https:" + "//example.com?next=/a/b";
+const FRAGMENT_AT_HOST = "https:" + "//example.com#section";
 
 describe("redactRecordingIdentifiers", () => {
 	test("replaces a scheme and host with the placeholder, keeping the path", () => {
@@ -27,6 +29,13 @@ describe("redactRecordingIdentifiers", () => {
 
 	test("replaces a host reached over a non-http scheme", () => {
 		expect(redact(SSH_URL)).toBe(`${HOST}/example/repo.git`);
+	});
+
+	// A query or fragment can follow the host with no `/` between them, and swallowing it would drop part of
+	// what the recording said rather than only the host.
+	test("keeps a query or fragment that follows the host directly", () => {
+		expect(redact(QUERY_AT_HOST)).toBe(`${HOST}?next=/a/b`);
+		expect(redact(FRAGMENT_AT_HOST)).toBe(`${HOST}#section`);
 	});
 
 	test("replaces a host carrying userinfo", () => {

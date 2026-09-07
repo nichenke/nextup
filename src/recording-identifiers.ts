@@ -11,7 +11,10 @@ export const GITHUB_PLACEHOLDER_HOST = "github-test-tree";
 // the scheme standing in front of the placeholder and the result trips the guard it was meant to satisfy.
 //
 // A scheme and everything up to the path: userinfo, host and port together, since all three name a system.
-const SCHEME_AUTHORITY = /[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s"'<>\\/]*/g;
+// `?` and `#` end the authority as surely as `/` does. Without them in the excluded class, a query or
+// fragment sitting directly against the host is swallowed with it, so the recording loses what it said and
+// not merely where it said it.
+const SCHEME_AUTHORITY = /[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s"'<>\\/?#]*/g;
 
 // The scp-form remote and the email, neither of which carries a scheme. A dot followed by two letters has
 // to appear somewhere after the `@`, which is what keeps an ordinary `package@1.2.3` out. It is not a claim
