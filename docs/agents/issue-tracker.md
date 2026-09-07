@@ -51,6 +51,17 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
   There is no prose fallback: a failure here is an outage or a defect and gets surfaced, never degraded into a body line that something then has to recognise. `docs/adr/0020-local-markdown-is-not-a-tracker.md` has why, including why the condition a fallback would cover does not arise.
 - **Frontier query**: read the map's children in map order with `gh api repos/<owner>/<repo>/issues/<map>/sub_issues --paginate`, or from the map body's task list where sub-issues aren't enabled. `gh issue list` cannot do this job — it orders globally rather than by map position, so "first in map order wins" is unimplementable through it, and its `--limit` default of 30 starts dropping children once the repo's open issues pass that. Drop any child that is closed, assigned, or reports `issue_dependencies_summary.blocked_by > 0`. A child whose summary is **null** is not a survivor either — null is not evidence of zero blockers, so it goes to the confirm step below rather than winning silently. The first survivor wins.
 - **Confirm the survivor before claiming it**: `gh api repos/<owner>/<repo>/issues/<n>/dependencies/blocked_by`. The summary field the frontier query reads lags a freshly written edge by seconds and can report `0` for a ticket that is already blocked, and a session reading the frontier cannot tell that an edge was just written. Do not assert the summary immediately after writing an edge.
+- **Which dependency surface to trust.** Three report the same edges and they do not agree under write. Measured on a dedicated test tree, three trials, by writing one edge and reading all three as fast as `gh` allows:
+
+  | Surface | Behaviour |
+  | --- | --- |
+  | `gh api .../issues/<n>/dependencies/blocked_by` | Authoritative on the first read |
+  | `gh issue list --json blockedBy` | Authoritative on the first read; returns `{nodes:[{id,number,state,title,url}],totalCount}` per issue |
+  | `issue_dependencies_summary` | Lags |
+
+  So `--json blockedBy` is the surface to read blocking state in bulk: one call covers every issue in the query, with each blocker's own state, and it does not share the summary's staleness. That result is trustworthy rather than lucky because the same run caught the summary reporting `0` while `--json blockedBy` already returned the blocker — the read window was demonstrably narrow enough to observe a lag, and this surface had none in it.
+
+  Two corrections to the bullet above, from the same measurement. The lag is **bidirectional**: after an edge was deleted, the blocker's summary still reported two blocked issues while the endpoint reported one. Stale-high matters more than stale-low for a reader, because it makes an unblocked ticket look blocked and a frontier query skip it silently. And the lag looked like **cold start** rather than per-write — it appeared on the first edge an issue ever had, and not when the same edge was removed and re-added. Do not read that as a rule to rely on; treat the summary as untrustworthy under write in either direction.
 - **Claim**: `gh issue edit <n> --add-assignee @me` — the session's first write. That assignee *is* the claim: an open, unassigned ticket is unclaimed, and `--remove-assignee` releases it.
 - **Resolve**: `gh issue comment <n> --body "<answer>"`, then `gh issue close <n>`, then append a context pointer (gist + link) to the map's Decisions-so-far.
 
