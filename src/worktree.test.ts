@@ -81,6 +81,25 @@ describe("branchName", () => {
 		expect(kindOf(() => branchName(ticket({ ref: other })))).toBe("unnameable-ticket");
 	});
 
+	test("refuses a ticket with no key, which would name a branch git will not accept", () => {
+		const keyless: TicketRef = { tracker: "jira", repo: null, host: null, key: "" };
+
+		// It slugs to itself, so the survival test above passes it. With a title that slugs to nothing the
+		// branch is `feature/`, whose empty last component puts the worktree at the root rather than under it.
+		expect(kindOf(() => branchName({ ref: keyless, title: "—— ?? ——", labels: [] }))).toBe("unnameable-ticket");
+		expect(kindOf(() => branchName(ticket({ ref: keyless })))).toBe("unnameable-ticket");
+	});
+
+	test("names only branches git accepts, across every title shape the slug has to survive", () => {
+		const repo = realRepo();
+		const titles = ["Reader", "—— ?? ——", "08 — Fix: the reader's *broken* path?", "a".repeat(200), "...", "-", "x.lock"];
+
+		for (const title of titles) {
+			const name = branchName(ticket({ title }));
+			expect(defaultRunner(["git", "-C", repo, "check-ref-format", "--branch", name]).code).toBe(0);
+		}
+	});
+
 	test("lets a key through whose only change is case, which is every real tracker key", () => {
 		for (const key of ["8", "123", "ABC-7", "abc-7", "PROJ-1234"]) {
 			const ref: TicketRef = { tracker: "jira", repo: null, host: null, key };
@@ -88,11 +107,6 @@ describe("branchName", () => {
 		}
 	});
 
-	test("produces a name git itself accepts as a branch", () => {
-		const repo = realRepo();
-		const name = branchName(ticket({ title: "08 — Fix: the reader's *broken* path?" }));
-		expect(defaultRunner(["git", "-C", repo, "check-ref-format", "--branch", name]).code).toBe(0);
-	});
 });
 
 /** One `--porcelain -z` record, in the layout `parseWorktreeList` documents. */

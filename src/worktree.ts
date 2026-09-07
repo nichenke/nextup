@@ -13,11 +13,13 @@ import type { Ticket } from "./ticket";
 /**
  * Why a worktree could not be brought into the required state.
  *
- * `"stale-directory"` covers everything occupying the expected path that is not the worktree wanted
- * there — leftover files, a symlink, a registration whose directory has gone, a worktree on another
+ * The two path kinds split on *which* path is wrong, which is easy to read backwards.
+ * `"stale-directory"` is the expected path holding something that is not the worktree wanted there —
+ * leftover files, a symlink, a registration whose directory has gone, a worktree there on some other
  * branch, a root that names no place a worktree can go — and the message says which.
- * `"branch-elsewhere"` is the branch checked out at another path, which is the one refusal a second
- * session racing the same ticket hits. `"unnameable-ticket"` says the ticket cannot name a branch, so
+ * `"branch-elsewhere"` is the reverse: this ticket's own branch checked out at a different path, which
+ * is the refusal a second session racing the same ticket hits. `"unnameable-ticket"` says the ticket
+ * cannot name a branch at all — an absent key, or one no branch name can spell — so
  * no waiting fixes it; it is deliberately not called `ticket-set`, which `CONTEXT.md` gives to the
  * tickets one invocation considers. `"git"` is a git question this could not get a usable answer to,
  * which includes a command that succeeded and said nothing.
@@ -36,7 +38,7 @@ export const DEFAULT_WORKTREE_ROOT = ".worktrees";
 
 const BUG_LABEL = "bug";
 
-/** How much of a title reaches the branch name, which becomes a directory name under the root. */
+/** How much of any one component — title or key — reaches the branch name, which becomes a directory name. */
 const SLUG_LIMIT = 48;
 
 /**
@@ -53,6 +55,12 @@ const SLUG_LIMIT = 48;
 export function branchName(ticket: Pick<Ticket, "ref" | "title" | "labels">): string {
 	const prefix = ticket.labels.some((label) => label.toLowerCase() === BUG_LABEL) ? "fix" : "feature";
 	const key = slugify(ticket.ref.key);
+	if (key === "") {
+		// An empty key survives slugification trivially, so it needs its own refusal. With an unslugifiable
+		// title it produces `feature/`, whose empty component `git check-ref-format` rejects and whose empty
+		// last component collapses the worktree path onto the root — the whole root, not a directory in it.
+		throw new WorktreeError("a ticket with no key cannot name a branch", "unnameable-ticket");
+	}
 	if (key !== ticket.ref.key.toLowerCase()) {
 		throw new WorktreeError(
 			`${ticket.ref.key} cannot be spelled in a branch name, so it would not name its own`,
@@ -239,8 +247,8 @@ function leafOf(branch: string): string {
 
 /**
  * Whether a registration names a directory that is not there. Asked of the filesystem rather than read
- * off `prunable`, which git does not set on a locked worktree however missing its directory is — so an
- * attach was reported for a path holding nothing, and the run said it had made a worktree it had not.
+ * off `prunable`, which git does not set on a locked worktree however missing its directory is: trusting
+ * that attribute reports an attach to a path holding nothing, and claims a worktree that was never made.
  */
 function gone(registration: Registration): boolean {
 	return registration.prunable || !existsSync(registration.path);
@@ -270,10 +278,9 @@ function describe(head: Head): string {
  * excepted — `git worktree add` accepts one of those, and refusing it would turn a case a re-run heals
  * into one needing a person, which is the opposite of what ensuring is for.
  *
- * Asked with `lstat`, which does not follow the link, so a symlink is refused whether or not it
- * resolves. `stat` follows, and on a dangling one it answers that nothing is there — the run then went
- * on to a `git worktree add` that refuses it, so the refusal arrived as an unclassified git failure
- * rather than as this typed one.
+ * Asked with `lstat`, which does not follow the link, so a symlink is refused whether or not it resolves.
+ * `stat` follows, and on a dangling one it answers that nothing is there; the run then reaches a `git
+ * worktree add` that refuses the path anyway, turning this typed refusal into an unclassified git fatal.
  */
 function refuseIfOccupied(path: string): void {
 	const entry = inspect(path);
@@ -392,9 +399,10 @@ function readRegistrations(runner: Runner, repo: string): readonly Registration[
  * NUL rather than on newline because a worktree path may contain one, and the line form prints it raw
  * — the second line is then indistinguishable from the next attribute.
  *
- * An attribute this does not recognise is skipped rather than refused. The format is documented as
- * extensible, and a git that has learned a new one is not a reason to stop; a record naming no head at
- * all becomes `"opaque"` rather than any particular one.
+ * An attribute this does not recognise is skipped rather than refused, so a label nothing here reads
+ * cannot cost the ones it does. Not because the format is open — `git worktree --help` promises the
+ * opposite, that it "will remain stable across Git versions" — but because refusing the whole listing
+ * is a worse answer to a label that changes none of what this decides.
  */
 export function parseWorktreeList(text: string): readonly Registration[] {
 	const registrations: Registration[] = [];
