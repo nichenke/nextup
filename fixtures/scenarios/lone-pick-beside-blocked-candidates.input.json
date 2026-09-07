@@ -3,9 +3,9 @@
 	"truncated": false,
 	"filter": { "include": [], "exclude": ["wayfinder:*"] },
 	"tickets": [
-		{ "ref": "md:1", "title": "Update the changelog", "state": "open", "blockers": [], "labels": [] },
-		{ "ref": "md:2", "title": "Land the parser", "state": "open", "claim": { "by": "octocat" }, "blockers": [], "labels": [] },
-		{ "ref": "md:3", "title": "Wire the parser in", "state": "open", "blockers": ["md:2"], "labels": [] },
-		{ "ref": "md:4", "title": "Document the grammar", "state": "open", "blockers": ["md:2"], "labels": [] }
+		{ "ref": "gh:example/repo#1", "title": "Update the changelog", "state": "open", "blockers": [], "labels": [] },
+		{ "ref": "gh:example/repo#2", "title": "Land the parser", "state": "open", "claim": { "by": "octocat" }, "blockers": [], "labels": [] },
+		{ "ref": "gh:example/repo#3", "title": "Wire the parser in", "state": "open", "blockers": ["gh:example/repo#2"], "labels": [] },
+		{ "ref": "gh:example/repo#4", "title": "Document the grammar", "state": "open", "blockers": ["gh:example/repo#2"], "labels": [] }
 	]
 }

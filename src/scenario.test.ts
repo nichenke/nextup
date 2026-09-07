@@ -90,7 +90,7 @@ describe("loadScenario", () => {
 	const ONE_TICKET = {
 		description: "one open ticket",
 		truncated: false,
-		tickets: [{ ref: "md:1", title: "First", state: "open", blockers: [] }],
+		tickets: [{ ref: "gh:example/repo#1", title: "First", state: "open", blockers: [] }],
 	};
 
 	test("reads a ticket set and the filter applied to it", () => {
@@ -108,7 +108,7 @@ describe("loadScenario", () => {
 	});
 
 	test("refuses a ticket that does not state its blockers", () => {
-		expect(() => loadScenario(scenarioFile({ ...ONE_TICKET, tickets: [{ ref: "md:1", title: "First", state: "open" }] }))).toThrow(
+		expect(() => loadScenario(scenarioFile({ ...ONE_TICKET, tickets: [{ ref: "gh:example/repo#1", title: "First", state: "open" }] }))).toThrow(
 			ScenarioError,
 		);
 	});
@@ -129,7 +129,7 @@ describe("loadScenario", () => {
 
 	test("keeps unknown blocking apart from an empty blocker list", () => {
 		const unknown = loadScenario(
-			scenarioFile({ ...ONE_TICKET, tickets: [{ ref: "md:1", title: "First", state: "open", blockers: "unknown" }] }),
+			scenarioFile({ ...ONE_TICKET, tickets: [{ ref: "gh:example/repo#1", title: "First", state: "open", blockers: "unknown" }] }),
 		);
 		expect(unknown.input.tickets[0]!.blockers).toBe("unknown");
 	});

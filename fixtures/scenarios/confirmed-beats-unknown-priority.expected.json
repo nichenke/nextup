@@ -1,6 +1,6 @@
 {
 	"pick": {
-		"ref": "md:2",
+		"ref": "gh:example/repo#2",
 		"title": "Retry a timed-out fetch",
 		"url": null,
 		"labels": [
@@ -17,7 +17,7 @@
 	"consulted": "unblocked",
 	"ranked": [
 		{
-			"ref": "md:2",
+			"ref": "gh:example/repo#2",
 			"title": "Retry a timed-out fetch",
 			"url": null,
 			"labels": [

@@ -16,7 +16,7 @@ interface Spec {
 }
 
 function refOf(key: string): TicketRef {
-	return { tracker: "markdown", repo: null, host: null, key };
+	return { tracker: "github", repo: "example/repo", host: null, key };
 }
 
 function selectionOf(specs: readonly Spec[], truncated = false): Selection {
@@ -44,15 +44,15 @@ describe("selectionJson", () => {
 	test("survives a round trip through JSON, with every reference as its short form", () => {
 		const json = selectionJson(selectionOf([{ key: "2", labels: ["P0"] }, { key: "1" }]));
 		expect(JSON.parse(JSON.stringify(json))).toEqual(json);
-		expect(json.pick?.ref).toBe("md:2");
-		expect(json.decision).toEqual({ kind: "rung", rung: "priority", over: "md:1" });
-		expect(json.ranked.map((candidate) => candidate.ref)).toEqual(["md:2", "md:1"]);
+		expect(json.pick?.ref).toBe("gh:example/repo#2");
+		expect(json.decision).toEqual({ kind: "rung", rung: "priority", over: "gh:example/repo#1" });
+		expect(json.ranked.map((candidate) => candidate.ref)).toEqual(["gh:example/repo#2", "gh:example/repo#1"]);
 	});
 
 	test("carries the signals each rung read, so a pick can be argued with", () => {
 		const json = selectionJson(selectionOf([{ key: "1", labels: ["P1"] }, { key: "2", blockers: ["1"] }]));
 		expect(json.pick).toEqual({
-			ref: "md:1",
+			ref: "gh:example/repo#1",
 			title: "Ticket 1",
 			url: null,
 			labels: ["P1"],
@@ -88,8 +88,8 @@ describe("selectionJson", () => {
 describe("renderSelection", () => {
 	test("leads with the pick and why it won", () => {
 		const text = renderSelection(selectionOf([{ key: "2", labels: ["P0"] }, { key: "1" }]));
-		expect(text).toContain("md:2 — Ticket 2");
-		expect(text).toContain("won on priority over md:1");
+		expect(text).toContain("gh:example/repo#2 — Ticket 2");
+		expect(text).toContain("won on priority over gh:example/repo#1");
 	});
 
 	test("says when there was nothing to compare the pick against", () => {

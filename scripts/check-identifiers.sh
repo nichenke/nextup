@@ -48,7 +48,13 @@ example.com:example/repo.git
 example.com:8443
 example.com/group/project/-/issues/1
 example/repo#1
+example/repo#2
+example/repo#3
+example/repo#4
 example/repo#8
+example/repo#9
+example/repo#10
+example/repo#100
 group/project#8
 myrepo#1
 owner/#1

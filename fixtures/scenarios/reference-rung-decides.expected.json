@@ -1,6 +1,6 @@
 {
 	"pick": {
-		"ref": "md:9",
+		"ref": "gh:example/repo#9",
 		"title": "Add the first adapter",
 		"url": null,
 		"labels": [],
@@ -12,12 +12,12 @@
 	"decision": {
 		"kind": "rung",
 		"rung": "reference",
-		"over": "md:10"
+		"over": "gh:example/repo#10"
 	},
 	"consulted": "unblocked",
 	"ranked": [
 		{
-			"ref": "md:9",
+			"ref": "gh:example/repo#9",
 			"title": "Add the first adapter",
 			"url": null,
 			"labels": [],
@@ -27,7 +27,7 @@
 			"unblocks": 0
 		},
 		{
-			"ref": "md:10",
+			"ref": "gh:example/repo#10",
 			"title": "Add the second adapter",
 			"url": null,
 			"labels": [],

@@ -1,6 +1,6 @@
 {
 	"pick": {
-		"ref": "md:2",
+		"ref": "gh:example/repo#2",
 		"title": "Fix the crash on an empty ticket set",
 		"url": null,
 		"labels": [
@@ -14,12 +14,12 @@
 	"decision": {
 		"kind": "rung",
 		"rung": "priority",
-		"over": "md:1"
+		"over": "gh:example/repo#1"
 	},
 	"consulted": "unblocked",
 	"ranked": [
 		{
-			"ref": "md:2",
+			"ref": "gh:example/repo#2",
 			"title": "Fix the crash on an empty ticket set",
 			"url": null,
 			"labels": [
@@ -31,7 +31,7 @@
 			"unblocks": 0
 		},
 		{
-			"ref": "md:1",
+			"ref": "gh:example/repo#1",
 			"title": "Rename the config key",
 			"url": null,
 			"labels": [
