@@ -92,7 +92,7 @@ describe("branchName", () => {
 
 	test("names only branches git accepts, across every title shape the slug has to survive", () => {
 		const repo = realRepo();
-		const titles = ["Reader", "—— ?? ——", "08 — Fix: the reader's *broken* path?", "a".repeat(200), "...", "-", "x.lock"];
+		const titles = ["Reader", "—— ?? ——", "08 — Fix: the reader's *broken* path?", "a".repeat(200), "...", "-", "x.lock", "_", "a__b", "_lead", "trail_"];
 
 		for (const title of titles) {
 			const name = branchName(ticket({ title }));
@@ -110,8 +110,14 @@ describe("branchName", () => {
 		expect(branchName(ticket({ ref }))).toBe(`feature/worktree-ensure-and-branch-naming-${long}`);
 	});
 
+	test("keeps an underscore, which git accepts and dropping refused keys for no reason", () => {
+		const ref: TicketRef = { tracker: "jira", repo: null, host: null, key: "PROJ_12" };
+
+		expect(branchName(ticket({ ref, title: "Reader" }))).toBe("feature/reader-proj_12");
+	});
+
 	test("lets a key through whose only change is case, which is every real tracker key", () => {
-		for (const key of ["8", "123", "ABC-7", "abc-7", "PROJ-1234"]) {
+		for (const key of ["8", "123", "ABC-7", "abc-7", "PROJ-1234", "PROJ_12", "A_B_C-9"]) {
 			const ref: TicketRef = { tracker: "jira", repo: null, host: null, key };
 			expect(() => branchName(ticket({ ref }))).not.toThrow();
 		}

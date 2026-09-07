@@ -83,10 +83,16 @@ export function branchName(ticket: Pick<Ticket, "ref" | "title" | "labels">): st
 /**
  * Text reduced to characters a branch name can carry, at any length.
  *
- * The accepted set is ASCII letters and digits and nothing more, so no character `git
- * check-ref-format` rejects survives, and the result cannot end in `.lock` or begin with `.`. An
- * allowlist rather than a denylist of git's rules: the denylist has to stay in step with git, and one
- * that falls behind produces a branch name git refuses.
+ * The accepted set is ASCII letters, digits and `_`, so no character `git check-ref-format` rejects
+ * survives, and the result cannot end in `.lock` or begin with `.`. An allowlist rather than a denylist
+ * of git's rules: the denylist has to stay in step with git, and one that falls behind produces a branch
+ * name git refuses.
+ *
+ * `_` is in the set because leaving it out refused keys git accepts. A Jira `PROJ_12` collapsed to
+ * `proj-12`, failed `branchName`'s survival test, and was rejected as unspellable — `git
+ * check-ref-format --branch feature/proj_12` exits 0, as it does for a leading, trailing or doubled
+ * underscore. Keeping it also collapses fewer distinct keys onto one name, which is what that test
+ * guards.
  *
  * Not sufficient on its own: text with nothing in the accepted set returns `""`, and an empty component
  * is the one thing `check-ref-format` still rejects. `branchName` is where that is refused.
@@ -94,7 +100,7 @@ export function branchName(ticket: Pick<Ticket, "ref" | "title" | "labels">): st
 function normalize(text: string): string {
 	return text
 		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/[^a-z0-9_]+/g, "-")
 		.replace(/^-+|-+$/g, "");
 }
 
