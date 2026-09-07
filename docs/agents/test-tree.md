@@ -49,5 +49,11 @@ limit below its size rather than by adding issues.
 - **Redact before storing**, with `redactRecordingIdentifiers` in `src/recording-identifiers.ts`. ADR-0024
   has why, and why a recording that trips the identifier guard means extending redaction rather than
   allowlisting.
+- **Capture `--json` surfaces, not the human-readable views.** Plain `gh issue view` prints its blockers as
+  `owner/repo` and a number, which redaction cannot rewrite and the guard rejects; the `--json` form of the
+  same query carries no such shape. ADR-0024 has the measurement.
+- **Keep issue bodies free of file references** — a dotted filename followed by a colon and a line number,
+  or by a slash. Redaction rewrites those to the placeholder because the guard flags them, and measured
+  tracker output contains none, so a body is the only way one reaches a recording.
 - **Read edges from the dependency endpoint, not the summary field** — `issue-tracker.md` has the commands
   and why the summary cannot be trusted here.

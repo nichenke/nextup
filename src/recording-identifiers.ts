@@ -13,9 +13,12 @@ export const GITHUB_PLACEHOLDER_HOST = "github-test-tree";
 // A scheme and everything up to the path: userinfo, host and port together, since all three name a system.
 const SCHEME_AUTHORITY = /[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s"'<>\\/]*/g;
 
-// The scp-form remote and the email, neither of which carries a scheme. The final label has to be
-// letters, or every `package@1.2.3` is read as a host — `scripts/check-identifiers.sh` has why its own
-// pattern carries the same constraint.
+// The scp-form remote and the email, neither of which carries a scheme. A dot followed by two letters has
+// to appear somewhere after the `@`, which is what keeps an ordinary `package@1.2.3` out. It is not a claim
+// about the final label: the pattern is unanchored, so a pre-release version such as `1.2.rc3` reached
+// through an `@` matches through the `rc` and leaves the `3` behind. The guard's own pattern is unanchored
+// the same way and matches the same token, so parity holds — see `scripts/check-identifiers.sh` on why it
+// accepts that noise rather than tightening.
 const EMAIL_HOST = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
 
 // A dotted host with no scheme and no user, kept deliberately identical to the guard's own schemeless

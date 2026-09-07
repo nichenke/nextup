@@ -52,11 +52,19 @@ It is still not a proof of absence, for the same reason the guard's own header g
 normalization: an encoding neither recognises passes through.
 
 The guard has a fourth shape that redaction cannot reach at all: a slug reference like `owner/repo` and a
-`#` before digits, which carries no host, so rewriting hosts does nothing to it. GitHub emits that form in
-cross-references and in dependency prose. Nothing here closes it, and the tree's own issue text avoids
-cross-references for that reason. If one does reach a recording, the choice is between teaching redaction
-the tree's own slug and refusing to store that content — a decision for whoever builds capture, with the
-guard failing the build until it is made.
+`#` before digits, which carries no host, so rewriting hosts does nothing to it.
+
+This is not hypothetical, and it decides something about capture. Redaction was run over roughly 30 KB of
+real output from the live tree and the guard's pattern run over the result; exactly two tokens survived,
+both of the slug shape, and both from the `blocked-by:` line of plain `gh issue view`. The same information
+requested as `gh issue list --json blockedBy` comes back as objects of id, number, state, title and URL,
+with no slug form anywhere and every URL carrying a scheme that redaction rewrites.
+
+So the rule for capture is to record `--json` surfaces, on which this shape does not occur, rather than the
+human-readable views, where it occurs on the first capture. That is a stronger reason to prefer `--json`
+than mere parseability, and it is why the tree's own issue text also avoids cross-references. If a
+human-readable surface is ever wanted for its own sake, the shape has to be closed first — by teaching
+redaction the tree's slug, since the guard will fail the build until something does.
 
 So the guard stays the backstop, which is the arrangement 0006's title already names. A recording that
 trips it on a host shape is a signal to extend redaction rather than to add an allowlist line — the line
@@ -67,7 +75,9 @@ entry copied out of a recording carries the same blanket acceptance described ab
 
 ## Consequences
 
-Storing a recording costs nothing at the guard. This is the difference between a corpus that grows from
+Storing a `--json` recording costs nothing at the guard — measured, not assumed, and the qualifier is
+load-bearing: a plain `gh issue view` costs a build failure. This is the difference between a corpus that
+grows from
 reality, which is what 0019 is for, and one whose growth has a per-issue tax attached.
 
 The placeholder is dot-less rather than merely synthetic, so `example.com` and friends are the wrong

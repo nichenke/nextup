@@ -93,8 +93,8 @@ export function provisionTestTree(spec: TestTreeSpec, runner: Runner): TestTreeR
 		}
 	}
 
-	// Assignment and state come last so an edge is never refused for pointing at an issue that this run
-	// has not finished creating, and so a freshly closed blocker is closed with its edges already in place.
+	// State comes after the edge loop so a blocker this run closes has its edges already in place —
+	// `closed-blocker` is created open, edged, and only then closed.
 	for (const issue of spec.issues) {
 		const number = numberOf(numbers, issue.key);
 		const found = byTitle.get(issue.title);
