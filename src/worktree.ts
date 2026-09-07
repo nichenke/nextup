@@ -52,6 +52,11 @@ const SLUG_LIMIT = 48;
  * name one branch at one path, and the second ticket would be reported as attached to the first
  * ticket's worktree. Case is not part of the test: a Jira `ABC-7` becomes `abc-7`, because the branch
  * is a name a person types rather than an identifier anything parses back.
+ *
+ * Reads the key and the title only, never `ref.tracker`, `ref.host` or `ref.repo` — so two tickets
+ * agreeing on key, slug and bug-labelledness reach that same collision by a route this guard does not
+ * cover. Unreachable until a ticket set can span repositories; nichenke/nextup issue 40 owes the choice
+ * between qualifying the branch and keying the path on the reference.
  */
 export function branchName(ticket: Pick<Ticket, "ref" | "title" | "labels">): string {
 	const prefix = ticket.labels.some((label) => label.toLowerCase() === BUG_LABEL) ? "fix" : "feature";
