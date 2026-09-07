@@ -15,6 +15,11 @@ const USERLESS_SCP = "example.com:example/repo.git";
 const HOST_PORT = "example.com:8443";
 const HOST = GITHUB_PLACEHOLDER_HOST;
 
+// Split the way `scripts/check-identifiers.test.ts` splits its fixtures: these two carry the very shape the
+// guard flags, and the guard reads this file, so spelling either one whole fails the build it belongs to.
+const SOURCE_REF = "src/test-tree" + ".ts:27";
+const LOCKFILE_REF = "bun" + ".lockb:1";
+
 describe("redactRecordingIdentifiers", () => {
 	test("replaces a scheme and host with the placeholder, keeping the path", () => {
 		expect(redact(ISSUE_URL)).toBe(`${HOST}/example/repo/issues/1`);
@@ -44,6 +49,20 @@ describe("redactRecordingIdentifiers", () => {
 	test("leaves a dotted version string alone, which has the same shape as a host", () => {
 		expect(redact("bun 1.4.0/darwin")).toBe("bun 1.4.0/darwin");
 		expect(redact("v2.100.0:release")).toBe("v2.100.0:release");
+	});
+
+	// Accepted loss, pinned rather than fixed: guard parity means a path ending in a short letters-only
+	// extension before a separator is rewritten too. The guard flags these shapes whatever redaction does,
+	// so the alternative is not a faithful recording but a failed build.
+	test("rewrites a file reference that has a host's shape, which parity with the guard costs", () => {
+		expect(redact(SOURCE_REF)).toBe(`src/${HOST}:27`);
+		expect(redact(LOCKFILE_REF)).toBe(`${HOST}:1`);
+	});
+
+	test("leaves a file reference alone when no separator follows it", () => {
+		expect(redact(`see ${SOURCE_REF.replace(":27", "")} for the spec`)).toBe(
+			`see ${SOURCE_REF.replace(":27", "")} for the spec`,
+		);
 	});
 
 	test("leaves a package version alone, which is the other thing spelled with an @", () => {

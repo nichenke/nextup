@@ -22,10 +22,13 @@ interface ExistingIssue {
 	readonly assignees: readonly { readonly login: string }[];
 }
 
+/** Every branch that reports a change. A union so the producer and the tests cannot drift apart. */
+export type TestTreeAction = "created" | "claimed" | "released" | "closed" | "reopened" | `blocked by ${string}`;
+
 /** An empty report means every issue matched. Label definitions are re-asserted each run, unreported. */
 export interface TestTreeChange {
 	readonly key: string;
-	readonly action: string;
+	readonly action: TestTreeAction;
 }
 
 export interface TestTreeReport {
@@ -53,6 +56,10 @@ export function provisionTestTree(spec: TestTreeSpec, runner: Runner): TestTreeR
 	}
 
 	const existing = listIssues(spec, runner);
+	// Title is the identity, so a title renamed by hand in the tracker or edited in the spec is not drift
+	// that surfaces later — it reads as absent and gets a second issue created beside the original, which
+	// keeps its edges and its assignment. A rename is indistinguishable from a deletion from out here, so
+	// this is documented in ADR-0023 rather than detected.
 	const byTitle = new Map(existing.map((issue) => [issue.title, issue]));
 	const numbers = new Map<string, number>();
 

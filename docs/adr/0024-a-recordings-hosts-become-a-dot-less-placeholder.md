@@ -14,17 +14,31 @@ does it, and keeps the path, so a reader can still tell one issue's URL from ano
 
 The allowlist compares whole tokens, exactly, for the reasons
 [0006](./0006-provenance-prevents-leaks-the-guard-is-a-backstop.md) gives — every attempt at accepting
-part of a token needed a URL grammar, and each grammar had a bypass. That property is what makes the
-allowlist the wrong place for a recording. A recording of the test tree holds a distinct URL for every
-issue in it, several per issue once the embedded repository object is counted, and each distinct one is
-its own token. Seventeen issues would cost dozens of `ALLOWED` lines, and every capture that added an
-issue would add more — which turns the deliberate, individually reviewable line `CLAUDE.md` asks for into
-a bulk edit nobody reads.
+part of a token needed a URL grammar, and each grammar had a bypass. What makes it the wrong place for a
+recording is what a *token* turns out to be.
 
-A dot-less host needs no line, because it matches none of the guard's four shapes. Each of them requires
-something the placeholder does not have: a scheme, an `@` before a dotted host, a dotted host before a
-`/` or a `:`, or a `#` before digits. The placeholder is not an exception the guard tolerates; it is a
-token the guard is not looking for.
+It is not a URL. The guard's scheme shape runs to the next whitespace, and `gh --json` prints its whole
+document on one line, so the token is everything from the first scheme to the end of that line. Measured
+on a two-URL line, `grep` returns one match containing both URLs and the JSON punctuation between them.
+
+Allowlisting a recording therefore means three things, and the third is the disqualifying one:
+
+- The `ALLOWED` entry is a verbatim copy of the recording's body, not a name for a host.
+- It churns on any byte after the first scheme on that line — a new issue, a renumber, an edited title, a
+  state flip — so every capture rewrites the entry.
+- It accepts every identifier later on that line, sight unseen. That is precisely the failure 0006
+  documents and refuses, where "a copied URL carrying `?redirect=` plus a private host was accepted before
+  the inner host was ever looked at" — reintroduced deliberately, and at the scale of a whole recording.
+
+No count is given here on purpose. How many tokens a recording produces depends on a storage format that
+does not exist yet: compact single-line output gives roughly one token per captured command, pretty-printed
+storage roughly one per URL-bearing line, and an escaped-stdout fixture tokenizes differently again because
+the guard turns `\n` escapes into real newlines before matching. The argument above holds for all three.
+
+A dot-less host needs no entry at all, because it matches none of the guard's three host shapes. Each
+requires something the placeholder does not have: a scheme, an `@` before a dotted host, or a dotted host
+before a `/` or a `:`. The placeholder is not an exception the guard tolerates; it is a token the guard is
+not looking for.
 
 ## What this does not claim
 
@@ -37,10 +51,19 @@ guard's shapes deliberately, and widening the guard means widening these.
 It is still not a proof of absence, for the same reason the guard's own header gives about its
 normalization: an encoding neither recognises passes through.
 
+The guard has a fourth shape that redaction cannot reach at all: a slug reference like `owner/repo` and a
+`#` before digits, which carries no host, so rewriting hosts does nothing to it. GitHub emits that form in
+cross-references and in dependency prose. Nothing here closes it, and the tree's own issue text avoids
+cross-references for that reason. If one does reach a recording, the choice is between teaching redaction
+the tree's own slug and refusing to store that content — a decision for whoever builds capture, with the
+guard failing the build until it is made.
+
 So the guard stays the backstop, which is the arrangement 0006's title already names. A recording that
-trips it is a signal to extend redaction, never to add an allowlist line — an allowlist line would record
-that this one identifier is acceptable, when the fact to record is that a shape got past the redaction and
-will get past it again on the next capture.
+trips it on a host shape is a signal to extend redaction rather than to add an allowlist line — the line
+would record that this one identifier is acceptable, when the fact to record is that a shape got past
+redaction and will get past it again on the next capture. On the slug shape, where extending redaction is
+not available in the same way, the remedy is to change what the tree's issues say, because an allowlist
+entry copied out of a recording carries the same blanket acceptance described above.
 
 ## Consequences
 

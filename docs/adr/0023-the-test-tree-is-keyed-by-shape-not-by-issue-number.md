@@ -31,6 +31,15 @@ A ticket's **label assignments** and its body are set once at creation and never
 only if someone edits the tracker by hand, and a run that silently corrected such an edit would hide it —
 the edit is worth seeing, because it means a recording and the tree now disagree.
 
+The **title** is not in that category either, and it is the sharp edge of keying on shape. It is what
+reconciliation matches the tracker on, so it is load-bearing for identity rather than merely descriptive.
+Renaming an issue by hand does not show up as drift to be noticed later: the next run finds no issue by
+that title and creates a fresh one, leaving the renamed original in the repository with its edges and its
+assignment intact. Editing a title in the spec does the same thing. `validateTestTree` refuses two issues
+sharing a title for the same reason — that collapses two keys onto one number and no run afterwards
+converges — but nothing can detect a rename, because a renamed issue and a deleted one look identical from
+the outside.
+
 A **label definition** is the exception, and the distinction is easy to lose: the name, colour and
 description of each label in `spec.labels` are re-asserted on every run with `gh label create --force`,
 because a recording captures a label's colour, so the colour is a property of the spec rather than of

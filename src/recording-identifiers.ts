@@ -1,11 +1,16 @@
 /**
- * The stand-in a GitHub recording's hosts are rewritten to. Keep it dot-less: a dotted host would cost an
- * allowlist line per distinct URL in every recording stored. ADR-0024 has why.
+ * The stand-in a GitHub recording's hosts are rewritten to. Keep it dot-less: a dotted host would put the
+ * recording itself on the identifier allowlist, and ADR-0024 has why such an entry accepts whatever else
+ * shares its line.
  */
 export const GITHUB_PLACEHOLDER_HOST = "github-test-tree";
 
-// A scheme and everything up to the path: userinfo, host and port together, since all three name a
-// system. Run before EMAIL_HOST so a scheme carrying userinfo is consumed whole rather than half.
+// One rule per host shape the guard matches, applied in the order they are declared. Each consumes what
+// the next would otherwise mangle: a scheme carrying userinfo has to be taken whole rather than split at
+// its `@`, and a host inside a scheme has to be gone before the schemeless rule runs, or that rule leaves
+// the scheme standing in front of the placeholder and the result trips the guard it was meant to satisfy.
+//
+// A scheme and everything up to the path: userinfo, host and port together, since all three name a system.
 const SCHEME_AUTHORITY = /[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s"'<>\\/]*/g;
 
 // The scp-form remote and the email, neither of which carries a scheme. The final label has to be
