@@ -1,2 +1,6 @@
 node_modules/
 *.log
+
+# ADR-0013's default worktree root. Ignored here rather than in a machine's global excludes, because
+# without it `git add .` stages a registered worktree as an embedded repository.
+.worktrees/

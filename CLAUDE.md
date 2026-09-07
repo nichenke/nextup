@@ -36,8 +36,13 @@ that is openly missing.
 
 ## Fixture provenance
 
-Fixtures are captured only from a test tree, never from a real project repository. A shape found in a
-real repository is recreated on the test tree before it is captured. ADR-0019 has the reasoning.
+Recordings — captured exchanges with a tracker's CLI — come only from a test tree, never from a real
+project repository. A shape found in a real repository is recreated on the test tree before it is
+captured.
+
+Scenario inputs are the exception and are authored by hand: they assert how the ladder ranks tickets
+whose shape is ours by definition, so they claim nothing about what a tracker emits. ADR-0019 has the
+reasoning for both halves.
 
 ## Identifier guard
 
