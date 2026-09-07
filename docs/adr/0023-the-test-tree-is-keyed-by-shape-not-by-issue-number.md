@@ -27,9 +27,15 @@ unassigns for real, so the tree has to be restorable afterwards without being re
 the only issue a test may touch: every other issue's assignment is itself a captured shape, so claiming
 one of those changes what the next recording says about it.
 
-Labels and bodies are set once at creation and never reconciled. They drift only if someone edits the
-tracker by hand, and a run that silently corrected such an edit would hide it — the edit is worth seeing,
-because it means a recording and the tree now disagree.
+A ticket's **label assignments** and its body are set once at creation and never reconciled. They drift
+only if someone edits the tracker by hand, and a run that silently corrected such an edit would hide it —
+the edit is worth seeing, because it means a recording and the tree now disagree.
+
+A **label definition** is the exception, and the distinction is easy to lose: the name, colour and
+description of each label in `spec.labels` are re-asserted on every run with `gh label create --force`,
+because a recording captures a label's colour, so the colour is a property of the spec rather than of
+whoever created the label first. That write is unconditional and reports no change, so a hand-edited
+colour is reset silently — the one place provisioning heals without saying so.
 
 That boundary is the point, not a gap to close later. The provisioner exists to make the tree
 reproducible, not to keep it in sync: the four things it reconciles are the ones a rebuild or the write

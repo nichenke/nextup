@@ -11,8 +11,9 @@ then run
 bun run provision:test-tree
 ```
 
-which creates whatever is missing and reports what it changed. Re-running against a matching tree prints
-`already matches the spec` and makes no calls that alter anything.
+which creates whatever is missing and reports what it changed. Re-running against a matching tree reports
+no issue changes; it still re-asserts every label definition, which ADR-0023 explains is the one write
+that happens unconditionally and unreported.
 
 ## The shapes it carries
 

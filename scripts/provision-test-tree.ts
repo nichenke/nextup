@@ -8,7 +8,7 @@ try {
 	for (const change of report.changes) process.stdout.write(`${change.key}: ${change.action}\n`);
 	process.stdout.write(
 		report.changes.length === 0
-			? `${GITHUB_TEST_TREE.repo} already matches the spec\n`
+			? `${GITHUB_TEST_TREE.repo}: every issue already matches the spec\n`
 			: `${GITHUB_TEST_TREE.repo}: ${report.changes.length} change(s)\n`,
 	);
 } catch (error) {

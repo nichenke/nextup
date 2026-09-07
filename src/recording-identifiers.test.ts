@@ -10,6 +10,9 @@ const SSH_URL = "ssh://git@example.com/example/repo.git";
 const USERINFO_URL = "https://alice@example.com/group/project/-/issues/1";
 const SCP_REMOTE = "git@example.com:example/repo.git";
 const QUERY_URL = "https://example.com/?next=/group/project/-/issues/1";
+const BARE_HOST_PATH = "example.com/group/project/-/issues/1";
+const USERLESS_SCP = "example.com:example/repo.git";
+const HOST_PORT = "example.com:8443";
 const HOST = GITHUB_PLACEHOLDER_HOST;
 
 describe("redactRecordingIdentifiers", () => {
@@ -29,6 +32,20 @@ describe("redactRecordingIdentifiers", () => {
 		expect(redact(SCP_REMOTE)).toBe(`${HOST}:example/repo.git`);
 	});
 
+	// The guard flags a dotted host before a `/` or a `:` with no scheme and no user at all. Redaction that
+	// covered only the scheme and `user@host` forms left these three to the guard, which fails the build
+	// rather than fixing the recording.
+	test("replaces a host carrying neither a scheme nor a user", () => {
+		expect(redact(BARE_HOST_PATH)).toBe(`${HOST}/group/project/-/issues/1`);
+		expect(redact(USERLESS_SCP)).toBe(`${HOST}:example/repo.git`);
+		expect(redact(HOST_PORT)).toBe(`${HOST}:8443`);
+	});
+
+	test("leaves a dotted version string alone, which has the same shape as a host", () => {
+		expect(redact("bun 1.4.0/darwin")).toBe("bun 1.4.0/darwin");
+		expect(redact("v2.100.0:release")).toBe("v2.100.0:release");
+	});
+
 	test("leaves a package version alone, which is the other thing spelled with an @", () => {
 		expect(redact("typescript@5.1.2")).toBe("typescript@5.1.2");
 		expect(redact("@types/bun@1.4.0")).toBe("@types/bun@1.4.0");
@@ -45,7 +62,9 @@ describe("redactRecordingIdentifiers", () => {
 	});
 
 	test("leaves behind nothing the identifier guard matches", () => {
-		const redacted = redact([ISSUE_URL, SSH_URL, USERINFO_URL, SCP_REMOTE, QUERY_URL].join("\n"));
+		const redacted = redact(
+			[ISSUE_URL, SSH_URL, USERINFO_URL, SCP_REMOTE, QUERY_URL, BARE_HOST_PATH, USERLESS_SCP, HOST_PORT].join("\n"),
+		);
 		expect(redacted).not.toMatch(/:\/\//);
 		expect(redacted).not.toMatch(/[A-Za-z0-9-](?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}[:/]/);
 	});

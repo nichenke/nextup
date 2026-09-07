@@ -28,9 +28,14 @@ token the guard is not looking for.
 
 ## What this does not claim
 
-Redaction closes the shapes a tracker CLI is known to emit — a scheme with its authority, and the
-scp-form remote and email address that carry no scheme. It is not a proof of absence, for the same reason
-the guard's own header gives about its normalization: an encoding it does not recognise passes through.
+Redaction has one rule per shape the guard matches: a scheme with its authority, an `@` before a dotted
+host, and a dotted host before a `/` or a `:` with no scheme and no user. The third exists because the
+first two left it out, and a shape redaction misses does not stay missed — it fails the build on the next
+capture, and the tempting repair is the allowlist line this ADR exists to avoid. So the rules track the
+guard's shapes deliberately, and widening the guard means widening these.
+
+It is still not a proof of absence, for the same reason the guard's own header gives about its
+normalization: an encoding neither recognises passes through.
 
 So the guard stays the backstop, which is the arrangement 0006's title already names. A recording that
 trips it is a signal to extend redaction, never to add an allowlist line — an allowlist line would record

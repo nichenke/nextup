@@ -204,9 +204,15 @@ export const GITHUB_TEST_TREE: TestTreeSpec = {
  */
 export function validateTestTree(spec: TestTreeSpec): void {
 	const keys = new Set<string>();
+	const titles = new Set<string>();
 	for (const issue of spec.issues) {
 		if (keys.has(issue.key)) throw new TestTreeError(`${issue.key} is used by two issues`);
 		keys.add(issue.key);
+		// Titles matter as much as keys, because reconciliation matches the tracker on title: two issues
+		// sharing one collapse to a single number, stranding an issue no key reaches, and every later run
+		// oscillates between the two specs instead of converging.
+		if (titles.has(issue.title)) throw new TestTreeError(`two issues share the title ${issue.title}`);
+		titles.add(issue.title);
 	}
 	const declared = new Set(spec.labels.map((label) => label.name));
 	for (const issue of spec.issues) {

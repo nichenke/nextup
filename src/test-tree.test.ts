@@ -33,6 +33,16 @@ describe("validateTestTree", () => {
 		expect(() => validateTestTree(spec)).toThrow(TestTreeError);
 	});
 
+	// Reconciliation matches on title, not on key, so two issues sharing a title collapse to one number:
+	// the tree gains an issue no key reaches, and every later run oscillates between the two specs.
+	test("refuses a repeated title, which is the identity the tracker is matched on", () => {
+		const spec: TestTreeSpec = {
+			...tree,
+			issues: [issue("no-priority"), { ...issue("chain-base"), title: issue("no-priority").title }],
+		};
+		expect(() => validateTestTree(spec)).toThrow(TestTreeError);
+	});
+
 	test("refuses a blocker that names no issue", () => {
 		const spec: TestTreeSpec = { ...tree, issues: [{ ...issue("no-priority"), blockedBy: ["absent"] }] };
 		expect(() => validateTestTree(spec)).toThrow(TestTreeError);

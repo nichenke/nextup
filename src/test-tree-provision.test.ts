@@ -178,6 +178,30 @@ describe("provisionTestTree", () => {
 		expect(() => provisionTestTree(GITHUB_TEST_TREE, flooded)).toThrow(/truncated/);
 	});
 
+	// A listing missing `title` used to read as "no spec issue exists", which creates a second copy of the
+	// whole tree on every run. The trigger is the `--json` field list and `ExistingIssue` drifting apart,
+	// so the parse refuses the shape rather than trusting a cast.
+	test.each([
+		["title", `[{"number":1,"state":"OPEN","assignees":[]}]`],
+		["state", `[{"number":1,"title":"t","assignees":[]}]`],
+		["assignees", `[{"number":1,"title":"t","state":"OPEN"}]`],
+		["number", `[{"title":"t","state":"OPEN","assignees":[]}]`],
+		["a state nothing recognises", `[{"number":1,"title":"t","state":"MERGED","assignees":[]}]`],
+		["an object instead of a list", `{"number":1}`],
+	])("refuses a listing missing %s", (_label, stdout) => {
+		// Every other call answers plausibly, so the parse is the only thing that can fail. Answering them
+		// with a bare success instead made all six pass on `createIssue`'s "printed no issue number" throw,
+		// which is the same error class and proves nothing about the listing.
+		const broken: Runner = (argv) => {
+			if (argv[2] === "list") return ok(stdout);
+			if (argv[2] === "create") return ok(`${GITHUB_PLACEHOLDER_HOST}/owner/repo/issues/1\n`);
+			if (argv[1] === "api" && argv[2]?.endsWith("/dependencies/blocked_by")) return ok("[]");
+			if (argv[1] === "api") return ok("1001\n");
+			return ok();
+		};
+		expect(() => provisionTestTree(GITHUB_TEST_TREE, broken)).toThrow(TestTreeError);
+	});
+
 	test("refuses a create whose output carries no issue number", () => {
 		const spec: TestTreeSpec = { ...GITHUB_TEST_TREE, issues: GITHUB_TEST_TREE.issues.slice(0, 1) };
 		const mute: Runner = (argv) => (argv[2] === "list" ? ok("[]") : ok("created\n"));

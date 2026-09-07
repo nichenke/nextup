@@ -8,14 +8,21 @@ import { type TestTreeIssue, type TestTreeSpec, TestTreeError, validateTestTree 
  */
 const LIST_LIMIT = 200;
 
+/**
+ * The two states `gh issue list --json state` reports. Narrowed rather than left as a string because
+ * `state !== "CLOSED"` reads every unrecognised token as open, which would leave a closed issue closed
+ * while the report says the tree matches the spec.
+ */
+type IssueState = "OPEN" | "CLOSED";
+
 interface ExistingIssue {
 	readonly number: number;
 	readonly title: string;
-	readonly state: string;
+	readonly state: IssueState;
 	readonly assignees: readonly { readonly login: string }[];
 }
 
-/** An empty report means the tree already matched. */
+/** An empty report means every issue matched. Label definitions are re-asserted each run, unreported. */
 export interface TestTreeChange {
 	readonly key: string;
 	readonly action: string;
@@ -39,7 +46,9 @@ export function provisionTestTree(spec: TestTreeSpec, runner: Runner): TestTreeR
 
 	for (const label of spec.labels) {
 		// `--force` updates an existing label instead of failing, which is what makes the colour a
-		// property of the spec rather than of whoever created the label first.
+		// property of the spec rather than of whoever created the label first. It writes unconditionally
+		// and reports nothing, so a hand-edited colour is reset without appearing in the change list —
+		// unlike a per-issue label assignment, which is never touched after creation.
 		run(runner, ["gh", "label", "create", label.name, "--repo", spec.repo, "--color", label.color, "--force"]);
 	}
 
@@ -115,7 +124,7 @@ function reconcileState(
 	found: ExistingIssue | undefined,
 	runner: Runner,
 ): readonly TestTreeChange[] {
-	const closed = found?.state.toUpperCase() === "CLOSED";
+	const closed = found?.state === "CLOSED";
 	if (issue.closed === closed) return [];
 	const verb = issue.closed ? "close" : "reopen";
 	run(runner, ["gh", "issue", verb, String(number), "--repo", spec.repo]);
@@ -136,11 +145,41 @@ function listIssues(spec: TestTreeSpec, runner: Runner): readonly ExistingIssue[
 		"--json",
 		"number,title,state,assignees",
 	]);
-	const issues = JSON.parse(stdout) as ExistingIssue[];
+	const issues = parseIssues(stdout);
 	if (issues.length >= LIST_LIMIT) {
 		throw new TestTreeError(`${spec.repo} returned ${LIST_LIMIT} issues, so the listing may be truncated`);
 	}
 	return issues;
+}
+
+/**
+ * Checks the listing field by field instead of asserting a type over it. A cast that skipped this read a
+ * missing `title` as "no spec issue exists", which creates a second copy of the whole tree on every run —
+ * and the trigger is not the tracker changing but the `--json` field list above and `ExistingIssue`
+ * drifting apart in one edit.
+ *
+ * @throws TestTreeError naming the first field that is absent or the wrong shape.
+ */
+function parseIssues(stdout: string): readonly ExistingIssue[] {
+	const parsed: unknown = JSON.parse(stdout);
+	if (!Array.isArray(parsed)) throw new TestTreeError(`the issue listing is not a list: ${stdout.slice(0, 80)}`);
+	return parsed.map((raw, index) => {
+		const { number, title, state, assignees } = raw as Partial<ExistingIssue>;
+		const at = `issue ${index} of the listing`;
+		if (typeof number !== "number" || !Number.isSafeInteger(number) || number <= 0) {
+			throw new TestTreeError(`${at} has no usable number: ${JSON.stringify(number)}`);
+		}
+		if (typeof title !== "string" || title === "") {
+			throw new TestTreeError(`${at} has no title: ${JSON.stringify(title)}`);
+		}
+		if (state !== "OPEN" && state !== "CLOSED") {
+			throw new TestTreeError(`${at} reports the unrecognised state ${JSON.stringify(state)}`);
+		}
+		if (!Array.isArray(assignees) || assignees.some((one) => typeof one?.login !== "string")) {
+			throw new TestTreeError(`${at} has no usable assignees: ${JSON.stringify(assignees)}`);
+		}
+		return { number, title, state, assignees };
+	});
 }
 
 function createIssue(spec: TestTreeSpec, issue: TestTreeIssue, runner: Runner): number {
