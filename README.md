@@ -63,16 +63,14 @@ doing.
 
 Ensuring the worktree is one of three things, and the outcome says which: the branch and the worktree
 both created, a worktree made for a branch that already existed, or an attach to the worktree already
-at the expected path. Anything else there is refused by kind — a stale directory, a symlink, a
-registration whose directory has gone, the branch checked out somewhere else — rather than left to
-`git worktree add`'s own fatal. The branch is `feature/` or `fix/` by whether the ticket is labelled a
-bug, then the title as a slug, then the ticket's key last so tab-completion reaches the slug. It goes
-under `.worktrees/` in the primary checkout unless a caller names another root;
-[ADR-0013](./docs/adr/0013-worktrees-go-under-the-primary-checkout.md) has why there. Nothing removes
-these worktrees, so they accumulate until you clear them by hand —
-[ADR-0005](./docs/adr/0005-worktree-removal-stays-unimplemented.md) has the reproduction behind that
-being settled rather than pending. A primary checkout that has drifted off the default branch is
-warned about, not refused, because the new branch is cut from that checkout's HEAD.
+at the expected path. Anything else at that path is refused by kind rather than left to `git worktree
+add`'s own fatal. The branch is `feature/` or `fix/` by whether the ticket is labelled a bug, then the
+title as a slug, then the ticket's key last so tab-completion reaches the slug. It goes under
+`.worktrees/` in the primary checkout unless a caller names another root, and never gets removed —
+[ADR-0013](./docs/adr/0013-worktrees-go-under-the-primary-checkout.md) has why there and
+[ADR-0005](./docs/adr/0005-worktree-removal-stays-unimplemented.md) why nothing cleans up. A primary
+checkout that has drifted off the default branch is warned about, not refused, because the new branch
+is cut from that checkout's HEAD.
 
 Everything before the claim — the ranking, the plan, the gate — writes nothing to the tracker, so a
 declined pick and a wrong input both cost no tracker write to find out.

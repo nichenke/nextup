@@ -1,6 +1,12 @@
 import { existsSync, lstatSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { branchExistsCommand, defaultBranchCommand, worktreeAddCommand, worktreeListCommand } from "./command-builders";
+import {
+	type Argv,
+	branchExistsCommand,
+	defaultBranchCommand,
+	worktreeAddCommand,
+	worktreeListCommand,
+} from "./command-builders";
 import type { Runner } from "./runner";
 import type { Ticket } from "./ticket";
 
@@ -9,12 +15,15 @@ import type { Ticket } from "./ticket";
  *
  * `"stale-directory"` covers everything occupying the expected path that is not the worktree wanted
  * there — leftover files, a symlink, a registration whose directory has gone, a worktree on another
- * branch — and the message says which. `"ticket-set"` says the ticket cannot name a branch, so no
- * waiting fixes it. `"git"` is a git question this could not get a usable answer to, which includes a
- * command that succeeded and said nothing.
+ * branch, a root that names no place a worktree can go — and the message says which.
+ * `"branch-elsewhere"` is the branch checked out at another path, which is the one refusal a second
+ * session racing the same ticket hits. `"unnameable-ticket"` says the ticket cannot name a branch, so
+ * no waiting fixes it; it is deliberately not called `ticket-set`, which `CONTEXT.md` gives to the
+ * tickets one invocation considers. `"git"` is a git question this could not get a usable answer to,
+ * which includes a command that succeeded and said nothing.
  */
 export class WorktreeError extends Error {
-	readonly kind: "stale-directory" | "branch-elsewhere" | "ticket-set" | "git";
+	readonly kind: "stale-directory" | "branch-elsewhere" | "unnameable-ticket" | "git";
 
 	constructor(message: string, kind: WorktreeError["kind"]) {
 		super(message);
@@ -22,11 +31,7 @@ export class WorktreeError extends Error {
 	}
 }
 
-/**
- * Where worktrees go when nothing else says. Relative, and resolved against the primary checkout, so
- * that a run started from inside one worktree does not nest the next one underneath it. ADR-0013 has
- * why here rather than under the harness's directory.
- */
+/** Where worktrees go when nothing else says. Relative, resolved against the primary checkout — ADR-0013. */
 export const DEFAULT_WORKTREE_ROOT = ".worktrees";
 
 const BUG_LABEL = "bug";
@@ -39,7 +44,7 @@ const SLUG_LIMIT = 48;
  * key. The key goes last so that tab-completion on the prefix reaches the slug rather than stopping at
  * a run of numbers, which is the whole reason the convention is shaped this way.
  *
- * @throws WorktreeError `"ticket-set"` where the key does not survive slugification — anything but
+ * @throws WorktreeError `"unnameable-ticket"` where the key does not survive slugification — anything but
  * ASCII letters, digits and separators is dropped, so two keys differing only outside that set would
  * name one branch at one path, and the second ticket would be reported as attached to the first
  * ticket's worktree. Case is not part of the test: a Jira `ABC-7` becomes `abc-7`, because the branch
@@ -51,7 +56,7 @@ export function branchName(ticket: Pick<Ticket, "ref" | "title" | "labels">): st
 	if (key !== ticket.ref.key.toLowerCase()) {
 		throw new WorktreeError(
 			`${ticket.ref.key} cannot be spelled in a branch name, so it would not name its own`,
-			"ticket-set",
+			"unnameable-ticket",
 		);
 	}
 	const slug = slugify(ticket.title);
@@ -99,31 +104,36 @@ interface WorktreeBase {
 /**
  * What ensuring the worktree did.
  *
- * A union rather than one shape with a nullable command, so that an outcome claiming to have created
- * something while carrying nothing that ran cannot be built. Written as a plain object first, it
- * reported `created` with a null command over an empty path, having made no worktree at all.
+ * A union rather than one shape with a nullable command, and `Argv` rather than `readonly string[]`, so
+ * that an outcome claiming to have created something while carrying nothing that ran cannot be built —
+ * the shape nichenke/nextup pull request 31 shipped and which reported `created` over an empty path.
  */
 export type WorktreeOutcome =
 	| (WorktreeBase & { readonly kind: "attached"; readonly command: null })
-	| (WorktreeBase & { readonly kind: "created" | "checked-out"; readonly command: readonly string[] });
+	| (WorktreeBase & { readonly kind: "created" | "checked-out"; readonly command: Argv });
 
 /**
  * What a registration's HEAD is, in the shapes the porcelain listing reports.
  *
- * Separate arms rather than a nullable branch name. A bare repository and a detached HEAD are
- * different situations with different answers to "has this drifted?", and flattened into one absent
- * branch a bare primary was reported as "on a detached HEAD" — a checkout it does not have. `"opaque"`
- * is a record naming none of the three, which is a git this does not understand rather than any of
- * them; `CONTEXT.md`'s `Unknown` is the same rule.
+ * Separate arms rather than a nullable branch name. A bare repository and a detached HEAD are different
+ * situations with different answers to "has this drifted?", and flattened into one absent branch a bare
+ * primary was reported as "on a detached HEAD" — a checkout it does not have.
+ *
+ * `"opaque"` is a record naming none of the other three. No git reached here produces one — 2.55 emits
+ * `branch`, `detached` or `bare` for every shape, including an unborn HEAD, which reports `branch` —
+ * so it is not there to cover a git that has learned a fourth. It is there because `parseWorktreeList`
+ * has to hold a head before it has read any attribute, and the alternative initial value is the
+ * nullable this union replaced. `CONTEXT.md`'s `Unknown` is the same rule: a state meaning "could not
+ * tell" is never spelled as one of the states it is not.
  */
-type Head =
+export type Head =
 	| { readonly kind: "branch"; readonly name: string }
 	| { readonly kind: "detached" }
 	| { readonly kind: "bare" }
 	| { readonly kind: "opaque" };
 
 /** One registered worktree, as `git worktree list --porcelain` describes it. */
-interface Registration {
+export interface Registration {
 	readonly path: string;
 	readonly head: Head;
 	/** Set where git reports the registration's directory is gone, which no attach can use. */
@@ -140,7 +150,7 @@ interface Registration {
  * ADR-0016 has why nothing here needs unwinding.
  *
  * @throws WorktreeError — `"branch-elsewhere"` where the branch is checked out at another path,
- * `"stale-directory"` where the expected path holds anything else, `"ticket-set"` from `branchName`,
+ * `"stale-directory"` where the expected path holds anything else, `"unnameable-ticket"` from `branchName`,
  * `"git"` where a command failed.
  */
 export function ensure(input: EnsureInput): WorktreeOutcome {
@@ -158,6 +168,12 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 	// normalizes either — so a trailing slash or a `..` in a caller's root is the same path rather than
 	// a different spelling of it.
 	const container = resolve(primary, input.root ?? DEFAULT_WORKTREE_ROOT);
+	if (container === primary) {
+		// `resolve` discards an empty segment, so `""` and `"."` both land here rather than on the default:
+		// `??` does not fire for `""`, which is what an unset variable or an empty flag hands over. The
+		// worktree would go directly inside the primary checkout's own working tree.
+		throw new WorktreeError(`${primary} is the primary checkout, so it cannot also be the worktree root`, "stale-directory");
+	}
 	refuseIfReachedThroughLink(container);
 	const path = join(container, leafOf(branch));
 	const warnings = driftWarnings(input.runner, primary, main.head);
@@ -192,10 +208,9 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
  * @throws WorktreeError `"stale-directory"` where the registration at `path` is not a worktree on
  * `branch` that something could be done in.
  *
- * A registration is git's record of a path, not a promise about what is at it now, so the create
- * path's invariants are re-asked here rather than skipped — without that, "not a symlink" held on one
- * route into the worktree and not the other, and `gone` alone is satisfied by a file that replaced a
- * deleted worktree.
+ * A registration is git's record of a path, not a promise about what is at it now, so the create path's
+ * invariants are re-asked here rather than skipped: both routes into the worktree have to enforce them,
+ * and `gone` alone is satisfied by a file that replaced a deleted worktree.
  */
 function refuseUnlessAttachable(registration: Registration, path: string, branch: string): void {
 	if (gone(registration)) {
@@ -232,9 +247,22 @@ function gone(registration: Registration): boolean {
 }
 
 function describe(head: Head): string {
-	if (head.kind === "branch") return head.name;
-	if (head.kind === "bare") return "a bare repository";
-	return head.kind === "detached" ? "a detached HEAD" : "a head this could not read";
+	// A switch closed by `never`, so a fifth arm is a compile error rather than something rendered as
+	// "could not read" — mislabelled as opaque is the collapse the union exists to prevent.
+	switch (head.kind) {
+		case "branch":
+			return head.name;
+		case "bare":
+			return "a bare repository";
+		case "detached":
+			return "a detached HEAD";
+		case "opaque":
+			return "a head this could not read";
+		default: {
+			const unreachable: never = head;
+			return unreachable;
+		}
+	}
 }
 
 /**
@@ -274,9 +302,8 @@ function refuseIfLink(path: string, entry: ReturnType<typeof inspect>): void {
  * Every filesystem question this guard asks, classified. `throwIfNoEntry` covers a path that is not
  * there and nothing else, so an ancestor that is a file (ENOTDIR), a directory that cannot be read
  * (EACCES), or a path that goes away mid-check all raise a plain error — which no caller catches, so
- * the command died rather than reporting the refusal this documents. One wrapper rather than a
- * try/catch per call, because the first of the two was fixed on its own and the second went on
- * throwing one line below it.
+ * the command dies rather than reporting the refusal this documents. One wrapper rather than a
+ * try/catch per call site, so a filesystem question added later cannot escape unclassified.
  */
 function asking<T>(path: string, verb: string, work: () => T): T {
 	try {
@@ -303,18 +330,14 @@ function branchExists(runner: Runner, repo: string, branch: string): boolean {
 /**
  * @throws WorktreeError `"stale-directory"` where any component of `root` is a symlink.
  *
- * git registers a worktree under the path with its symlinks resolved, so a root reached through one
- * registers as a path this would look for elsewhere, and the next run reports the branch checked out
- * somewhere else rather than attaching to what the last one made. Refused rather than resolved: a
- * worktree root reached through a link is not something this tool needs to support, and following one
- * would leave two names for the same directory with only one of them ever matching git.
+ * Refused rather than resolved, per ADR-0013: git registers a worktree under the path with its symlinks
+ * resolved, so a root reached through one registers where this would not look for it, and the next run
+ * reports the branch checked out elsewhere instead of attaching to what the last one made.
  *
  * Asked component by component rather than by comparing the path against its resolved form. That
- * comparison could not tell a dangling symlink from a component that does not exist yet — both make
- * `realpath` raise `ENOENT` — so a root reached through a broken link passed the guard and failed at
- * `git worktree add` instead, as an unclassified fatal. It also refused paths that were merely spelled
- * differently, so a root with the trailing slash a shell completion adds was rejected as though it
- * were a link.
+ * comparison cannot tell a dangling symlink from a component that does not exist yet — both make
+ * `realpath` raise `ENOENT` — and it also rejects a path merely spelled differently, such as one
+ * carrying the trailing slash a shell completion adds.
  */
 function refuseIfReachedThroughLink(root: string): void {
 	let at = root;

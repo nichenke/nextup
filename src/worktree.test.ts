@@ -77,8 +77,8 @@ describe("branchName", () => {
 
 		// Both keys slug down to "7", so without the refusal these two tickets name one branch at one
 		// path, and the second run reports itself attached to the first ticket's worktree.
-		expect(kindOf(() => branchName(ticket({ ref: cyrillic })))).toBe("ticket-set");
-		expect(kindOf(() => branchName(ticket({ ref: other })))).toBe("ticket-set");
+		expect(kindOf(() => branchName(ticket({ ref: cyrillic })))).toBe("unnameable-ticket");
+		expect(kindOf(() => branchName(ticket({ ref: other })))).toBe("unnameable-ticket");
 	});
 
 	test("lets a key through whose only change is case, which is every real tracker key", () => {
@@ -361,8 +361,6 @@ describe("ensure", () => {
 		const git = stubGit(state);
 
 		try {
-			// `lstat` answers about an unreadable directory; `readdir` is the call that throws, one line
-			// below the one already guarded.
 			expect(kindOf(() => ensure({ runner: git.runner, repo, ticket: READER }))).toBe("stale-directory");
 		} finally {
 			chmodSync(path, 0o755);
@@ -409,8 +407,6 @@ describe("ensure", () => {
 				? { code: 128, stdout: "", stderr: "fatal: unexpected line in .git/packed-refs" }
 				: git.runner(argv);
 
-		// Read as absent, this would issue a `-b` add and fail there instead, arriving as git's own
-		// unclassified fatal rather than as a refusal naming what could not be answered.
 		expect(kindOf(() => ensure({ runner: failing, repo, ticket: READER }))).toBe("git");
 	});
 
@@ -423,8 +419,7 @@ describe("ensure", () => {
 
 	test("refuses when the path cannot be inspected at all, rather than letting the error escape", () => {
 		const { repo, state } = primaryOn();
-		// An ancestor that is a file: `lstat` throws ENOTDIR here rather than answering "nothing there",
-		// and raw that error is not a WorktreeError, so nothing in the CLI catches it.
+		// An ancestor that is a file, which `lstat` answers with ENOTDIR rather than "nothing there".
 		writeFileSync(join(repo, DEFAULT_WORKTREE_ROOT), "a placeholder, not a directory\n");
 		const git = stubGit(state);
 
@@ -436,10 +431,29 @@ describe("ensure", () => {
 		const elsewhere = tempDir("nextup-elsewhere-");
 		const git = stubGit(state);
 
-		// A shell completion adds the trailing slash, and comparing a path against its resolved form
-		// called that a symlink and refused before anything was created.
 		for (const spelling of [elsewhere, `${elsewhere}/`, `${elsewhere}/./`, `${elsewhere}/sub/..`]) {
 			expect(ensure({ runner: git.runner, repo, ticket: READER, root: spelling }).path).toBe(join(elsewhere, READER_LEAF));
+		}
+	});
+
+	test("refuses a root that names the primary checkout itself, which is what an empty one resolves to", () => {
+		const { repo, state } = primaryOn();
+		const git = stubGit(state);
+
+		// `resolve` discards an empty segment and `??` does not fire for `""`, so neither reaches the default.
+		for (const root of ["", ".", repo]) {
+			expect(kindOf(() => ensure({ runner: git.runner, repo, ticket: READER, root }))).toBe("stale-directory");
+		}
+	});
+
+	test("still takes the default when the root is absent altogether", () => {
+		const { repo, state } = primaryOn();
+		const git = stubGit(state);
+
+		for (const root of [undefined, null]) {
+			expect(ensure({ runner: git.runner, repo, ticket: READER, root }).path).toBe(
+				join(repo, DEFAULT_WORKTREE_ROOT, READER_LEAF),
+			);
 		}
 	});
 
@@ -448,8 +462,6 @@ describe("ensure", () => {
 		symlinkSync(join(repo, "never-created"), join(repo, "dangling"));
 		const git = stubGit(state);
 
-		// A broken link and a directory that does not exist yet both make `realpath` raise ENOENT, so
-		// comparing resolved paths let this through to a `git worktree add` that reported its own fatal.
 		expect(kindOf(() => ensure({ runner: git.runner, repo, ticket: READER, root: join(repo, "dangling") }))).toBe(
 			"stale-directory",
 		);
@@ -468,8 +480,7 @@ describe("ensure", () => {
 			],
 		});
 
-		// Something is there, so `gone` is false and the lock keeps git from saying prunable — only
-		// asking what the entry actually is catches it.
+		// Something is there, so `gone` is false, and the lock keeps git from saying prunable.
 		expect(() => ensure({ runner: git.runner, repo, ticket: READER })).toThrow(/not a directory/);
 	});
 
@@ -485,8 +496,6 @@ describe("ensure", () => {
 			worktrees: [...state.worktrees, [`worktree ${path}`, "HEAD abc", `branch refs/heads/${READER_BRANCH}`]],
 		});
 
-		// A registration records a path, not what is at it now, so a matching one is not on its own a
-		// reason to skip the check the create path applies.
 		expect(() => ensure({ runner: git.runner, repo, ticket: READER })).toThrow(/is a symlink/);
 	});
 
@@ -508,7 +517,7 @@ describe("ensure", () => {
 			throw new Error(`nothing should run: ${argv.join(" ")}`);
 		};
 
-		expect(kindOf(() => ensure({ runner, repo: "/nowhere", ticket: ticket({ ref: cyrillic }) }))).toBe("ticket-set");
+		expect(kindOf(() => ensure({ runner, repo: "/nowhere", ticket: ticket({ ref: cyrillic }) }))).toBe("unnameable-ticket");
 	});
 
 	test("reports what git said when the add fails, rather than a bare exit status", () => {
@@ -573,7 +582,6 @@ function realRepo(): string {
 	git("-c", "user.email=nobody@invalid", "-c", "user.name=nobody", "commit", "--quiet", "--allow-empty", "-m", "init");
 	git("remote", "add", "origin", root);
 	git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
-	// macOS hands `mkdtemp` a symlinked path, and git reports worktree paths resolved.
 	return realpathSync(root);
 }
 
@@ -614,9 +622,8 @@ describe("ensure against real git", () => {
 		const repo = realRepo();
 		expect(ensure({ runner: defaultRunner, repo, ticket: READER }).branch).toBe(READER_BRANCH);
 
-		// Only the last component of the branch names the directory, so labelling the ticket a bug moves
-		// it from `feature/` to `fix/` while leaving the path unchanged. The two branches are different
-		// work and the refusal says which one is in the way, rather than attaching to the wrong one.
+		// Only the last component of the branch names the directory, so labelling the ticket a bug moves it
+		// from `feature/` to `fix/` while leaving the path unchanged.
 		expect(() => ensure({ runner: defaultRunner, repo, ticket: ticket({ title: "Reader", labels: ["bug"] }) })).toThrow(
 			new RegExp(`already a worktree on ${READER_BRANCH}, not on fix/reader-8`),
 		);
@@ -654,8 +661,6 @@ describe("ensure against real git", () => {
 		const linked = join(repo, "trees-by-link");
 		symlinkSync(real, linked);
 
-		// git would register the worktree under the resolved path, leaving two names for one directory
-		// and only one of them ever matching a porcelain listing.
 		expect(kindOf(() => ensure({ runner: defaultRunner, repo, ticket: READER, root: linked }))).toBe("stale-directory");
 	});
 
@@ -665,8 +670,6 @@ describe("ensure against real git", () => {
 		expect(defaultRunner(["git", "-C", repo, "worktree", "lock", "--reason", "keep", outcome.path]).code).toBe(0);
 		rmSync(outcome.path, { recursive: true, force: true });
 
-		// Locking is what suppresses `prunable`, so trusting that attribute reported an attach to a path
-		// holding nothing: the run said it had a worktree it had not made.
 		expect(defaultRunner(["git", "-C", repo, "worktree", "list", "--porcelain"]).stdout).not.toContain("prunable");
 		expect(kindOf(() => ensure({ runner: defaultRunner, repo, ticket: READER }))).toBe("stale-directory");
 		expect(() => ensure({ runner: defaultRunner, repo, ticket: READER })).toThrow(/unlock it/);

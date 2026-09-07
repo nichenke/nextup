@@ -2,6 +2,13 @@ import { type TicketRef, formatTicketRef } from "./ticket-ref";
 
 export class CommandBuilderError extends Error {}
 
+/**
+ * Argv carrying at least the program, so a caller holding one cannot be holding nothing to run. Used
+ * where a type reports a command as having been issued: an empty argv reads as success while naming no
+ * command, which is the same claim a nullable command let through.
+ */
+export type Argv = readonly [string, ...string[]];
+
 /** The verb the launched session runs when nothing names another; ticket 09 exposes the choice. */
 export const DEFAULT_SLASH_COMMAND = "/implement";
 
@@ -92,8 +99,8 @@ export function defaultBranchCommand(repo: string): readonly string[] {
  * HEAD and checking out one that already exists; `-b` against an existing branch is a fatal error
  * rather than an attach, so the two cannot share an invocation.
  */
-export function worktreeAddCommand(repo: string, path: string, branch: string, create: boolean): readonly string[] {
-	const add = ["git", "-C", repo, "worktree", "add", path];
+export function worktreeAddCommand(repo: string, path: string, branch: string, create: boolean): Argv {
+	const add = ["git", "-C", repo, "worktree", "add", path] as const;
 	return create ? [...add, "-b", branch] : [...add, branch];
 }
 
