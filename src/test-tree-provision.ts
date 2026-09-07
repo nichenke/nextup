@@ -156,6 +156,17 @@ function listIssues(spec: TestTreeSpec, runner: Runner): readonly ExistingIssue[
 	if (issues.length >= LIST_LIMIT) {
 		throw new TestTreeError(`${spec.repo} returned ${LIST_LIMIT} issues, so the listing may be truncated`);
 	}
+	// `validateTestTree` checks the same property over the spec, and the tracker can violate it on its own:
+	// a tree built from a spec that once held a duplicate, or an issue renamed onto another's title. The
+	// title map below would keep the last of the pair and strand the rest, where no run can reach them and
+	// every recording captures them.
+	const seen = new Set<string>();
+	for (const issue of issues) {
+		if (seen.has(issue.title)) {
+			throw new TestTreeError(`${spec.repo} has two issues that share the title ${issue.title}`);
+		}
+		seen.add(issue.title);
+	}
 	return issues;
 }
 

@@ -37,8 +37,13 @@ Renaming an issue by hand does not show up as drift to be noticed later: the nex
 that title and creates a fresh one, leaving the renamed original in the repository with its edges and its
 assignment intact. Editing a title in the spec does the same thing. `validateTestTree` refuses two issues
 sharing a title for the same reason — that collapses two keys onto one number and no run afterwards
-converges — but nothing can detect a rename, because a renamed issue and a deleted one look identical from
-the outside.
+converges — but nothing can detect the rename itself, because a renamed issue and a deleted one look
+identical from the outside.
+
+What *is* detectable is the state a rename leaves behind, and the two are worth separating. Provisioning
+refuses a listing in which two issues share a title, checked against the tracker rather than the spec,
+because the title map keeps the last of such a pair and strands the rest where no later run can reach them
+and every recording captures them. So the rename is documented and its consequence is caught.
 
 A **label definition** is the exception, and the distinction is easy to lose: the name, colour and
 description of each label in `spec.labels` are re-asserted on every run with `gh label create --force`,

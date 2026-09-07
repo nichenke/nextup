@@ -181,14 +181,18 @@ describe("provisionTestTree", () => {
 	// A listing missing `title` used to read as "no spec issue exists", which creates a second copy of the
 	// whole tree on every run. The trigger is the `--json` field list and `ExistingIssue` drifting apart,
 	// so the parse refuses the shape rather than trusting a cast.
+	// Each case asserts *why* it was refused, not merely that something threw. An absent `assignees` has to
+	// refuse rather than read as unclaimed: a lenient `?? []` would satisfy a bare `toThrow` by turning the
+	// failure into a silent "nobody is working on this", which is how a claim filter advertises work that
+	// somebody already holds.
 	test.each([
-		["title", `[{"number":1,"state":"OPEN","assignees":[]}]`],
-		["state", `[{"number":1,"title":"t","assignees":[]}]`],
-		["assignees", `[{"number":1,"title":"t","state":"OPEN"}]`],
-		["number", `[{"title":"t","state":"OPEN","assignees":[]}]`],
-		["a state nothing recognises", `[{"number":1,"title":"t","state":"MERGED","assignees":[]}]`],
-		["an object instead of a list", `{"number":1}`],
-	])("refuses a listing missing %s", (_label, stdout) => {
+		["title", `[{"number":1,"state":"OPEN","assignees":[]}]`, /has no title/],
+		["state", `[{"number":1,"title":"t","assignees":[]}]`, /unrecognised state/],
+		["assignees", `[{"number":1,"title":"t","state":"OPEN"}]`, /has no usable assignees/],
+		["number", `[{"title":"t","state":"OPEN","assignees":[]}]`, /has no usable number/],
+		["a state nothing recognises", `[{"number":1,"title":"t","state":"MERGED","assignees":[]}]`, /unrecognised state/],
+		["an object instead of a list", `{"number":1}`, /not a list/],
+	])("refuses a listing missing %s", (_label, stdout, because) => {
 		// Every other call answers plausibly, so the parse is the only thing that can fail. Answering them
 		// with a bare success instead made all six pass on `createIssue`'s "printed no issue number" throw,
 		// which is the same error class and proves nothing about the listing.
@@ -200,6 +204,19 @@ describe("provisionTestTree", () => {
 			return ok();
 		};
 		expect(() => provisionTestTree(GITHUB_TEST_TREE, broken)).toThrow(TestTreeError);
+		expect(() => provisionTestTree(GITHUB_TEST_TREE, broken)).toThrow(because);
+	});
+
+	// The validator checks the spec; this checks the tracker, and the two are independent. A tree already
+	// built from a duplicate-title spec — or one issue renamed onto another's title — keeps an issue that
+	// the title map silently drops, so no later run can see or heal it while every recording captures it.
+	test("refuses a listing in which two issues share a title", () => {
+		const tracker = fakeTracker();
+		provisionTestTree(GITHUB_TEST_TREE, tracker.runner);
+		const [first, second] = tracker.issues;
+		if (first !== undefined && second !== undefined) second.title = first.title;
+
+		expect(() => provisionTestTree(GITHUB_TEST_TREE, tracker.runner)).toThrow(/share the title/);
 	});
 
 	test("refuses a create whose output carries no issue number", () => {
