@@ -34,13 +34,10 @@ Both ship as Claude Code plugins from outside this repo. If either is unavailabl
 request instead of passing over it — a review that never ran, reported as clean, costs more than one
 that is openly missing.
 
-## Markdown shapes
+## Fixture provenance
 
-Only create and test markdown shapes that another tracker could produce. Markdown is the fixture
-substrate for the contract, not a format to reverse-engineer: a shape earns its place by standing in for
-something GitHub, GitLab or Jira can hand back, and the question to ask of a proposed case is which
-tracker behaviour it stands in for. ADR-0010 has the mapping and the reasoning, including why the answer
-"markdown permits it" is the one that produced seven rounds of review churn.
+Fixtures are captured only from a test tree, never from a real project repository. A shape found in a
+real repository is recreated on the test tree before it is captured. ADR-0019 has the reasoning.
 
 ## Identifier guard
 

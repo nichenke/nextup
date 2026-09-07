@@ -2,7 +2,7 @@
 
 **Unblocked Opportunist** — picks the best unclaimed, unblocked ticket and starts work on it.
 
-`nextup` reads a ticket set from GitHub, GitLab, Jira, or local markdown; filters to open and unclaimed;
+`nextup` reads a ticket set from GitHub, GitLab, or Jira; filters to open and unclaimed;
 ranks the survivors deterministically; and launches a session on the winner in its own git worktree.
 
 Blocking is tri-state, so "unblocked" is not a simple filter. Tickets whose blockers are *confirmed*
@@ -12,10 +12,8 @@ treated as unblocked.
 
 ## Status
 
-The selector works on local markdown ticket sets, and the launcher claims. A run reads an effort, ranks
-what is startable, shows the pick and what starting it would run, and claims the winner once you say so.
-Nothing local is created yet — no worktree and no session — and the GitHub, GitLab and Jira adapters are
-not built.
+The selector and the ranking ladder are built and tested against fixtures. No tracker adapter is built
+yet, so there is nothing for a run to read a ticket set from, claim, or start a session on.
 
 ```sh
 bun bin/nextup.ts                   # show the pick, ask, and claim it if you agree
@@ -25,8 +23,7 @@ bun bin/nextup.ts --json            # the selection, the claim, and the command,
 bun bin/nextup.ts --help            # every flag
 ```
 
-It reads the single effort under `<cwd>/.scratch`, or the one `--effort <path>` names. `--help` has the
-label-filter semantics and the exit codes. A degraded answer — a truncated fetch, or a pick whose
+`--help` has the label-filter semantics and the exit codes. A degraded answer — a truncated fetch, or a pick whose
 blockers nothing could confirm — carries one `degraded: ` line per reason, which is the sentinel to
 grep for.
 
@@ -61,8 +58,7 @@ tracker write to find out.
 A claim that cannot land aborts having changed nothing, and one that lands but cannot be verified is
 rolled back — or says plainly that it could not be, because a claim left on a ticket nobody is working
 is the failure the whole step exists to avoid. The boundary past which a claim is kept rather than
-given back is where a worktree starts existing. A claim is advisory — `CONTEXT.md` says what that means — and for markdown it overwrites the
-`Status:` line, which ADR-0012 explains.
+given back is where a worktree starts existing. A claim is advisory — `CONTEXT.md` says what that means.
 
 Ranking is a fixed ladder, each rung skipped when its signal is absent, with the last rung guaranteeing
 a total order:
@@ -84,7 +80,7 @@ currently produces.
 
 1. Add a `<name>.input.json` holding the smallest ticket set that produces the bad pick. Its
    `description` says which tracker behaviour the shape stands in for — the same standard `CLAUDE.md`
-   sets for markdown fixtures.
+   sets for fixture provenance.
 2. Write `<name>.expected.json` by hand, or run `UPDATE_SCENARIOS=1 bun test src/scenario.test.ts` and
    read the diff. Regenerating without reading is how a bad pick becomes the recorded expectation.
 3. Watch it fail, then change the ladder until it passes.
