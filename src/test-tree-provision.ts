@@ -1,0 +1,202 @@
+import type { Runner } from "./runner";
+import { type TestTreeIssue, type TestTreeSpec, TestTreeError, validateTestTree } from "./test-tree";
+
+/**
+ * High enough that the tree never fills it, so a full page is evidence of truncation rather than of a
+ * large tree. `gh issue list` defaults to 30 and truncates silently, which here would read as "the issue
+ * does not exist" and create a second copy of it.
+ */
+const LIST_LIMIT = 200;
+
+interface ExistingIssue {
+	readonly number: number;
+	readonly title: string;
+	readonly state: string;
+	readonly assignees: readonly { readonly login: string }[];
+}
+
+/** One thing provisioning did, in the order it did it. An empty report means the tree already matched. */
+export interface TestTreeChange {
+	readonly key: string;
+	readonly action: string;
+}
+
+export interface TestTreeReport {
+	readonly changes: readonly TestTreeChange[];
+	readonly numbers: ReadonlyMap<string, number>;
+}
+
+/**
+ * Brings the test tree to the state `spec` describes, and reports what it changed. Idempotent, so a
+ * partial run heals on re-run and a run against a matching tree changes nothing — the same `ensure`
+ * shape `CONTEXT.md` gives the worktree, for the same reason.
+ *
+ * What it reconciles is deliberately narrow: issues that do not exist, dependency edges that are
+ * missing, assignment, and open/closed state. Assignment is here because the claim path mutates it by
+ * design and the tree has to be restorable afterwards. Labels and bodies are set once at creation and
+ * never reconciled — they drift only if someone edits the tracker by hand, and healing that silently
+ * would hide the edit rather than surface it.
+ *
+ * @throws TestTreeError on any failing call. There is no degraded mode: every step is a precondition for
+ * the next, so continuing past a failure would report a tree that does not exist.
+ */
+export function provisionTestTree(spec: TestTreeSpec, runner: Runner): TestTreeReport {
+	validateTestTree(spec);
+	const changes: TestTreeChange[] = [];
+
+	for (const label of spec.labels) {
+		// `--force` updates an existing label instead of failing, which is what makes the colour a
+		// property of the spec rather than of whoever created the label first.
+		run(runner, ["gh", "label", "create", label.name, "--repo", spec.repo, "--color", label.color, "--force"]);
+	}
+
+	const existing = listIssues(spec, runner);
+	const byTitle = new Map(existing.map((issue) => [issue.title, issue]));
+	const numbers = new Map<string, number>();
+
+	for (const issue of spec.issues) {
+		const found = byTitle.get(issue.title);
+		if (found !== undefined) {
+			numbers.set(issue.key, found.number);
+			continue;
+		}
+		numbers.set(issue.key, createIssue(spec, issue, runner));
+		changes.push({ key: issue.key, action: "created" });
+	}
+
+	for (const issue of spec.issues) {
+		const number = numberOf(numbers, issue.key);
+		const present = blockedBy(spec, number, runner);
+		for (const blockerKey of issue.blockedBy) {
+			const blockerNumber = numberOf(numbers, blockerKey);
+			if (present.includes(blockerNumber)) continue;
+			const id = run(runner, ["gh", "api", `repos/${spec.repo}/issues/${blockerNumber}`, "--jq", ".id"]).trim();
+			run(runner, [
+				"gh",
+				"api",
+				"--method",
+				"POST",
+				`repos/${spec.repo}/issues/${number}/dependencies/blocked_by`,
+				"-F",
+				`issue_id=${id}`,
+			]);
+			changes.push({ key: issue.key, action: `blocked by ${blockerKey}` });
+		}
+	}
+
+	// Assignment and state come last so an edge is never refused for pointing at an issue that this run
+	// has not finished creating, and so a freshly closed blocker is closed with its edges already in place.
+	for (const issue of spec.issues) {
+		const number = numberOf(numbers, issue.key);
+		const found = byTitle.get(issue.title);
+		changes.push(...reconcileClaim(spec, issue, number, found, runner));
+		changes.push(...reconcileState(spec, issue, number, found, runner));
+	}
+
+	return { changes, numbers };
+}
+
+function reconcileClaim(
+	spec: TestTreeSpec,
+	issue: TestTreeIssue,
+	number: number,
+	found: ExistingIssue | undefined,
+	runner: Runner,
+): readonly TestTreeChange[] {
+	const assigned = found?.assignees.map((assignee) => assignee.login) ?? [];
+	if (issue.claimed) {
+		if (assigned.length > 0) return [];
+		run(runner, ["gh", "issue", "edit", String(number), "--repo", spec.repo, "--add-assignee", "@me"]);
+		return [{ key: issue.key, action: "claimed" }];
+	}
+	return assigned.map((login) => {
+		run(runner, ["gh", "issue", "edit", String(number), "--repo", spec.repo, "--remove-assignee", login]);
+		return { key: issue.key, action: "released" };
+	});
+}
+
+function reconcileState(
+	spec: TestTreeSpec,
+	issue: TestTreeIssue,
+	number: number,
+	found: ExistingIssue | undefined,
+	runner: Runner,
+): readonly TestTreeChange[] {
+	const closed = found?.state.toUpperCase() === "CLOSED";
+	if (issue.closed === closed) return [];
+	const verb = issue.closed ? "close" : "reopen";
+	run(runner, ["gh", "issue", verb, String(number), "--repo", spec.repo]);
+	return [{ key: issue.key, action: verb === "close" ? "closed" : "reopened" }];
+}
+
+function listIssues(spec: TestTreeSpec, runner: Runner): readonly ExistingIssue[] {
+	const stdout = run(runner, [
+		"gh",
+		"issue",
+		"list",
+		"--repo",
+		spec.repo,
+		"--state",
+		"all",
+		"--limit",
+		String(LIST_LIMIT),
+		"--json",
+		"number,title,state,assignees",
+	]);
+	const issues = JSON.parse(stdout) as ExistingIssue[];
+	if (issues.length >= LIST_LIMIT) {
+		throw new TestTreeError(`${spec.repo} returned ${LIST_LIMIT} issues, so the listing may be truncated`);
+	}
+	return issues;
+}
+
+function createIssue(spec: TestTreeSpec, issue: TestTreeIssue, runner: Runner): number {
+	const labels = issue.labels.flatMap((label) => ["--label", label]);
+	const stdout = run(runner, [
+		"gh",
+		"issue",
+		"create",
+		"--repo",
+		spec.repo,
+		"--title",
+		issue.title,
+		"--body",
+		issue.body,
+		...labels,
+	]);
+	const number = Number(stdout.trim().split("/").pop());
+	if (!Number.isSafeInteger(number) || number <= 0) {
+		throw new TestTreeError(`creating ${issue.key} printed no issue number: ${stdout.trim()}`);
+	}
+	return number;
+}
+
+/**
+ * The blockers a tracker already records, read from the list endpoint rather than from the summary field.
+ * `docs/agents/issue-tracker.md` has why: the summary lags a freshly written edge by seconds, and a run
+ * that trusted it would write every edge a second time.
+ */
+function blockedBy(spec: TestTreeSpec, number: number, runner: Runner): readonly number[] {
+	const stdout = run(runner, [
+		"gh",
+		"api",
+		`repos/${spec.repo}/issues/${number}/dependencies/blocked_by`,
+		"--jq",
+		"[.[].number]",
+	]);
+	return JSON.parse(stdout.trim() || "[]") as number[];
+}
+
+function numberOf(numbers: ReadonlyMap<string, number>, key: string): number {
+	const number = numbers.get(key);
+	if (number === undefined) throw new TestTreeError(`${key} has no issue number`);
+	return number;
+}
+
+function run(runner: Runner, argv: readonly string[]): string {
+	const result = runner([...argv]);
+	if (result.code !== 0) {
+		throw new TestTreeError(`${argv[0]} ${argv[1]} exited ${result.code}: ${result.stderr.trim() || result.stdout.trim()}`);
+	}
+	return result.stdout;
+}

@@ -1,5 +1,10 @@
 # Every recording is captured from a test tree we can recreate
 
+> Amended by [0024](./0024-a-recordings-hosts-become-a-dot-less-placeholder.md): the synthetic hosts are
+> not added to the identifier allowlist, as the last section here says. Read
+> [0023](./0023-the-test-tree-is-keyed-by-shape-not-by-issue-number.md) for what the GitHub tree actually
+> is. Everything else below stands.
+
 This rule governs **recordings** — captured exchanges with a tracker's CLI. It does not govern
 **scenario inputs**, which are sets of already-normalized tickets exercising the pure selector. The
 distinction is what each artifact claims: a recording asserts that a tracker produces a shape, so it has

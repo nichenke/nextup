@@ -44,11 +44,12 @@ Scenario inputs are the exception and are authored by hand: they assert how the 
 whose shape is ours by definition, so they claim nothing about what a tracker emits. ADR-0019 has the
 reasoning for both halves.
 
+The GitHub tree, what it carries, and the one issue a test may claim: `docs/agents/test-tree.md`.
+
 ## Identifier guard
 
 `scripts/check-identifiers.sh` fails on any identifier-shaped token in a tracked file that is not
-allowlisted, and CI runs it first, before any dependency install. Run it with
-`bun run check:identifiers`.
+allowlisted, and CI runs it first, before any dependency install.
 
 Standards identifiers pass without an allowlist entry, so ordinary prose needs no workaround. Two
 things do:
@@ -61,4 +62,6 @@ things do:
   guard, because the guard reads its own source. Split it across string concatenation the way the
   test fixtures do.
 
-Run it with `bun run check:identifiers` before pushing.
+Run it with `bun run check:identifiers` before pushing, and stage a new file first. It reads
+`git ls-files`, so an untracked file is not checked and the run reports `ok` — the same file then fails
+the moment it is staged.

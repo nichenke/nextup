@@ -10,7 +10,8 @@
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "check:identifiers": "bash scripts/check-identifiers.sh"
+    "check:identifiers": "bash scripts/check-identifiers.sh",
+    "provision:test-tree": "bun scripts/provision-test-tree.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
