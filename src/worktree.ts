@@ -385,6 +385,10 @@ function branchExists(
  * comparison cannot tell a dangling symlink from a component that does not exist yet — both make
  * `realpath` raise `ENOENT` — and it also rejects a path merely spelled differently, such as one
  * carrying the trailing slash a shell completion adds.
+ *
+ * Walking to `/` costs ADR-0013 the absolute root it promises in the same breath: on macOS `/tmp`,
+ * `/var` and `/etc` are symlinks, so every root under a system temp directory is refused. Inert for the
+ * default, which git hands back already resolved. nichenke/nextup issue 39 owes the decision.
  */
 function refuseIfReachedThroughLink(root: string): void {
 	let at = root;
