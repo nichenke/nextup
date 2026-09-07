@@ -1,5 +1,9 @@
 # The ranking ladder is fixed in code, not configurable
 
+> Amended in part by
+> [0022](./0022-removing-markdown-left-three-earlier-decisions-partly-void.md). The body below
+> stands as written; 0022 records which clauses no longer bind.
+
 Three prior implementations ranked three incompatible ways: critical-path depth parsed from prose in a
 map issue, a bespoke tier enum requiring a project board, and whatever order the API happened to return.
 `nextup` uses one fixed ladder — priority signal, then how many other tickets this one unblocks, then

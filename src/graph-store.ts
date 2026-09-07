@@ -47,21 +47,16 @@ export interface GraphSeed {
 	readonly parent: IssueId | null | "unknown";
 	/** `[]` is a confirmed absence of blockers; `"unknown"` is an edge read that failed. */
 	readonly blockers: readonly IssueId[] | "unknown";
-	/**
-	 * `"unknown"` covers both a failed read and a ticket closed in a way that does not tell a
-	 * dependent its dependency was met — a `wontfix`, a GitHub `not_planned`. Neither open nor
-	 * satisfied is true of those, and reporting either is a claim the tracker did not make.
-	 */
+	/** `"unknown"` is a read that failed, and only that. A closed ticket is closed — ADR-0021. */
 	readonly open: boolean | "unknown";
 }
 
 /**
  * Build the graph every adapter hands to the traversal. This exists so that the mapping from
  * "unknown" to an absent key lives once: writing the loop per adapter, each is one keystroke from
- * `openness.set(id, ticket.state === "open")` — which reads a closed-but-unmet blocker as satisfied
- * and prunes it — or from `blockers.set(id, [])` for blockers it never read, which type-checks and
- * reports a confident `unblocked`. Both are the collapse `CONTEXT.md` forbids, and the markdown
- * adapter shipped the first of them.
+ * `blockers.set(id, [])` for blockers it never read, which type-checks and reports a confident
+ * `unblocked` where the honest answer is that nothing is known. That is the collapse `CONTEXT.md`
+ * forbids, and an adapter shipped it once already.
  */
 export function seedGraph(seeds: Iterable<GraphSeed>): DependencyGraph {
 	const store = emptyGraphStore();

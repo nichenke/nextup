@@ -1,5 +1,8 @@
 # The markdown reader infers nothing from out-of-grammar content
 
+> Superseded by [0020](./0020-local-markdown-is-not-a-tracker.md). Retained as the evidence for that
+> decision, not as a description of the current tool.
+
 The adapter reads the accepted grammar and stops. A line that is not a field is body text, and no
 attempt is made to work out whether the author meant it as a blocker declaration. There is no refusal
 for out-of-grammar content, because there is nothing left doing the guessing.

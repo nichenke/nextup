@@ -3,7 +3,7 @@
 	"truncated": false,
 	"filter": { "include": [], "exclude": ["wayfinder:*"] },
 	"tickets": [
-		{ "ref": "md:10", "title": "Add the second adapter", "state": "open", "blockers": [], "labels": [] },
-		{ "ref": "md:9", "title": "Add the first adapter", "state": "open", "blockers": [], "labels": [] }
+		{ "ref": "gh:example/repo#10", "title": "Add the second adapter", "state": "open", "blockers": [], "labels": [] },
+		{ "ref": "gh:example/repo#9", "title": "Add the first adapter", "state": "open", "blockers": [], "labels": [] }
 	]
 }

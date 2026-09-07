@@ -19,7 +19,7 @@ pasted issue URL.
 _Avoid_: ticket ID, issue number, key
 
 **Tracker**:
-The system a ticket set lives in — GitHub, GitLab, Jira, or local markdown.
+The system a ticket set lives in — GitHub, GitLab, or Jira.
 _Avoid_: backend, provider, source of truth
 
 **Adapter**:
@@ -34,18 +34,18 @@ The tickets a single invocation considers. A scoped query is a valid ticket set;
 is required.
 _Avoid_: backlog, queue, ticket map
 
-**Effort**:
-Local markdown's on-disk unit: `.scratch/<effort>/map.md` alongside `.scratch/<effort>/issues/<NN>-<slug>.md`,
-one file per ticket. The markdown equivalent of a scoped query — it declares its own membership, which
-no other tracker's ticket set does. The `issues/` segment is that directory's real name in the
-local-markdown convention, not this project's vocabulary: "issue" stays on **Ticket**'s avoid-list, and
-a path literal is the one place it appears.
-_Avoid_: feature, project, epic
-
 **Candidate set**:
 The subset of the ticket set eligible to be recommended — open, unclaimed, and passing the label filter.
-Narrower than the blocking graph, which always reads every ticket.
+Narrower than the blocking graph, which always reads every ticket. The excluded labels are read without
+being interpreted: `needs-triage` marks both a ticket nobody has triaged and one held up by something
+that is not a ticket, and the filter asks only whether a ticket is excluded, never why.
 _Avoid_: eligible tickets, shortlist
+
+There is deliberately no term for a tracker's own scoping unit. **Ticket set** covers the tickets one
+invocation considers and **Scope binding** covers the one case that cannot be inferred; a third term
+would overlap both. "Project" is specifically unavailable — it is GitHub's name for the boards this
+design rejects, so using it for our own concept would name the concept after the mechanism refused.
+Where a tracker's own noun is meant, say "a Jira project" or "a GitLab project" as that tracker's word.
 
 **Blocking graph**:
 The directed graph of blocking edges over *every* ticket, including tickets excluded from the candidate
@@ -77,8 +77,8 @@ _Avoid_: tier, weight, criterion
 ### Claiming and launching
 
 **Claim**:
-The signal, written into the tracker, that a ticket is being worked. An assignee where the tracker has
-one; a status field where it does not. Advisory — nothing enforces it.
+The signal, written into the tracker, that a ticket is being worked: the assignee, which every remaining
+tracker has. Advisory — nothing enforces it, and it does not distinguish concurrent sessions.
 _Avoid_: lock, reservation, assignment
 
 **Selector**:
@@ -87,8 +87,8 @@ side effects.
 _Avoid_: picker, chooser, engine
 
 **Launcher**:
-The layer that writes. Claims the ticket, ensures a worktree, starts a session. The only part that
-cannot be sandboxed.
+The layer that writes. Ensures a worktree, claims the ticket, starts a session, in that order. The only
+part that cannot be sandboxed.
 _Avoid_: runner, executor, starter
 
 **Runner**:
@@ -96,15 +96,33 @@ The injected seam every external process call passes through. The one place the 
 outside itself, and therefore the only thing a test has to substitute.
 _Avoid_: shell, executor, spawner
 
-**Command contract**:
-The exact argv the tool issues to an external program, produced by a typed builder and captured in a
-golden file.
-_Avoid_: command string, invocation
-
 **Ensure**:
 Bringing a worktree into the required state — creating it, or attaching to an existing one at the
 expected path. Idempotent, so re-running after a partial failure heals rather than errors.
 _Avoid_: create, setup, init
+
+### Testing against real trackers
+
+**Test tree**:
+A dedicated repository of synthetic issues, shaped deliberately to carry the cases worth covering. The
+only thing fixtures are ever captured from.
+_Avoid_: fixture repo, sandbox, staging
+
+**Recording**:
+One captured call-and-response exchange at the runner seam, stored with the CLI version that produced
+it, so a change in what the CLI prints is attributable rather than mysterious.
+_Avoid_: cassette, golden file, snapshot
+
+**Replay corpus**:
+The set of recordings a test suite drives. It grows only from reality: a shape found live is recreated on
+a test tree and captured there, never hand-written.
+_Avoid_: fixtures, mocks
+
+**Reconstruction**:
+Reading a real repository live and asserting invariants over the result rather than exact values — every
+reference parses, every blocker resolves to a known ticket or to `Unknown`, counts reconcile. The primary
+control, because it is the only one that finds shapes nobody imagined.
+_Avoid_: smoke test, integration test, live test
 
 ### Boundaries
 

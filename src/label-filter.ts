@@ -30,8 +30,7 @@ export interface LabelFilter {
  * label is not, so `--exclude Wayfinder:*` against a lowercase label is otherwise a silent miss — and
  * the cost is that two labels differing only in case cannot be told apart. Such a pair is reachable:
  * GitLab's label uniqueness is a plain `validates :title, uniqueness:` with no case handling, so
- * Postgres' case-sensitive collation admits both (gitlab-org/gitlab-foss issue 14909). Markdown cannot
- * produce one — its labels come from a fixed lowercase vocabulary, one per ticket.
+ * Postgres' case-sensitive collation admits both (gitlab-org/gitlab-foss issue 14909).
  */
 interface Pattern {
 	readonly prefix: string;

@@ -21,24 +21,25 @@ export function loadScenario(path: string): Scenario {
 	const file = object(raw, path, "the scenario");
 	keys(file, ["description", "truncated", "filter", "tickets"], path, "the scenario");
 
-	const specs = array(file.tickets, path, "tickets").map((entry, index) =>
+	const tickets = array(file.tickets, path, "tickets").map((entry, index) =>
 		readTicket(entry, path, `tickets[${index}]`),
 	);
 	const graph = seedGraph(
-		specs.map((spec) => ({
-			id: ticketId(spec.ticket.ref),
-			// Markdown has no containment relation and no other tracker's is modelled here, so every
-			// ticket is a confirmed root rather than an unread one.
+		tickets.map((ticket) => ({
+			id: ticketId(ticket.ref),
+			// Containment is not a blocking channel (ADR-0017), so no adapter reads a parent and the
+			// traversal's ancestor walk is inert. `null` is what the port takes for that; it is not a
+			// claim that these tickets were checked and found to be roots.
 			parent: null,
-			blockers: spec.ticket.blockers === "unknown" ? ("unknown" as const) : spec.ticket.blockers.map(ticketId),
-			open: spec.openness,
+			blockers: ticket.blockers === "unknown" ? ("unknown" as const) : ticket.blockers.map(ticketId),
+			open: ticket.state === "open",
 		})),
 	);
 
 	return {
 		description: string(file.description, path, "description"),
 		input: {
-			tickets: specs.map((spec) => spec.ticket),
+			tickets,
 			graph,
 			filter: compileLabelFilter(readFilter(file.filter, path)),
 			truncated: boolean(file.truncated, path, "truncated"),
@@ -46,15 +47,9 @@ export function loadScenario(path: string): Scenario {
 	};
 }
 
-interface TicketSpec {
-	readonly ticket: Ticket;
-	/** Openness as a *blocker*: `"unknown"` where closing did not tell a dependent its wait was over. */
-	readonly openness: boolean | "unknown";
-}
-
-function readTicket(raw: unknown, path: string, where: string): TicketSpec {
+function readTicket(raw: unknown, path: string, where: string): Ticket {
 	const entry = object(raw, path, where);
-	keys(entry, ["ref", "title", "state", "claim", "blockers", "labels", "url", "openness"], path, where);
+	keys(entry, ["ref", "title", "state", "claim", "blockers", "labels", "url"], path, where);
 
 	const state = literal(entry.state, ["open", "closed"], path, `${where}.state`);
 	const ticket: Ticket = {
@@ -77,14 +72,7 @@ function readTicket(raw: unknown, path: string, where: string): TicketSpec {
 					),
 	};
 
-	const openness =
-		entry.openness === undefined
-			? state === "open"
-			: entry.openness === "unknown"
-				? ("unknown" as const)
-				: boolean(entry.openness, path, `${where}.openness`);
-
-	return { ticket, openness };
+	return ticket;
 }
 
 /**

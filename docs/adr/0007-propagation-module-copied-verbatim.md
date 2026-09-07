@@ -1,5 +1,9 @@
 # The propagation module is copied verbatim, dangling references and all
 
+> Amended in part by
+> [0022](./0022-removing-markdown-left-three-earlier-decisions-partly-void.md). The body below
+> stands as written; 0022 records which clauses no longer bind.
+
 `src/effective-blockedness.ts` and its test are byte-identical to
 `plugin/lib/effective-blockedness.ts` and `plugin/lib/effective-blockedness.test.ts` at
 `ai-bob-brain` `origin/main`. Nothing was renamed, reworded, or reformatted, and the 13 copied tests

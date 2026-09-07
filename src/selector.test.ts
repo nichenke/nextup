@@ -17,7 +17,7 @@ interface Spec {
 }
 
 function refOf(key: string): TicketRef {
-	return { tracker: "markdown", repo: null, host: null, key };
+	return { tracker: "github", repo: "example/repo", host: null, key };
 }
 
 function ticketOf(spec: Spec): Ticket {
@@ -60,30 +60,30 @@ function pickOf(specs: readonly Spec[], options?: { filter?: LabelFilterSpec; tr
 describe("the candidate set", () => {
 	test("recommends the one open, unclaimed ticket", () => {
 		const selection = select(inputOf([{ key: "1" }]));
-		expect(formatTicketRef(selection.pick!.ref)).toBe("md:1");
+		expect(formatTicketRef(selection.pick!.ref)).toBe("gh:example/repo#1");
 		expect(selection.decision).toEqual({ kind: "only-candidate" });
 		expect(selection.consulted).toBe("unblocked");
 	});
 
 	test("never recommends a closed ticket", () => {
-		expect(pickOf([{ key: "1", state: "closed" }, { key: "2" }])).toBe("md:2");
+		expect(pickOf([{ key: "1", state: "closed" }, { key: "2" }])).toBe("gh:example/repo#2");
 	});
 
 	test("never recommends a claimed ticket, whether or not the claimant is recorded", () => {
-		expect(pickOf([{ key: "1", claim: { by: "octocat" } }, { key: "2" }])).toBe("md:2");
-		expect(pickOf([{ key: "1", claim: { by: null } }, { key: "2" }])).toBe("md:2");
+		expect(pickOf([{ key: "1", claim: { by: "octocat" } }, { key: "2" }])).toBe("gh:example/repo#2");
+		expect(pickOf([{ key: "1", claim: { by: null } }, { key: "2" }])).toBe("gh:example/repo#2");
 	});
 
 	test("never recommends a ticket the label filter drops", () => {
 		expect(
 			pickOf([{ key: "1", labels: ["wayfinder:decision"] }, { key: "2" }], { filter: DEFAULT_LABEL_FILTER }),
-		).toBe("md:2");
+		).toBe("gh:example/repo#2");
 	});
 
 	test("recommends only a ticket carrying an included label, where one is named", () => {
 		expect(
 			pickOf([{ key: "1" }, { key: "2", labels: ["bug"] }], { filter: { include: ["bug"], exclude: [] } }),
-		).toBe("md:2");
+		).toBe("gh:example/repo#2");
 	});
 
 	test("reports a candidate blocked solely by an excluded ticket as blocked, not as startable", () => {
@@ -110,23 +110,23 @@ describe("the candidate set", () => {
 describe("the ranking ladder", () => {
 	test("takes the higher priority first, and says which rung decided", () => {
 		const selection = select(inputOf([{ key: "1", labels: ["P2"] }, { key: "2", labels: ["P0"] }]));
-		expect(formatTicketRef(selection.pick!.ref)).toBe("md:2");
+		expect(formatTicketRef(selection.pick!.ref)).toBe("gh:example/repo#2");
 		expect(selection.decision).toEqual({
 			kind: "rung",
 			rung: "priority",
-			over: { tracker: "markdown", repo: null, host: null, key: "1" },
+			over: { tracker: "github", repo: "example/repo", host: null, key: "1" },
 		});
 	});
 
 	test("takes a ticket carrying a priority over one carrying none", () => {
-		expect(pickOf([{ key: "1" }, { key: "2", labels: ["P3"] }])).toBe("md:2");
+		expect(pickOf([{ key: "1" }, { key: "2", labels: ["P3"] }])).toBe("gh:example/repo#2");
 	});
 
 	test("falls to the unblocks rung when no candidate carries a priority", () => {
 		const selection = select(
 			inputOf([{ key: "1" }, { key: "2" }, { key: "3", blockers: ["2"] }, { key: "4", blockers: ["2"] }]),
 		);
-		expect(formatTicketRef(selection.pick!.ref)).toBe("md:2");
+		expect(formatTicketRef(selection.pick!.ref)).toBe("gh:example/repo#2");
 		expect(selection.decision).toMatchObject({ kind: "rung", rung: "unblocks" });
 		expect(selection.pick!.unblocks).toBe(2);
 	});
@@ -141,12 +141,12 @@ describe("the ranking ladder", () => {
 				{ key: "5", blockers: ["2"] },
 			]),
 		);
-		expect(formatTicketRef(selection.pick!.ref)).toBe("md:2");
+		expect(formatTicketRef(selection.pick!.ref)).toBe("gh:example/repo#2");
 	});
 
 	test("falls to the reference rung when priority and unblocks both tie", () => {
 		const selection = select(inputOf([{ key: "10" }, { key: "9" }]));
-		expect(formatTicketRef(selection.pick!.ref)).toBe("md:9");
+		expect(formatTicketRef(selection.pick!.ref)).toBe("gh:example/repo#9");
 		expect(selection.decision).toMatchObject({ kind: "rung", rung: "reference" });
 	});
 
@@ -159,7 +159,7 @@ describe("the ranking ladder", () => {
 
 	test("reports a priority label it could not order rather than ranking on a guess", () => {
 		const selection = select(inputOf([{ key: "1", labels: ["priority:high"] }, { key: "2" }]));
-		expect(formatTicketRef(selection.pick!.ref)).toBe("md:1");
+		expect(formatTicketRef(selection.pick!.ref)).toBe("gh:example/repo#1");
 		expect(selection.pick!.unreadPriority).toEqual(["priority:high"]);
 	});
 });
@@ -169,14 +169,14 @@ describe("the confirmed and unknown partition", () => {
 		const selection = select(
 			inputOf([{ key: "1", labels: ["P0"], blockers: "unknown" }, { key: "2", labels: ["P1"] }]),
 		);
-		expect(formatTicketRef(selection.pick!.ref)).toBe("md:2");
+		expect(formatTicketRef(selection.pick!.ref)).toBe("gh:example/repo#2");
 		expect(selection.consulted).toBe("unblocked");
 		expect(selection.degraded).toEqual([]);
 	});
 
 	test("consults the unknown set only when nothing confirmed-unblocked is left, and says so", () => {
 		const selection = select(inputOf([{ key: "1", blockers: "unknown" }, { key: "2", blockers: "unknown" }]));
-		expect(formatTicketRef(selection.pick!.ref)).toBe("md:1");
+		expect(formatTicketRef(selection.pick!.ref)).toBe("gh:example/repo#1");
 		expect(selection.consulted).toBe("unknown");
 		expect(selection.pick!.blocked).toBe("unknown");
 		expect(selection.degraded).toEqual([{ kind: "unknown-blocking" }]);
@@ -189,7 +189,7 @@ describe("the confirmed and unknown partition", () => {
 				{ key: "2", labels: ["P0"], blockers: "unknown" },
 			]),
 		);
-		expect(formatTicketRef(selection.pick!.ref)).toBe("md:2");
+		expect(formatTicketRef(selection.pick!.ref)).toBe("gh:example/repo#2");
 	});
 
 	test("holds back a candidate whose blocker closed without meeting what waited on it", () => {
@@ -205,7 +205,7 @@ describe("the confirmed and unknown partition", () => {
 
 	test("recommends nothing when every candidate is confirmed blocked", () => {
 		const selection = select(inputOf([{ key: "1" }, { key: "2", blockers: ["1"], claim: { by: "octocat" } }]));
-		expect(formatTicketRef(selection.pick!.ref)).toBe("md:1");
+		expect(formatTicketRef(selection.pick!.ref)).toBe("gh:example/repo#1");
 
 		const deadlocked = select(inputOf([{ key: "1", blockers: ["2"] }, { key: "2", blockers: ["1"] }]));
 		expect(deadlocked.pick).toBeNull();
@@ -262,6 +262,6 @@ describe("what the selection reports", () => {
 
 	test("ranks the whole consulted set, not only the winner", () => {
 		const selection = select(inputOf([{ key: "2" }, { key: "1" }, { key: "3" }]));
-		expect(selection.ranked.map((candidate) => formatTicketRef(candidate.ref))).toEqual(["md:1", "md:2", "md:3"]);
+		expect(selection.ranked.map((candidate) => formatTicketRef(candidate.ref))).toEqual(["gh:example/repo#1", "gh:example/repo#2", "gh:example/repo#3"]);
 	});
 });

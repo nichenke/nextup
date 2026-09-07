@@ -1,5 +1,8 @@
 # The markdown grammar is closed, because markdown is a test surface not a tracker
 
+> Superseded by [0020](./0020-local-markdown-is-not-a-tracker.md). Retained as the evidence for that
+> decision, not as a description of the current tool.
+
 The markdown adapter accepts exactly the two field forms this project authors, and refuses every other
 field-shaped line. It is not a general-purpose markdown consumer and will not become one.
 

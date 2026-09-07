@@ -1,6 +1,6 @@
 {
 	"pick": {
-		"ref": "md:1",
+		"ref": "gh:example/repo#1",
 		"title": "Update the changelog",
 		"url": null,
 		"labels": [],
@@ -15,7 +15,7 @@
 	"consulted": "unblocked",
 	"ranked": [
 		{
-			"ref": "md:1",
+			"ref": "gh:example/repo#1",
 			"title": "Update the changelog",
 			"url": null,
 			"labels": [],

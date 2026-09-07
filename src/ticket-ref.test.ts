@@ -82,25 +82,6 @@ describe("resolveTicketRef: short forms", () => {
 		expect(() => resolveTicketRef("jira:42")).toThrow(TicketRefError);
 	});
 
-	test("md: short form parses a bare ticket number", () => {
-		const ref = resolveTicketRef("md:42");
-		expect(ref).toEqual({ tracker: "markdown", repo: null, host: null, key: "42" });
-	});
-
-	test("md: short form rejects a non-numeric ticket reference", () => {
-		expect(() => resolveTicketRef("md:not-a-number")).toThrow(TicketRefError);
-	});
-
-	test("md: short form normalizes a zero-padded number to the same key as its bare form", () => {
-		expect(resolveTicketRef("md:07").key).toBe("7");
-		expect(resolveTicketRef("md:7").key).toBe("7");
-	});
-
-	test("md: short form rejects a ticket number of zero, which no effort numbers from", () => {
-		expect(() => resolveTicketRef("md:0")).toThrow(TicketRefError);
-		expect(() => resolveTicketRef("md:00")).toThrow(TicketRefError);
-	});
-
 	test("an unrecognised reference fails loudly rather than guessing", () => {
 		expect(() => resolveTicketRef("bitbucket:1")).toThrow(TicketRefError);
 	});
@@ -218,7 +199,6 @@ describe("resolveTicketRef: pasted URLs", () => {
 
 describe("formatTicketRef", () => {
 	test("writes the short form each tracker's scheme accepts", () => {
-		expect(formatTicketRef({ tracker: "markdown", repo: null, host: null, key: "7" })).toBe("md:7");
 		expect(formatTicketRef({ tracker: "github", repo: "example/repo", host: null, key: "1" })).toBe(
 			"gh:example/repo#1",
 		);
@@ -236,14 +216,18 @@ describe("formatTicketRef", () => {
 });
 
 describe("compareTicketRefs", () => {
-	const md = (key: string): TicketRef => ({ tracker: "markdown", repo: null, host: null, key });
+	const gh = (key: string): TicketRef => ({ tracker: "github", repo: "example/repo", host: null, key });
 
 	function sorted(refs: TicketRef[]): string[] {
 		return [...refs].sort(compareTicketRefs).map(formatTicketRef);
 	}
 
 	test("orders a ticket number numerically rather than lexicographically", () => {
-		expect(sorted([md("10"), md("9"), md("100")])).toEqual(["md:9", "md:10", "md:100"]);
+		expect(sorted([gh("10"), gh("9"), gh("100")])).toEqual([
+			"gh:example/repo#9",
+			"gh:example/repo#10",
+			"gh:example/repo#100",
+		]);
 	});
 
 	test("orders a jira key's numeric tail numerically, and its project part as text", () => {
@@ -267,11 +251,11 @@ describe("compareTicketRefs", () => {
 	});
 
 	test("separates two trackers, by the tracker name", () => {
-		expect(compareTicketRefs({ tracker: "jira", repo: null, host: null, key: "1" }, md("1"))).toBeLessThan(0);
+		expect(compareTicketRefs(gh("1"), { tracker: "jira", repo: null, host: null, key: "1" })).toBeLessThan(0);
 	});
 
 	test("ties only on a reference identical in every part", () => {
-		expect(compareTicketRefs(md("7"), md("7"))).toBe(0);
-		expect(compareTicketRefs(md("07"), md("7"))).toBeLessThan(0);
+		expect(compareTicketRefs(gh("7"), gh("7"))).toBe(0);
+		expect(compareTicketRefs(gh("07"), gh("7"))).toBeLessThan(0);
 	});
 });

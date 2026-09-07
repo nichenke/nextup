@@ -1,4 +1,4 @@
-md:1 — Update the changelog
+gh:example/repo#1 — Update the changelog
   the only candidate the ladder ranked
   priority none, unblocks 0, blockers confirmed closed
 

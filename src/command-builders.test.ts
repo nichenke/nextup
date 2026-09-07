@@ -24,17 +24,10 @@ interface Case {
 	readonly build: () => readonly string[];
 }
 
-const markdown: TicketRef = { tracker: "markdown", repo: null, host: null, key: "1" };
 const github: TicketRef = { tracker: "github", repo: "example/repo", host: null, key: "1" };
 const jira: TicketRef = { tracker: "jira", repo: null, host: null, key: "ABC-7" };
 
 const CASES: readonly Case[] = [
-	{
-		name: "session-on-a-markdown-ticket",
-		description: "The v1 substrate: a local markdown ticket, which carries neither a repository nor a host.",
-		input: { ref: markdown, slashCommand: DEFAULT_SLASH_COMMAND },
-		build: () => sessionCommand({ ref: markdown, slashCommand: DEFAULT_SLASH_COMMAND }),
-	},
 	{
 		name: "session-on-a-repo-scoped-ticket",
 		description: "A tracker whose reference carries a repository, so the short form the session receives holds one.",
@@ -50,8 +43,8 @@ const CASES: readonly Case[] = [
 	{
 		name: "session-on-a-named-slash-command",
 		description: "A slash command other than the default.",
-		input: { ref: markdown, slashCommand: "/triage" },
-		build: () => sessionCommand({ ref: markdown, slashCommand: "/triage" }),
+		input: { ref: github, slashCommand: "/triage" },
+		build: () => sessionCommand({ ref: github, slashCommand: "/triage" }),
 	},
 	{
 		name: "github-auth-status",
@@ -103,16 +96,16 @@ describe("the command-builder golden files", () => {
 
 describe("sessionCommand", () => {
 	test("hands the session the ticket reference as one argument, and nothing else about the pick", () => {
-		const argv = sessionCommand({ ref: markdown, slashCommand: DEFAULT_SLASH_COMMAND });
-		expect(argv).toEqual(["claude", "/implement md:1"]);
+		const argv = sessionCommand({ ref: github, slashCommand: DEFAULT_SLASH_COMMAND });
+		expect(argv).toEqual(["claude", "/implement gh:example/repo#1"]);
 	});
 
 	test("refuses a slash command that is not one, rather than emitting an argument the session reads as a prompt", () => {
-		expect(() => sessionCommand({ ref: markdown, slashCommand: "implement" })).toThrow(/slash command/);
+		expect(() => sessionCommand({ ref: github, slashCommand: "implement" })).toThrow(/slash command/);
 	});
 
 	test("refuses a slash command carrying a space, which would make the reference a separate word", () => {
-		expect(() => sessionCommand({ ref: markdown, slashCommand: "/implement now" })).toThrow(/slash command/);
+		expect(() => sessionCommand({ ref: github, slashCommand: "/implement now" })).toThrow(/slash command/);
 	});
 });
 
@@ -125,7 +118,7 @@ describe("authStatusCommand", () => {
 
 describe("formatCommand", () => {
 	test("renders argv as a line a shell would parse back into the same words", () => {
-		expect(formatCommand(["claude", "/implement md:1"])).toBe("claude '/implement md:1'");
+		expect(formatCommand(["claude", "/implement gh:example/repo#1"])).toBe("claude '/implement gh:example/repo#1'");
 	});
 
 	test("leaves a word needing no quoting unquoted", () => {
