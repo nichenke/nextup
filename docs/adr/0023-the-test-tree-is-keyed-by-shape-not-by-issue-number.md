@@ -31,6 +31,14 @@ Labels and bodies are set once at creation and never reconciled. They drift only
 tracker by hand, and a run that silently corrected such an edit would hide it — the edit is worth seeing,
 because it means a recording and the tree now disagree.
 
+That boundary is the point, not a gap to close later. The provisioner exists to make the tree
+reproducible, not to keep it in sync: the four things it reconciles are the ones a rebuild or the write
+path disturbs, and nothing else. When the tree needs a shape it does not carry — a different label, a
+reworded body, an edge between two issues that a scenario turns out to need — that is a one-off
+judgment, and an agent makes it against the tracker directly, or the spec changes and the tree is
+rebuilt. Encoding it here would grow a general tracker-sync tool inside a fixture builder, and every
+rule it learned would be one more thing to be wrong about the tracker.
+
 ## A dependency cycle is reachable on GitHub, at three hops and not at two
 
 The tree has to carry a cycle, because the propagation module has a cycle guard and a guard no input
