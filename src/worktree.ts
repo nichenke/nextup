@@ -4,6 +4,7 @@ import {
 	type Argv,
 	branchExistsCommand,
 	defaultBranchCommand,
+	remoteBranchExistsCommand,
 	worktreeAddCommand,
 	worktreeListCommand,
 } from "./command-builders";
@@ -217,8 +218,12 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 	refuseIfOccupied(path);
 
 	// A registered worktree at the path is the case above, so a branch that exists at this point is one
-	// checked out nowhere.
-	const create = !branchExists(input.runner, primary, branch);
+	// checked out nowhere. `origin` is asked too, and a branch only there is checked out rather than
+	// created: `-b` would cut a new branch from local HEAD and leave every pushed commit behind, while the
+	// no-`-b` form takes the remote tip and sets up tracking.
+	const create =
+		!branchExists(input.runner, primary, branch, branchExistsCommand) &&
+		!branchExists(input.runner, primary, branch, remoteBranchExistsCommand);
 	const warnings = driftWarnings(input.runner, primary, main.head);
 	// primary, not input.repo — see `driftWarnings`.
 	const command = worktreeAddCommand(primary, path, branch, create);
@@ -357,8 +362,13 @@ function asking<T>(path: string, verb: string, work: () => T): T {
  * answering, and 128 is what it uses; read as absent, that failure would arrive as `git worktree add`'s
  * own unclassified fatal instead of as this typed refusal.
  */
-function branchExists(runner: Runner, repo: string, branch: string): boolean {
-	const result = runner([...branchExistsCommand(repo, branch)]);
+function branchExists(
+	runner: Runner,
+	repo: string,
+	branch: string,
+	build: (repo: string, branch: string) => readonly string[],
+): boolean {
+	const result = runner([...build(repo, branch)]);
 	if (result.code === 0) return true;
 	if (result.code === 1) return false;
 	throw new WorktreeError(`${repo} could not be asked whether ${branch} exists: ${gitFailure(result.stderr, result.code)}`, "git");
@@ -409,7 +419,15 @@ function driftWarnings(runner: Runner, primary: string, head: Head): readonly st
 		];
 	}
 
-	const target = result.stdout.trim().slice(REMOTE_HEAD.length);
+	// The prefix is checked rather than assumed: `symbolic-ref` accepts `refs/remotes/origin/HEAD` pointed
+	// at a local `refs/heads/main`, and slicing a fixed 20 characters off that leaves an empty name — a
+	// warning saying the checkout drifted off nothing, for a checkout sitting on the default branch.
+	const said = result.stdout.trim();
+	if (!said.startsWith(REMOTE_HEAD) || said === REMOTE_HEAD) {
+		return [`${primary} named ${said === "" ? "nothing" : said} as its default branch, which is not a branch on origin`];
+	}
+
+	const target = said.slice(REMOTE_HEAD.length);
 	if (target === head.name) return [];
 	return [`the primary checkout ${primary} is on ${head.name}, not on ${target}`];
 }

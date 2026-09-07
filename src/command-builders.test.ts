@@ -9,6 +9,7 @@ import {
 	formatCommand,
 	jiraIdentityCommand,
 	originRemoteCommand,
+	remoteBranchExistsCommand,
 	sessionCommand,
 	worktreeAddCommand,
 	worktreeListCommand,
@@ -88,6 +89,12 @@ const CASES: readonly Case[] = [
 		description: "Whether the branch is already in the repository, which decides between creating and checking out.",
 		input: { repo: "/repo", branch: BRANCH },
 		build: () => branchExistsCommand("/repo", BRANCH),
+	},
+	{
+		name: "remote-branch-exists",
+		description: "Whether origin has the branch, asked when the repository does not, so pushed work is checked out rather than overwritten.",
+		input: { repo: "/repo", branch: BRANCH },
+		build: () => remoteBranchExistsCommand("/repo", BRANCH),
 	},
 	{
 		name: "default-branch",

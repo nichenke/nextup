@@ -128,6 +128,8 @@ interface GitState {
 	/** Registered worktrees, primary first, as porcelain attribute lists. */
 	readonly worktrees: readonly (readonly string[])[];
 	readonly branches?: readonly string[];
+	/** Branches on `origin` only, which must be checked out rather than created. */
+	readonly remoteBranches?: readonly string[];
 	/** `null` where `origin/HEAD` is not set, which is what a repo with no remote reports. */
 	readonly defaultBranch?: string | null;
 }
@@ -148,8 +150,11 @@ function stubGit(state: GitState): { runner: Runner; issued: string[][] } {
 				: { code: 0, stdout: `refs/remotes/origin/${target}\n`, stderr: "" };
 		}
 		if (words.includes("show-ref")) {
-			const ref = argv[argv.length - 1]!.replace("refs/heads/", "");
-			return { code: (state.branches ?? []).includes(ref) ? 0 : 1, stdout: "", stderr: "" };
+			const ref = argv[argv.length - 1]!;
+			const local = ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) : null;
+			const remote = ref.startsWith("refs/remotes/origin/") ? ref.slice("refs/remotes/origin/".length) : null;
+			const known = local === null ? (state.remoteBranches ?? []) : (state.branches ?? []);
+			return { code: known.includes(local ?? remote ?? "") ? 0 : 1, stdout: "", stderr: "" };
 		}
 		if (words.includes("worktree add")) return { code: 0, stdout: "", stderr: "" };
 		throw new Error(`the worktree step asked git something unexpected: ${words}`);
@@ -183,6 +188,15 @@ describe("ensure", () => {
 
 		expect(outcome.kind).toBe("checked-out");
 		expect(outcome.command).toEqual(["git", "-C", repo, "worktree", "add", outcome.path, READER_BRANCH]);
+	});
+
+	test("checks out a branch that exists only on origin, rather than cutting a new one over it", () => {
+		const { repo, state } = primaryOn();
+		const git = stubGit({ ...state, remoteBranches: [READER_BRANCH] });
+		const outcome = ensure({ runner: git.runner, repo, ticket: READER });
+
+		expect(outcome.kind).toBe("checked-out");
+		expect(outcome.command).not.toContain("-b");
 	});
 
 	test("attaches to the worktree already at the expected path, issuing nothing", () => {
@@ -313,6 +327,18 @@ describe("ensure", () => {
 
 		expect(outcome.warnings[0]).toContain("could not be read");
 		expect(outcome.warnings[0]).toContain("git remote set-head origin --auto");
+	});
+
+	test("says so when origin/HEAD names something that is not a branch on origin", () => {
+		const { repo, state } = primaryOn("main");
+		const git = stubGit(state);
+		const local: Runner = (argv) =>
+			argv.includes("symbolic-ref") ? { code: 0, stdout: "refs/heads/main\n", stderr: "" } : git.runner(argv);
+
+		// `symbolic-ref` accepts origin/HEAD pointed at a local ref. Slicing a fixed prefix off that left an
+		// empty name, and the run reported drift off nothing for a checkout on the default branch.
+		const warnings = ensure({ runner: local, repo, ticket: READER }).warnings;
+		expect(warnings).toEqual([`${repo} named refs/heads/main as its default branch, which is not a branch on origin`]);
 	});
 
 	test("compares against whatever origin/HEAD names, not against a branch called main", () => {
@@ -659,6 +685,33 @@ describe("ensure against real git", () => {
 		expect(() => ensure({ runner: defaultRunner, repo, ticket: ticket({ title: "Reader", labels: ["bug"] }) })).toThrow(
 			new RegExp(`already a worktree on ${READER_BRANCH}, not on fix/reader-8`),
 		);
+	});
+
+	test("lands on the pushed tip when the branch survives only on origin, not on the primary's HEAD", () => {
+		const repo = realRepo();
+		const remote = join(tempDir("nextup-remote-"), "remote.git");
+		const git = (...argv: string[]): string => {
+			const result = defaultRunner(["git", "-C", repo, ...argv]);
+			if (result.code !== 0) throw new Error(`git ${argv.join(" ")} failed: ${result.stderr}`);
+			return result.stdout.trim();
+		};
+		expect(defaultRunner(["git", "init", "--quiet", "--bare", remote]).code).toBe(0);
+		git("remote", "set-url", "origin", remote);
+		git("checkout", "--quiet", "-b", READER_BRANCH);
+		git("-c", "user.email=nobody@invalid", "-c", "user.name=nobody", "commit", "--quiet", "--allow-empty", "-m", "pushed");
+		const pushed = git("rev-parse", "HEAD");
+		git("push", "--quiet", "origin", READER_BRANCH);
+		git("checkout", "--quiet", "main");
+		git("branch", "-D", READER_BRANCH);
+		git("fetch", "--quiet", "origin");
+
+		const outcome = ensure({ runner: defaultRunner, repo, ticket: READER });
+
+		// `-b` here cut a new branch from the primary's HEAD, so the session started on a tree holding none
+		// of the pushed commits and the next push would be rejected non-fast-forward.
+		expect(outcome.kind).toBe("checked-out");
+		expect(defaultRunner(["git", "-C", outcome.path, "rev-parse", "HEAD"]).stdout.trim()).toBe(pushed);
+		expect(git("config", "--get", `branch.${READER_BRANCH}.remote`)).toBe("origin");
 	});
 
 	test("refuses a branch git has already handed to another worktree", () => {
