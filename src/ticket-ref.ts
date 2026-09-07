@@ -2,11 +2,11 @@ import { type Runner, defaultRunner } from "./runner";
 import { resolveRepoFromOrigin } from "./git-remote";
 import { hasJiraAuth, isAuthenticatedHost } from "./host-auth";
 
-export type Tracker = "github" | "gitlab" | "jira" | "markdown";
+export type Tracker = "github" | "gitlab" | "jira";
 
 export interface TicketRef {
 	tracker: Tracker;
-	/** `owner/repo` (github) or `namespace/project` (gitlab); null for jira and markdown. */
+	/** `owner/repo` (github) or `namespace/project` (gitlab); null for jira. */
 	repo: string | null;
 	/** The tracker host, known only when parsed from a pasted URL. */
 	host: string | null;
@@ -15,7 +15,7 @@ export interface TicketRef {
 
 export class TicketRefError extends Error {}
 
-const SCHEME_OF: Record<Tracker, string> = { github: "gh", gitlab: "glab", jira: "jira", markdown: "md" };
+const SCHEME_OF: Record<Tracker, string> = { github: "gh", gitlab: "glab", jira: "jira" };
 
 /**
  * The short form of a reference, for display and for a user to paste back as an argument.
@@ -101,10 +101,9 @@ export interface ResolveDeps {
 	runner?: Runner;
 }
 
-const SHORT_FORM = /^(gh|glab|jira|md):(.+)$/;
+const SHORT_FORM = /^(gh|glab|jira):(.+)$/;
 const SCHEME_URL = /^[a-z][a-z0-9+.-]*:\/\//i;
 const JIRA_KEY = /^[A-Za-z][A-Za-z0-9]*-\d+$/;
-const MARKDOWN_KEY = /^\d+$/;
 
 // Every capture below excludes "?" and "#" so a query string or fragment can never be read as
 // part of the host or repository path — without that, a redirect-style URL like
@@ -131,7 +130,7 @@ export function resolveTicketRef(input: string, deps: ResolveDeps = {}): TicketR
 
 	const short = SHORT_FORM.exec(trimmed);
 	if (short) {
-		const scheme = short[1] as "gh" | "glab" | "jira" | "md";
+		const scheme = short[1] as "gh" | "glab" | "jira";
 		const body = short[2] as string;
 		switch (scheme) {
 			case "gh":
@@ -140,8 +139,6 @@ export function resolveTicketRef(input: string, deps: ResolveDeps = {}): TicketR
 				return resolveRepoScopedShort("gitlab", "glab", body, runner);
 			case "jira":
 				return resolveJiraShort(body);
-			case "md":
-				return resolveMarkdownShort(body);
 		}
 	}
 
@@ -150,7 +147,7 @@ export function resolveTicketRef(input: string, deps: ResolveDeps = {}): TicketR
 	}
 
 	throw new TicketRefError(
-		`${input} is not a recognised ticket reference (gh:, glab:, jira:, md: short form, or a pasted issue URL)`,
+		`${input} is not a recognised ticket reference (gh:, glab:, jira: short form, or a pasted issue URL)`,
 	);
 }
 
@@ -196,20 +193,6 @@ function resolveJiraShort(body: string): TicketRef {
 		throw new TicketRefError(`jira:${body} is not a valid PROJECT-<number> form`);
 	}
 	return { tracker: "jira", repo: null, host: null, key: body };
-}
-
-// Both spellings occur, so they have to converge on one key: the local-markdown convention writes
-// the padded form in the filename ("07-slug.md") and in `Blocked by: NN, NN` alike, while a
-// hand-typed reference is bare. Stripping here means no comparison downstream has to remember.
-function resolveMarkdownShort(body: string): TicketRef {
-	if (!MARKDOWN_KEY.test(body)) {
-		throw new TicketRefError(`md:${body} is not a valid ticket number`);
-	}
-	const key = body.replace(/^0+/, "");
-	if (key === "") {
-		throw new TicketRefError(`md:${body} is not a valid ticket number (efforts number from 1)`);
-	}
-	return { tracker: "markdown", repo: null, host: null, key };
 }
 
 function resolveUrl(url: string, runner: Runner): TicketRef {
