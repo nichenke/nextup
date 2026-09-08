@@ -1,5 +1,5 @@
 import { spawnSync } from "bun";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -20,15 +20,21 @@ const script = join(import.meta.dir, "check-identifiers.sh");
  */
 export function runGuardOn(contents: string) {
 	const dir = mkdtempSync(join(tmpdir(), "nextup-guard-"));
-	writeFileSync(join(dir, "fixture.md"), contents);
-	for (const cmd of [
-		["git", "init", "-q"],
-		["git", "add", "fixture.md"],
-	]) {
-		const setup = spawnSync({ cmd, cwd: dir });
-		if (setup.exitCode !== 0) {
-			throw new Error(`fixture setup failed: ${cmd.join(" ")}`);
+	// Removed even when setup throws: each call creates a git repository, and leaving them behind had
+	// accumulated 3502 directories and most of a gigabyte of temp space before anyone looked.
+	try {
+		writeFileSync(join(dir, "fixture.md"), contents);
+		for (const cmd of [
+			["git", "init", "-q"],
+			["git", "add", "fixture.md"],
+		]) {
+			const setup = spawnSync({ cmd, cwd: dir });
+			if (setup.exitCode !== 0) {
+				throw new Error(`fixture setup failed: ${cmd.join(" ")}`);
+			}
 		}
+		return spawnSync({ cmd: ["bash", script], cwd: dir });
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
 	}
-	return spawnSync({ cmd: ["bash", script], cwd: dir });
 }

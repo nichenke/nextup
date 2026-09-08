@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { readdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { runGuardOn } from "./guard-harness";
+
+const guardDirs = (): number => readdirSync(tmpdir()).filter((name) => name.startsWith("nextup-guard-")).length;
 
 // Fixtures the guard must reject are assembled at runtime, because this file is itself tracked
 // and scanned. Splitting after a scheme's colon is no longer sufficient on its own, because the
@@ -34,6 +38,15 @@ const nestedHostInQuery =
 	"?redirect=https:" +
 	"//internal.corp" +
 	".test/x";
+
+describe("runGuardOn", () => {
+	test("leaves no temporary repository behind, on a pass or a failure", () => {
+		const before = guardDirs();
+		runGuardOn("See https://example.com/issues/1\n");
+		runGuardOn(`Ticket at ${unknownHttpsUrl}\n`);
+		expect(guardDirs()).toBe(before);
+	});
+});
 
 describe("check-identifiers", () => {
 	test("passes tokens that are on the allowlist", () => {
