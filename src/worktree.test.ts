@@ -75,8 +75,6 @@ describe("branchName", () => {
 		const cyrillic: TicketRef = { tracker: "jira", repo: null, host: null, key: "ЖУК-7" };
 		const other: TicketRef = { tracker: "jira", repo: null, host: null, key: "ЛИС-7" };
 
-		// Both keys slug down to "7", so without the refusal these two tickets name one branch at one
-		// path, and the second run reports itself attached to the first ticket's worktree.
 		expect(kindOf(() => branchName(ticket({ ref: cyrillic })))).toBe("unnameable-ticket");
 		expect(kindOf(() => branchName(ticket({ ref: other })))).toBe("unnameable-ticket");
 	});
@@ -84,8 +82,6 @@ describe("branchName", () => {
 	test("refuses a ticket with no key, which would name a branch git will not accept", () => {
 		const keyless: TicketRef = { tracker: "jira", repo: null, host: null, key: "" };
 
-		// It slugs to itself, so the survival test above passes it. With a title that slugs to nothing the
-		// branch is `feature/`, whose empty last component puts the worktree at the root rather than under it.
 		expect(kindOf(() => branchName({ ref: keyless, title: "—— ?? ——", labels: [] }))).toBe("unnameable-ticket");
 		expect(kindOf(() => branchName(ticket({ ref: keyless })))).toBe("unnameable-ticket");
 	});
@@ -104,9 +100,6 @@ describe("branchName", () => {
 		const long = "a".repeat(60);
 		const ref: TicketRef = { tracker: "jira", repo: null, host: null, key: long };
 
-		// The limit shortens the title only. Applied to the key it truncated, the truncation then failed the
-		// survival test, and a long-keyed tracker was refused for a reason a person could do nothing about —
-		// while two keys agreeing on their first 48 characters would have shared one branch.
 		expect(branchName(ticket({ ref }))).toBe(`feature/worktree-ensure-and-branch-naming-${long}`);
 	});
 
@@ -341,8 +334,6 @@ describe("ensure", () => {
 		const local: Runner = (argv) =>
 			argv.includes("symbolic-ref") ? { code: 0, stdout: "refs/heads/main\n", stderr: "" } : git.runner(argv);
 
-		// `symbolic-ref` accepts origin/HEAD pointed at a local ref. Slicing a fixed prefix off that left an
-		// empty name, and the run reported drift off nothing for a checkout on the default branch.
 		const warnings = ensure({ runner: local, repo, ticket: READER }).warnings;
 		expect(warnings).toEqual([`${repo} named refs/heads/main as its default branch, which is not a branch on origin`]);
 	});
@@ -505,8 +496,6 @@ describe("ensure", () => {
 		const { repo, state } = primaryOn();
 		const git = stubGit(state);
 
-		// `??` does not fire for `""` and `resolve` discards an empty segment, so before blank counted as
-		// unset these landed the worktree at the top of the primary checkout instead of under the default.
 		for (const root of [undefined, null, "", "   ", "\t"]) {
 			expect(ensure({ runner: git.runner, repo, ticket: READER, root }).path).toBe(
 				join(repo, DEFAULT_WORKTREE_ROOT, READER_LEAF),
@@ -518,8 +507,6 @@ describe("ensure", () => {
 		const { repo, state } = primaryOn();
 		const git = stubGit(state);
 
-		// A session there reports git's `HEAD`, `index` and `index.lock` as untracked in its working tree,
-		// so `git clean -fd` deletes the repository's worktree administration and `git add -A` commits it.
 		for (const root of [".git", ".git/worktrees", join(repo, ".git")]) {
 			expect(kindOf(() => ensure({ runner: git.runner, repo, ticket: READER, root }))).toBe("stale-directory");
 		}
@@ -724,8 +711,6 @@ describe("ensure against real git", () => {
 
 		const outcome = ensure({ runner: defaultRunner, repo, ticket: READER });
 
-		// `-b` here cut a new branch from the primary's HEAD, so the session started on a tree holding none
-		// of the pushed commits and the next push would be rejected non-fast-forward.
 		expect(outcome.kind).toBe("checked-out");
 		expect(defaultRunner(["git", "-C", outcome.path, "rev-parse", "HEAD"]).stdout.trim()).toBe(pushed);
 		expect(git("config", "--get", `branch.${READER_BRANCH}.remote`)).toBe("origin");
@@ -763,8 +748,7 @@ describe("ensure against real git", () => {
 			"stale-directory",
 		);
 
-		// git itself accepts it, so the refusal is ours and this is what it prevents: the administration
-		// below shows up as untracked files in the session's own working tree.
+		// git itself accepts this, so the refusal is ours alone — hence asserting what git does, not ours.
 		const path = join(repo, ".git", "worktrees", READER_LEAF);
 		expect(defaultRunner(["git", "-C", repo, "worktree", "add", path, "-b", READER_BRANCH]).code).toBe(0);
 		const untracked = defaultRunner(["git", "-C", path, "status", "--short"]).stdout;
@@ -806,8 +790,7 @@ describe("ensure against real git", () => {
 		const repo = realRepo();
 		expect(defaultRunner(["git", "-C", repo, "checkout", "--quiet", "--detach"]).code).toBe(0);
 
-		// The other half of the bare-versus-detached pair: a nullable branch name collapsed both onto one
-		// absent branch, so each has to be read from real porcelain rather than from a stub that agrees.
+		// Read from real porcelain rather than a stub this file wrote, which would only confirm its beliefs.
 		const outcome = ensure({ runner: defaultRunner, repo, ticket: READER });
 		expect(outcome.warnings).toEqual([`the primary checkout ${repo} is on a detached HEAD`]);
 		expect(outcome.kind).toBe("created");

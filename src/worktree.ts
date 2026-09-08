@@ -71,9 +71,6 @@ export function branchName(ticket: Pick<Ticket, "ref" | "title" | "labels">): st
 		throw new WorktreeError("a ticket with no key cannot name a branch", "unnameable-ticket");
 	}
 	if (key !== ticket.ref.key.toLowerCase()) {
-		// Names the rule rather than blaming the ticket: the set here is narrower than git's own, so a key
-		// git would accept can still land in this refusal, and a reader told only that their key "cannot be
-		// spelled" goes looking for the fault in the tracker.
 		throw new WorktreeError(
 			`${ticket.ref.key} carries characters a branch name here does not (letters, digits and _ only), so it would not name its own branch`,
 			"unnameable-ticket",
@@ -91,15 +88,14 @@ export function branchName(ticket: Pick<Ticket, "ref" | "title" | "labels">): st
  * of git's rules: the denylist has to stay in step with git, and one that falls behind produces a branch
  * name git refuses.
  *
- * `_` is in the set because leaving it out constrained future adapters for nothing: a key like `PROJ_12`
- * collapsed to `proj-12`, failed `branchName`'s survival test, and was refused as unspellable, while
- * `git check-ref-format --branch feature/proj_12` exits 0 — as it does for a leading, trailing or
- * doubled underscore. No reachable input reaches it today, since `resolveTicketRef` admits only digits
- * for github and gitlab and `PROJECT-<number>` for Jira. Keeping `_` also collapses fewer distinct keys
- * onto one name, which is the property that survival test guards, so it does not weaken it.
+ * The set is narrower than git's, so a key git would accept can still fail `branchName`'s survival test:
+ * `_` is included because `git check-ref-format --branch feature/proj_12` exits 0, leading, trailing and
+ * doubled underscores included. Widening it collapses fewer distinct keys onto one name, so it does not
+ * weaken that test. No reachable key needs it today — `resolveTicketRef` admits only digits for github
+ * and gitlab, and `PROJECT-<number>` for Jira.
  *
- * Not sufficient on its own: text with nothing in the accepted set returns `""`, and an empty component
- * is the one thing `check-ref-format` still rejects. `branchName` is where that is refused.
+ * Not sufficient on its own: text with nothing in the accepted set returns `""`, which `branchName`
+ * refuses rather than spell into a name.
  */
 function normalize(text: string): string {
 	return text
@@ -207,11 +203,9 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 	const primary = main.path;
 
 	// `resolve` takes an absolute root as given and a relative one against the primary checkout, and
-	// normalizes either — so a trailing slash or a `..` in a caller's root is the same path rather than
-	// a different spelling of it.
-	// Blank counts as unset. `??` does not fire for `""`, which is what an unset variable or an empty flag
-	// hands over, and `resolve` discards an empty segment — so a blank root became the primary checkout
-	// rather than the default.
+	// normalizes either, so a trailing slash or a `..` is the same path rather than another spelling of it.
+	// It also discards an empty segment, and `??` does not fire for `""` — the two together turned a blank
+	// root, which is what an unset variable or an empty flag hands over, into the primary checkout itself.
 	const container = resolve(primary, input.root?.trim() || DEFAULT_WORKTREE_ROOT);
 	if (container === primary) {
 		// What `"."` and the primary's own path still reach. Refused because worktrees would land beside the
@@ -248,9 +242,7 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 	refuseIfOccupied(path);
 
 	// A registered worktree at the path is the case above, so a branch that exists at this point is one
-	// checked out nowhere. `origin` is asked too, and a branch only there is checked out rather than
-	// created: `-b` would cut a new branch from local HEAD and leave every pushed commit behind, while the
-	// no-`-b` form takes the remote tip and sets up tracking.
+	// checked out nowhere. `origin` is asked too, for the reason `remoteBranchExistsCommand` gives.
 	const create =
 		!branchExists(input.runner, primary, branch, branchExistsCommand) &&
 		!branchExists(input.runner, primary, branch, remoteBranchExistsCommand);
@@ -310,8 +302,6 @@ function gone(registration: Registration): boolean {
 }
 
 function describe(head: Head): string {
-	// A switch closed by `never`, so a fifth arm is a compile error rather than something rendered as
-	// "could not read" — mislabelled as opaque is the collapse the union exists to prevent.
 	switch (head.kind) {
 		case "branch":
 			return head.name;
@@ -348,10 +338,8 @@ function refuseIfOccupied(path: string): void {
  * What is at `path`, having refused it unless a worktree could be there: absent is allowed and reported
  * as `undefined`, a symlink and a non-directory are not. `complaint` says what the caller wanted it for.
  *
- * The one guard both the attach and the create route go through, rather than the same three checks
- * written twice. Written twice, they drifted: the symlink refusal held on the create route only, and an
- * attach to a symlinked path went through — so a third check added to one and not the other is the
- * failure mode this shape exists to make impossible.
+ * The one guard both the attach and the create route go through, so a check added here cannot hold on
+ * one route and not the other.
  *
  * @throws WorktreeError `"stale-directory"`.
  */
@@ -453,9 +441,8 @@ function driftWarnings(runner: Runner, primary: string, head: Head): readonly st
 		];
 	}
 
-	// The prefix is checked rather than assumed: `symbolic-ref` accepts `refs/remotes/origin/HEAD` pointed
-	// at a local `refs/heads/main`, and slicing a fixed 20 characters off that leaves an empty name — a
-	// warning saying the checkout drifted off nothing, for a checkout sitting on the default branch.
+	// Checked rather than assumed, because the answer is not always under this prefix —
+	// `defaultBranchCommand` gives the shapes. Sliced blind it leaves an empty branch name.
 	const said = result.stdout.trim();
 	if (!said.startsWith(REMOTE_HEAD) || said === REMOTE_HEAD) {
 		return [`${primary} named ${said === "" ? "nothing" : said} as its default branch, which is not a branch on origin`];
