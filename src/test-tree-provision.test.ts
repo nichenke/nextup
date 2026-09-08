@@ -43,6 +43,12 @@ function fakeTracker(seed: FakeIssue[] = []) {
 		calls.push(argv);
 		const [, noun, verb] = argv;
 
+		// Returns undefined for an absent flag rather than argv[0], which a bare `indexOf(name) + 1` does.
+		const flagValue = (name: string): string | undefined => {
+			const at = argv.indexOf(name);
+			return at < 0 ? undefined : argv[at + 1];
+		};
+
 		if (noun === "label") return ok();
 
 		if (noun === "issue" && verb === "list") {
@@ -61,7 +67,7 @@ function fakeTracker(seed: FakeIssue[] = []) {
 			}
 			issues.push({
 				number,
-				title: argv[argv.indexOf("--title") + 1] as string,
+				title: flagValue("--title") as string,
 				labels,
 				assignees: [],
 				state: "OPEN",
@@ -77,18 +83,18 @@ function fakeTracker(seed: FakeIssue[] = []) {
 
 		if (noun === "issue" && verb === "edit") {
 			const issue = find(Number(argv[3]));
-			const add = argv.indexOf("--add-assignee");
-			if (add >= 0) issue.assignees.push({ login: argv[add + 1] === "@me" ? "tester" : (argv[add + 1] as string) });
-			const remove = argv.indexOf("--remove-assignee");
-			if (remove >= 0) issue.assignees = issue.assignees.filter((a) => a.login !== argv[remove + 1]);
+			const add = flagValue("--add-assignee");
+			if (add !== undefined) issue.assignees.push({ login: add === "@me" ? "tester" : add });
+			const remove = flagValue("--remove-assignee");
+			if (remove !== undefined) issue.assignees = issue.assignees.filter((a) => a.login !== remove);
 			return ok();
 		}
 
-		// Before the read branch below, which matches the same path: a POST carries it too, so reversing
-		// these answers every edge write with the current edge list and silently writes nothing.
+		// Each api branch keys on a distinct argv slot, so an unrecognised call reaches the throw at the end
+		// rather than being answered by whichever branch happens to be broadest.
 		if (noun === "api" && argv.includes("--method")) {
 			const blocked = atPath(argv[4] as string);
-			const blockerId = Number((argv[argv.indexOf("-F") + 1] as string).split("=")[1]);
+			const blockerId = Number((flagValue("-F") as string).split("=")[1]);
 			const blocker = find(blockerId - 1000);
 			if (blocker.blockedBy.includes(blocked.number)) {
 				return { code: 1, stdout: "", stderr: "Validation failed: this dependency would create a cycle" };
@@ -101,7 +107,7 @@ function fakeTracker(seed: FakeIssue[] = []) {
 			return ok(JSON.stringify(atPath(argv[2] as string).blockedBy));
 		}
 
-		if (noun === "api") return ok(`${atPath(argv[2] as string).number + 1000}\n`);
+		if (noun === "api" && argv[4] === ".id") return ok(`${atPath(argv[2] as string).number + 1000}\n`);
 
 		throw new Error(`fake tracker got an unexpected call: ${argv.join(" ")}`);
 	};
@@ -117,6 +123,14 @@ describe("provisionTestTree", () => {
 		expect(tracker.issues).toHaveLength(GITHUB_TEST_TREE.issues.length);
 		expect(report.changes.filter((change) => change.action === "created")).toHaveLength(
 			GITHUB_TEST_TREE.issues.length,
+		);
+		// The blocker key inside a `blocked by ...` action is a string the type cannot constrain, so nothing
+		// but this catches an edit that interpolates the wrong variable into it.
+		const edges = report.changes.filter((change) => change.action.startsWith("blocked by"));
+		expect(edges.map((change) => `${change.key} ${change.action}`).sort()).toEqual(
+			GITHUB_TEST_TREE.issues
+				.flatMap((issue) => issue.blockedBy.map((blocker) => `${issue.key} blocked by ${blocker}`))
+				.sort(),
 		);
 		for (const issue of GITHUB_TEST_TREE.issues) {
 			const built = tracker.issues.find((candidate) => candidate.title === issue.title);

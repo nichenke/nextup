@@ -6,9 +6,13 @@ import { GITHUB_TEST_TREE, type TestTreeSpec, TestTreeError, validateTestTree } 
 const tree = GITHUB_TEST_TREE;
 
 /**
- * The fetch limit a truncation test is expected to set. Named rather than written inline as a bare number,
- * so the tree's size and the limit it has to exceed cannot drift apart silently — the shape ticket 35 asks
- * for is "enough issues to force truncation", which a comparison against an anonymous constant cannot pin.
+ * The fetch limit a future truncation test is expected to set, named so the assertion below says what the
+ * number is for. Nothing enforces the coupling, because the limit it stands in for does not exist yet: the
+ * read adapter owns it, and this is the slice before that.
+ *
+ * Deliberately not derived from `LIST_LIMIT` in `test-tree-provision.ts`, which is a different quantity —
+ * that one is set high so provisioning's own listing cannot truncate, and tying the two together would make
+ * raising one silently shrink the shape the other is asserting.
  */
 const LOW_FETCH_LIMIT = 10;
 
@@ -72,8 +76,13 @@ describe("validateTestTree", () => {
 // Each test below is one shape ticket 35 requires the tree to carry. They fail if the spec is edited in
 // a way that drops a shape, which is the only thing stopping the tree from silently narrowing.
 describe("the shapes the GitHub test tree carries", () => {
+	// Both the property and the wiring: the depth is what ticket 35 asks for and survives a restructured
+	// chain, while the explicit edges mean a bug in `openDepth` cannot make this pass for the wrong reason.
 	test("a chain of open blockers at least two deep", () => {
 		expect(openDepth("chain-tip")).toBeGreaterThanOrEqual(2);
+		expect(issue("chain-tip").blockedBy).toEqual(["chain-middle"]);
+		expect(issue("chain-middle").blockedBy).toEqual(["chain-base"]);
+		expect(issue("chain-base").blockedBy).toEqual([]);
 	});
 
 	test("a ticket blocked by a closed blocker and an open one at once", () => {
