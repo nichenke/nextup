@@ -19,7 +19,8 @@ import type { Ticket } from "./ticket";
  * leftover files, a symlink, a registration whose directory has gone, a worktree there on some other
  * branch, a root that names no place a worktree can go — and the message says which.
  * `"branch-elsewhere"` is the reverse: this ticket's own branch checked out at a different path, which
- * is the refusal a second session racing the same ticket hits. `"unnameable-ticket"` says the ticket
+ * takes a differing root or a checkout somebody made by hand — two sessions racing one ticket at one root
+ * compute the same path, so they collide inside `git worktree add` instead. `"unnameable-ticket"` says the ticket
  * cannot name a branch at all — an absent key, or one no branch name can spell — so
  * no waiting fixes it; it is deliberately not called `ticket-set`, which `CONTEXT.md` gives to the
  * tickets one invocation considers. `"git"` is a git question this could not get a usable answer to,
@@ -202,28 +203,7 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 	}
 	const primary = main.path;
 
-	// `resolve` takes an absolute root as given and a relative one against the primary checkout, and
-	// normalizes either, so a trailing slash or a `..` is the same path rather than another spelling of it.
-	// It also discards an empty segment, and `??` does not fire for `""` — the two together turned a blank
-	// root, which is what an unset variable or an empty flag hands over, into the primary checkout itself.
-	const container = resolve(primary, input.root?.trim() || DEFAULT_WORKTREE_ROOT);
-	if (container === primary) {
-		// What `"."` and the primary's own path still reach. Refused because worktrees would land beside the
-		// checkout's own tracked files at its top level, where nothing ignores them — not because the root
-		// is inside the working tree, which ADR-0013's default `.worktrees` also is, deliberately. A root
-		// pointed anywhere else inside the checkout is taken as given, tracked directory or not.
-		throw new WorktreeError(`${primary} is the primary checkout, so it cannot also be the worktree root`, "stale-directory");
-	}
-	// A worktree under `.git` puts git's own administration — `HEAD`, `index`, `index.lock`, `commondir`
-	// — inside the session's working tree as untracked files, where `git clean -fd` deletes them and
-	// `git add -A` commits them. Unlike a root merely inside the checkout, which is the caller's business,
-	// there is no reading of this that a caller wants. Matches the name rather than asking git for its
-	// directory, so a `--separate-git-dir` or `GIT_DIR` elsewhere is not covered.
-	if (container.split(sep).includes(".git")) {
-		throw new WorktreeError(`${container} is inside a git directory, which a worktree cannot be`, "stale-directory");
-	}
-	refuseIfReachedThroughLink(container);
-	const path = join(container, leafOf(branch));
+	const path = join(resolveContainer(primary, input.root), leafOf(branch));
 
 	const onBranch = registrations.find((one) => one.head.kind === "branch" && one.head.name === branch);
 	if (onBranch !== undefined && onBranch.path !== path) {
@@ -287,6 +267,38 @@ function refuseUnlessAttachable(registration: Registration, path: string, branch
 	}
 }
 
+/**
+ * The directory worktrees go in, with every rule about a root applied.
+ *
+ * `resolve` takes an absolute root as given and a relative one against the primary checkout, and
+ * normalizes either, so a trailing slash or a `..` is the same path rather than another spelling of it.
+ * It also discards an empty segment, and `??` does not fire for `""` — the two together turned a blank
+ * root, which is what an unset variable or an empty flag hands over, into the primary checkout itself.
+ *
+ * @throws WorktreeError `"stale-directory"` for the three roots no caller wants:
+ *
+ * - **The primary checkout itself**, which `"."` also reaches. Worktrees would land beside the checkout's
+ *   own tracked files at its top level, where nothing ignores them. Not because the root is inside the
+ *   working tree — ADR-0013's default `.worktrees` is too, deliberately — so a root pointed anywhere else
+ *   inside the checkout is taken as given, tracked directory or not.
+ * - **Inside `.git`**, which puts git's own administration (`HEAD`, `index`, `index.lock`, `commondir`)
+ *   into the session's working tree as untracked files, where `git clean -fd` deletes them and `git add
+ *   -A` commits them. Matched on the path component rather than by asking git for its directory, so a
+ *   `--separate-git-dir` or `GIT_DIR` elsewhere is not covered.
+ * - **Reached through a symlink**, per `refuseIfReachedThroughLink`.
+ */
+function resolveContainer(primary: string, root: string | null | undefined): string {
+	const container = resolve(primary, root?.trim() || DEFAULT_WORKTREE_ROOT);
+	if (container === primary) {
+		throw new WorktreeError(`${primary} is the primary checkout, so it cannot also be the worktree root`, "stale-directory");
+	}
+	if (container.split(sep).includes(".git")) {
+		throw new WorktreeError(`${container} is inside a git directory, which a worktree cannot be`, "stale-directory");
+	}
+	refuseIfReachedThroughLink(container);
+	return container;
+}
+
 /** The last component of a branch name, which is what the branch is called under the worktree root. */
 function leafOf(branch: string): string {
 	return branch.slice(branch.lastIndexOf("/") + 1);
@@ -311,10 +323,6 @@ function describe(head: Head): string {
 			return "a detached HEAD";
 		case "opaque":
 			return "a head this could not read";
-		default: {
-			const unreachable: never = head;
-			return unreachable;
-		}
 	}
 }
 
