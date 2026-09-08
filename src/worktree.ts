@@ -71,8 +71,11 @@ export function branchName(ticket: Pick<Ticket, "ref" | "title" | "labels">): st
 		throw new WorktreeError("a ticket with no key cannot name a branch", "unnameable-ticket");
 	}
 	if (key !== ticket.ref.key.toLowerCase()) {
+		// Names the rule rather than blaming the ticket: the set here is narrower than git's own, so a key
+		// git would accept can still land in this refusal, and a reader told only that their key "cannot be
+		// spelled" goes looking for the fault in the tracker.
 		throw new WorktreeError(
-			`${ticket.ref.key} cannot be spelled in a branch name, so it would not name its own`,
+			`${ticket.ref.key} carries characters a branch name here does not (letters, digits and _ only), so it would not name its own branch`,
 			"unnameable-ticket",
 		);
 	}

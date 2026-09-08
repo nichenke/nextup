@@ -96,8 +96,12 @@ export function remoteBranchExistsCommand(repo: string, branch: string): readonl
  *
  * The full ref, because `--short` shortens only as far as stays unambiguous: with a local branch named
  * `origin/main` in the repository it answers `remotes/origin/main` rather than `origin/main`, and a
- * caller stripping `origin/` is then left comparing `remotes/origin/main` against a branch name. The
- * full form is always `refs/remotes/origin/<branch>`, so the prefix to strip is fixed.
+ * caller stripping `origin/` is then left comparing `remotes/origin/main` against a branch name.
+ *
+ * The answer is not always under `refs/remotes/origin/`, so a caller must check the prefix rather than
+ * slice a fixed width off it. git accepts `symbolic-ref refs/remotes/origin/HEAD refs/heads/main`, and
+ * also a pointer to a branch that does not exist. `driftWarnings` in `worktree.ts` is where that is
+ * checked.
  */
 export function defaultBranchCommand(repo: string): readonly string[] {
 	return ["git", "-C", repo, "symbolic-ref", "refs/remotes/origin/HEAD"];
