@@ -802,6 +802,17 @@ describe("ensure against real git", () => {
 		]);
 	});
 
+	test("does not tell a detached primary it is on a branch, or call it bare", () => {
+		const repo = realRepo();
+		expect(defaultRunner(["git", "-C", repo, "checkout", "--quiet", "--detach"]).code).toBe(0);
+
+		// The other half of the bare-versus-detached pair: a nullable branch name collapsed both onto one
+		// absent branch, so each has to be read from real porcelain rather than from a stub that agrees.
+		const outcome = ensure({ runner: defaultRunner, repo, ticket: READER });
+		expect(outcome.warnings).toEqual([`the primary checkout ${repo} is on a detached HEAD`]);
+		expect(outcome.kind).toBe("created");
+	});
+
 	test("warns rather than refusing when the primary checkout has drifted off the default branch", () => {
 		const repo = realRepo();
 		expect(defaultRunner(["git", "-C", repo, "checkout", "--quiet", "-b", "wip"]).code).toBe(0);
