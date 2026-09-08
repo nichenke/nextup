@@ -108,7 +108,14 @@ function normalize(text: string): string {
 		.replace(/^-+|-+$/g, "");
 }
 
-/** `normalize`, cut to `SLUG_LIMIT` at a separator rather than mid-word. */
+/**
+ * `normalize`, cut to `SLUG_LIMIT` at a separator rather than mid-word.
+ *
+ * Shares `normalize` with the key, so the `_` admitted for keys reaches titles too: `snake_case_title`
+ * slugs to itself rather than to `snake-case-title`. Kept deliberately — it is closer to the title a
+ * person wrote, and git takes it — so narrowing the set back to keys alone would change every branch
+ * and directory name derived from a title carrying one.
+ */
 function slugify(text: string): string {
 	const collapsed = normalize(text);
 	if (collapsed.length <= SLUG_LIMIT) return collapsed;
