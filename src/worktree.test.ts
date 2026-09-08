@@ -766,6 +766,20 @@ describe("ensure against real git", () => {
 		expect(kindOf(() => ensure({ runner: defaultRunner, repo, ticket: READER, root: linked }))).toBe("stale-directory");
 	});
 
+	test("refuses an absolute root whose ancestor is a symlink, not only one that is a symlink itself", () => {
+		const repo = realRepo();
+		const outer = tempDir("nextup-linked-ancestor-");
+		mkdirSync(join(outer, "real"), { recursive: true });
+		symlinkSync(join(outer, "real"), join(outer, "link"));
+
+		// The shape that makes every absolute root under a macOS `/tmp`, `/var` or `$TMPDIR` unusable: the
+		// container is not itself a link and need not exist, but an ancestor is. Pins what the walk does
+		// today, which nichenke/nextup issue 39 is deciding — a narrower guard would let this through.
+		expect(kindOf(() => ensure({ runner: defaultRunner, repo, ticket: READER, root: join(outer, "link", "trees") }))).toBe(
+			"stale-directory",
+		);
+	});
+
 	test("refuses a locked registration whose directory is gone, which git never calls prunable", () => {
 		const repo = realRepo();
 		const outcome = ensure({ runner: defaultRunner, repo, ticket: READER });
