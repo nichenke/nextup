@@ -70,8 +70,8 @@ then the title as a slug, then the ticket's key last. It goes under
 `.worktrees/` in the primary checkout unless a caller names another root, and never gets removed —
 [ADR-0013](./docs/adr/0013-worktrees-go-under-the-primary-checkout.md) has why there and
 [ADR-0005](./docs/adr/0005-worktree-removal-stays-unimplemented.md) why nothing cleans up. A primary
-checkout that has drifted off the default branch is warned about, not refused, because the new branch
-is cut from that checkout's HEAD.
+checkout that has drifted off the default branch is warned about rather than refused; `driftWarnings`
+has why that is worth saying.
 
 Everything before the claim — the ranking, the plan, the gate — writes nothing to the tracker, so a
 declined pick and a wrong input both cost no tracker write to find out.
