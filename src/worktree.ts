@@ -22,8 +22,7 @@ import type { Ticket } from "./ticket";
  * takes a differing root or a checkout somebody made by hand — two sessions racing one ticket at one root
  * compute the same path, so they collide inside `git worktree add` instead. `"unnameable-ticket"` says the ticket
  * cannot name a branch at all — an absent key, or one no branch name can spell — so
- * no waiting fixes it; it is deliberately not called `ticket-set`, which `CONTEXT.md` gives to the
- * tickets one invocation considers. `"git"` is a git question this could not get a usable answer to,
+ * no waiting fixes it. `"git"` is a git question this could not get a usable answer to,
  * which includes a command that succeeded and said nothing.
  */
 export class WorktreeError extends Error {
@@ -337,7 +336,7 @@ function describe(head: Head): string {
  */
 function refuseIfOccupied(path: string): void {
 	if (inspectUsable(path, "is where the worktree goes, and it is not a directory") === undefined) return;
-	if (asking(path, "listed", () => readdirSync(path)).length > 0) {
+	if (refusingOnError(path, "listed", () => readdirSync(path)).length > 0) {
 		throw new WorktreeError(`${path} already holds files and is not a registered worktree; move it aside`, "stale-directory");
 	}
 }
@@ -363,7 +362,7 @@ function inspectUsable(path: string, complaint: string): ReturnType<typeof lstat
 }
 
 function inspect(path: string): ReturnType<typeof lstatSync> | undefined {
-	return asking(path, "inspected", () => lstatSync(path, { throwIfNoEntry: false }));
+	return refusingOnError(path, "inspected", () => lstatSync(path, { throwIfNoEntry: false }));
 }
 
 /**
@@ -373,7 +372,7 @@ function inspect(path: string): ReturnType<typeof lstatSync> | undefined {
  * the command dies rather than reporting the refusal this documents. One wrapper rather than a
  * try/catch per call site, so a filesystem question added later cannot escape unclassified.
  */
-function asking<T>(path: string, verb: string, work: () => T): T {
+function refusingOnError<T>(path: string, verb: string, work: () => T): T {
 	try {
 		return work();
 	} catch (cause) {
@@ -449,8 +448,7 @@ function driftWarnings(runner: Runner, primary: string, head: Head): readonly st
 		];
 	}
 
-	// Checked rather than assumed, because the answer is not always under this prefix —
-	// `defaultBranchCommand` gives the shapes. Sliced blind it leaves an empty branch name.
+	// Checked rather than assumed — `defaultBranchCommand` has the shapes this can answer with.
 	const said = result.stdout.trim();
 	if (!said.startsWith(REMOTE_HEAD) || said === REMOTE_HEAD) {
 		return [`${primary} named ${said === "" ? "nothing" : said} as its default branch, which is not a branch on origin`];

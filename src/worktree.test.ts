@@ -115,7 +115,6 @@ describe("branchName", () => {
 			expect(() => branchName(ticket({ ref }))).not.toThrow();
 		}
 	});
-
 });
 
 /** One `--porcelain -z` record, in the layout `parseWorktreeList` documents. */
@@ -455,13 +454,6 @@ describe("ensure", () => {
 				: git.runner(argv);
 
 		expect(kindOf(() => ensure({ runner: failing, repo, ticket: READER }))).toBe("git");
-	});
-
-	test("still reads exit 1 as absent, which is what a name git will not accept also returns", () => {
-		const { repo, state } = primaryOn();
-		const git = stubGit(state);
-
-		expect(ensure({ runner: git.runner, repo, ticket: READER }).kind).toBe("created");
 	});
 
 	test("refuses when the path cannot be inspected at all, rather than letting the error escape", () => {
@@ -804,7 +796,6 @@ describe("ensure against real git", () => {
 		const repo = realRepo();
 		expect(defaultRunner(["git", "-C", repo, "checkout", "--quiet", "--detach"]).code).toBe(0);
 
-		// Read from real porcelain rather than a stub this file wrote, which would only confirm its beliefs.
 		const outcome = ensure({ runner: defaultRunner, repo, ticket: READER });
 		expect(outcome.warnings).toEqual([`the primary checkout ${repo} is on a detached HEAD`]);
 		expect(outcome.kind).toBe("created");

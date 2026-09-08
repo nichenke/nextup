@@ -3,9 +3,7 @@ import { type TicketRef, formatTicketRef } from "./ticket-ref";
 export class CommandBuilderError extends Error {}
 
 /**
- * Argv carrying at least the program, so a caller holding one cannot be holding nothing to run. Used
- * where a type reports a command as having been issued: an empty argv reads as success while naming no
- * command, which is the same claim a nullable command let through.
+ * Argv carrying at least the program, so a value of this type cannot be a command with nothing to run.
  */
 export type Argv = readonly [string, ...string[]];
 
