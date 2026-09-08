@@ -59,5 +59,7 @@ limit below its size rather than by adding issues.
 - **Keep issue bodies free of file references** — a dotted filename followed by a colon and a line number,
   or by a slash. Redaction rewrites those to the placeholder because the guard flags them, and measured
   tracker output contains none, so a body is the only way one reaches a recording.
-- **Read edges from the dependency endpoint, not the summary field** — `issue-tracker.md` has the commands
-  and why the summary cannot be trusted here.
+- **Read edges from `blockedBy` or the dependency endpoint, never the summary field** — `issue-tracker.md`
+  compares all three and says why the summary cannot be trusted. Capture the surface the adapter will
+  actually parse: recording only the per-issue endpoint would leave the bulk `{nodes:[…],totalCount}` shape
+  with no recording behind it, and ADR-0019 forbids inventing one.

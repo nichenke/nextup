@@ -107,6 +107,11 @@ judgment, and an agent makes it against the tracker directly, or the spec change
 rebuilt. Encoding it here would grow a general tracker-sync tool inside a fixture builder, and every
 rule it learned would be one more thing to be wrong about the tracker.
 
+Building from scratch rests on one more measured fact, worth recording because the fake in the tests would
+vouch for it either way: the dependency endpoint answers `200` with an empty list for an issue that has no
+dependency records, rather than `404`. Checked against an issue that has never had an edge. Had it been a
+`404`, `run()` would throw and the tree could never be built from empty — the primary documented use.
+
 ## A dependency cycle is reachable on GitHub, at three hops and not at two
 
 The tree has to carry a cycle, because the propagation module has a cycle guard and a guard no input

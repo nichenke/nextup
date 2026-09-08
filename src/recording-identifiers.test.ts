@@ -81,6 +81,17 @@ describe("redactRecordingIdentifiers", () => {
 		expect(redact("user@" + ".com")).toBe(HOST);
 	});
 
+	// A JSON escape's letter is a legal first character for a scheme, a host and an email local part alike, so
+	// a rule that begins matching there swallows it and leaves a lone backslash — which stops the recording
+	// being JSON at all, silently, with the guard reporting nothing wrong.
+	test("leaves a recording parseable when a host follows a JSON escape", () => {
+		for (const tail of [ISSUE_URL, BARE_HOST_PATH, "user@example" + ".com"]) {
+			const redacted = redact(JSON.stringify({ body: `first\n${tail}` }));
+			expect(() => JSON.parse(redacted)).not.toThrow();
+			expect((JSON.parse(redacted) as { body: string }).body.startsWith("first\n")).toBe(true);
+		}
+	});
+
 	test("leaves a package version alone, which is the other thing spelled with an @", () => {
 		expect(redact("typescript@5.1.2")).toBe("typescript@5.1.2");
 		expect(redact("@types/bun@1.4.0")).toBe("@types/bun@1.4.0");
@@ -99,7 +110,9 @@ describe("redactRecordingIdentifiers", () => {
 	// Asserted against the real bash guard rather than a TypeScript copy of its pattern. A copy is what let an
 	// escaped-slash URL through redaction untouched while the guard flagged it: the transcription agreed with
 	// the code it was transcribed from, and neither agreed with the guard.
-	test("leaves behind nothing the real identifier guard matches", () => {
+	// Scoped to hosts on purpose: the guard's fourth shape, a slug and a `#` before digits, carries no host,
+	// so no rule here reaches it and this corpus deliberately holds none. ADR-0024 covers that gap.
+	test("leaves behind no host the real identifier guard matches", () => {
 		const corpus = [
 			ISSUE_URL,
 			SSH_URL,

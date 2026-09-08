@@ -67,6 +67,15 @@ placeholder followed by the path, and `new URL()` on it throws. That is intended
 place would leave a token the guard matches whatever the host is, because its scheme shape needs no dot at
 all. Whoever reads a recording's `url` field must treat it as an opaque string.
 
+**What capture should do, and this slice does not:** run the guard over the exact bytes about to be written
+and refuse the write if anything survives. `scripts/guard-harness.ts` already runs the real guard from
+TypeScript, so the gate is available and unused here only because nothing writes a recording yet. With it,
+redaction becomes best-effort and the guard becomes the enforcement — pattern parity stops being a design
+goal, this ADR's "widening the guard means widening these" stops being prose nothing enforces, and the two
+gaps above stop needing a documentation rule to hold them off. Until then the parity test is the only thing
+holding the coupling, over a fixed corpus, which is weaker than it sounds: a fifth shape added to the guard
+would pass that test untouched.
+
 **Considered and not taken:** replacing the tree's known host strings literally instead of matching host
 *shapes*, which would retire the grammar this reintroduces — the same argument ADR-0006 accepted when it
 chose whole-token comparison over URL parsing. It is a real objection. It is not taken because a recording
@@ -82,6 +91,11 @@ real output from the live tree and the guard's pattern run over the result; exac
 both of the slug shape, and both from the `blocked-by:` line of plain `gh issue view`. The same information
 requested as `gh issue list --json blockedBy` comes back as objects of id, number, state, title and URL,
 with no slug form anywhere and every URL carrying a scheme that redaction rewrites.
+
+Redaction can also *produce* that shape rather than merely miss it. A numeric URL fragment survives into the
+placeholder — measured, `#42` against a host becomes the placeholder followed by `#42`, and a fragment on a
+path does the same — and the guard matches the result. So the shape is reachable from input that contained no
+slug reference at all.
 
 So the rule for capture is to record `--json` surfaces, on which this shape does not occur, rather than the
 human-readable views, where it occurs on the first capture. That is a stronger reason to prefer `--json`

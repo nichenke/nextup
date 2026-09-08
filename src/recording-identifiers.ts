@@ -5,6 +5,12 @@
  */
 export const GITHUB_PLACEHOLDER_HOST = "github-test-tree";
 
+// Every rule refuses to start immediately after a backslash. `n`, `r` and `t` are legal first characters
+// for a scheme, a host and an email local part, so without that a host following a JSON `\n` swallowed the
+// escape's letter and left a lone backslash — the recording stopped being JSON, and the guard saw nothing
+// wrong with it. Requiring the character before the match not to be a backslash is what keeps the escape
+// intact while still rewriting the host that follows it.
+//
 // One rule per host shape the guard matches, applied in the order they are declared, after the unescaping
 // the guard also does first. Each consumes what
 // the next would otherwise mangle: a scheme carrying userinfo has to be taken whole rather than split at
@@ -15,7 +21,7 @@ export const GITHUB_PLACEHOLDER_HOST = "github-test-tree";
 // `?` and `#` end the authority as surely as `/` does. Without them in the excluded class, a query or
 // fragment sitting directly against the host is swallowed with it, so the recording loses what it said and
 // not merely where it said it.
-const SCHEME_AUTHORITY = /[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s"'<>\\/?#]*/g;
+const SCHEME_AUTHORITY = /(?<!\\)[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s"'<>\\/?#]*/g;
 
 // The scp-form remote and the email, neither of which carries a scheme. A dot followed by two letters has
 // to appear somewhere after the `@`, which is what keeps an ordinary `package@1.2.3` out. It is not a claim
@@ -26,7 +32,7 @@ const SCHEME_AUTHORITY = /[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s"'<>\\/?#]*/g;
 // The host part is spelled exactly as the guard spells it, including the `*` that admits an empty label:
 // requiring one character there let a degenerate `user@` and a bare dotted suffix through redaction while
 // the guard still flagged it, which is the parity this whole rule exists to hold.
-const EMAIL_HOST = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]*\.[A-Za-z]{2,}/g;
+const EMAIL_HOST = /(?<!\\)[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]*\.[A-Za-z]{2,}/g;
 
 // A dotted host with no scheme and no user, spelled to match the guard's schemeless shape rather than a
 // tidier subset — ADR-0024 has why parity is the design and what it costs. Runs last, so the two rules
@@ -34,7 +40,7 @@ const EMAIL_HOST = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]*\.[A-Za-z]{2,}/g;
 //
 // A lookahead for the separator rather than consuming it: the guard's shape swallows the rest of the line,
 // and copying that here would destroy the path this function promises to keep.
-const BARE_HOST = /[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}(?=[:/])/g;
+const BARE_HOST = /(?<!\\)[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}(?=[:/])/g;
 
 /**
  * A captured exchange with each host the identifier guard would flag replaced by `placeholderHost`, leaving

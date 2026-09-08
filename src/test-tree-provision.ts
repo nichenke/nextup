@@ -188,7 +188,17 @@ function listIssues(spec: TestTreeSpec, runner: Runner): readonly ExistingIssue[
  * @throws TestTreeError naming the first field that is absent or the wrong shape.
  */
 function parseIssues(stdout: string): readonly ExistingIssue[] {
-	const parsed: unknown = JSON.parse(stdout);
+	// `gh` can exit 0 with stdout that is not JSON at all — empty, or a warning — and an unguarded parse
+	// raises a SyntaxError that escapes the TestTreeError this function's caller documents. Its sibling
+	// `blockedBy` already guarded the same thing.
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(stdout);
+	} catch (cause) {
+		throw new TestTreeError(
+			`the issue listing is not JSON: ${cause instanceof Error ? cause.message : String(cause)}`,
+		);
+	}
 	if (!Array.isArray(parsed)) throw new TestTreeError(`the issue listing is not a list: ${stdout.slice(0, 80)}`);
 	return parsed.map((raw, index) => {
 		const at = `issue ${index} of the listing`;

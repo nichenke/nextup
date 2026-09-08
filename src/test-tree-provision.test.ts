@@ -215,6 +215,8 @@ describe("provisionTestTree", () => {
 		["number", `[{"title":"t","state":"OPEN","assignees":[]}]`, /has no usable number/],
 		["a state nothing recognises", `[{"number":1,"title":"t","state":"MERGED","assignees":[]}]`, /unrecognised state/],
 		["an object instead of a list", `{"number":1}`, /not a list/],
+		["empty, which gh can print while exiting 0", ``, /not JSON/],
+		["not JSON at all", `warning: something\n`, /not JSON/],
 		["a null entry, which destructuring would raise a TypeError on", `[null]`, /is not an object/],
 		["an array entry, which has no fields at all", `[[]]`, /is not an object/],
 	])("refuses a listing missing %s", (_label, stdout, because) => {
