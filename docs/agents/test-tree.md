@@ -1,8 +1,9 @@
 # Test tree: GitHub
 
-`nichenke/nextup-test-tree-github` is the synthetic issue tree every GitHub recording is captured from,
-and the only repository this tool's write path may run against. ADR-0019 is the rule, ADR-0023 is what
-the tree is and why it is built the way it is.
+`nichenke/nextup-test-tree-github` is the synthetic issue tree every GitHub recording is captured from, and
+the only repository a **test** may write to. Shipped `nextup` claims tickets in whatever repository it is
+pointed at — that is what the tool is for, and `README.md` documents it; this rule binds tests and capture,
+not the launcher. ADR-0019 is the rule, ADR-0023 is what the tree is and why it is built the way it is.
 
 `src/test-tree.ts` is the spec. The tracker is a copy of it, not the source of truth: change the spec,
 then run

@@ -61,7 +61,16 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 
   So `--json blockedBy` is the surface to read blocking state in bulk: one call covers every issue in the query, with each blocker's own state, and it does not share the summary's staleness. That result is trustworthy rather than lucky because the same run caught the summary reporting `0` while `--json blockedBy` already returned the blocker — the read window was demonstrably narrow enough to observe a lag, and this surface had none in it.
 
-  Two corrections to the bullet above, from the same measurement. The lag is **bidirectional**: after an edge was deleted, the blocker's summary still reported two blocked issues while the endpoint reported one. Stale-high matters more than stale-low for a reader, because it makes an unblocked ticket look blocked and a frontier query skip it silently. And the lag looked like **cold start** rather than per-write — it appeared on the first edge an issue ever had, and not when the same edge was removed and re-added. Do not read that as a rule to rely on; treat the summary as untrustworthy under write in either direction.
+  **It carries no Unknown, and that is a trap.** `{nodes:[],totalCount:0}` is what an issue with no blockers
+  returns, and there is no distinct value for "the tracker could not tell us" — so an empty result cannot be
+  told apart from an unavailable one, and reading it as unblocked is exactly the collapse `CONTEXT.md`
+  forbids. Whether a repository with dependencies switched off returns that same shape is **not verified
+  here**; treat an empty result the way the frontier bullet treats a null summary — as something to confirm,
+  not to conclude from. A consumer's Unknown has to come from the call failing or from an explicit check, not
+  from a zero.
+
+  Two corrections to the **Confirm the survivor** and **Frontier query** bullets above, from the same
+  measurement. The lag is **bidirectional**: after an edge was deleted, the blocker's summary still reported two blocked issues while the endpoint reported one. Stale-high matters more than stale-low for a reader, because it makes an unblocked ticket look blocked and a frontier query skip it silently. And the lag looked like **cold start** rather than per-write — it appeared on the first edge an issue ever had, and not when the same edge was removed and re-added. Do not read that as a rule to rely on; treat the summary as untrustworthy under write in either direction.
 - **Claim**: `gh issue edit <n> --add-assignee @me` — the session's first write. That assignee *is* the claim: an open, unassigned ticket is unclaimed, and `--remove-assignee` releases it.
 - **Resolve**: `gh issue comment <n> --body "<answer>"`, then `gh issue close <n>`, then append a context pointer (gist + link) to the map's Decisions-so-far.
 

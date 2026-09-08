@@ -1,10 +1,12 @@
 # A recording's hosts become a dot-less placeholder, not an allowlisted synthetic host
 
-This amends the last section of
-[0019](./0019-every-recording-is-captured-from-a-test-tree.md), which says the synthetic hosts "are added
-to the identifier allowlist deliberately". They are not added to it at all. Everything else 0019 says
-about identifiers stands: one host per tracker, replaced at capture time, never a pattern that accepts a
-family.
+This amends [0019](./0019-every-recording-is-captured-from-a-test-tree.md), which says the synthetic hosts
+"are added to the identifier allowlist deliberately". They are not added to it at all. The word
+"allowlisted" appears twice in 0019 — in its capture rule as well as in its last section — and this ADR
+retracts both, not only the second.
+
+The rest of 0019's identifier rule stands: one host per tracker, replaced at capture time, never a pattern
+that accepts a family.
 
 Before it is stored, every host in a captured exchange is replaced with a dot-less stand-in —
 `github-test-tree` for the GitHub tree. `redactRecordingIdentifiers` in `src/recording-identifiers.ts`
