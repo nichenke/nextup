@@ -181,6 +181,15 @@ function stubGit(state: GitState): { runner: Runner; issued: string[][] } {
 	return { runner, issued };
 }
 
+/**
+ * A directory that looks to `ensure` like a worktree git registered: `ensure` reads the `.git` link to
+ * confirm the directory belongs to this repository, so a bare `mkdir` is not enough.
+ */
+function linkedWorktree(repo: string, path: string): void {
+	mkdirSync(path, { recursive: true });
+	writeFileSync(join(path, ".git"), `gitdir: ${join(repo, ".git", "worktrees", READER_LEAF)}\n`);
+}
+
 /** A primary checkout on the default branch, at a real directory so path checks have one to read. */
 function primaryOn(branch = "main"): { repo: string; state: GitState } {
 	const repo = tempDir("nextup-worktree-");
@@ -229,7 +238,7 @@ describe("ensure", () => {
 	test("attaches to the worktree already at the expected path, issuing nothing", () => {
 		const { repo, state } = primaryOn();
 		const path = join(repo, DEFAULT_WORKTREE_ROOT, READER_LEAF);
-		mkdirSync(path, { recursive: true });
+		linkedWorktree(repo, path);
 		const git = stubGit({
 			...state,
 			worktrees: [...state.worktrees, [`worktree ${path}`, "HEAD abc", `branch refs/heads/${READER_BRANCH}`]],
@@ -895,6 +904,31 @@ describe("ensure against real git", () => {
 		expect(kindOf(() => ensure({ runner: defaultRunner, repo, ticket: READER, root: join(outer, "link", "trees") }))).toBe(
 			"stale-directory",
 		);
+	});
+
+	test("refuses a worktree whose git link points at another repository, lock or no lock", () => {
+		const repo = realRepo();
+		const outcome = ensure({ runner: defaultRunner, repo, ticket: READER });
+		writeFileSync(join(outcome.path, ".git"), `gitdir: ${join(repo, ".git")}\n`);
+
+		// Unlocked, and the link file is present, so nothing git reports distinguishes this: no `locked`, no
+		// `prunable`, and the registration still names the ticket branch. Only reading the link catches it —
+		// git run there resolves to the primary, so the run claimed the ticket branch while git said `main`.
+		expect(kindOf(() => ensure({ runner: defaultRunner, repo, ticket: READER }))).toBe("stale-directory");
+	});
+
+	test("takes an ordinary checkout that merely sits under a directory named .git", () => {
+		const outer = tempDir("nextup-git-ancestor-");
+		const work = join(outer, ".git", "repo");
+		expect(defaultRunner(["git", "init", "--quiet", "--initial-branch", "main", work]).code).toBe(0);
+		const identity = ["-c", "user.email=nobody@invalid", "-c", "user.name=nobody"];
+		expect(defaultRunner(["git", "-C", work, ...identity, "commit", "--quiet", "--allow-empty", "-m", "init"]).code).toBe(0);
+		expect(defaultRunner(["git", "-C", work, "remote", "add", "origin", work]).code).toBe(0);
+		expect(defaultRunner(["git", "-C", work, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]).code).toBe(0);
+
+		// Its administration is `<work>/.git`, so `<work>/.worktrees` is not inside a git directory at all —
+		// only an ancestor is spelled that way, which a component scan cannot tell apart.
+		expect(ensure({ runner: defaultRunner, repo: work, ticket: READER }).kind).toBe("created");
 	});
 
 	test("refuses a locked worktree, which suppresses the prunable git would otherwise report", () => {

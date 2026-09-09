@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readdirSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import {
 	type Argv,
@@ -204,9 +204,9 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 		throw new WorktreeError(`${input.repo} reports no worktrees, so it is not a git checkout`, "git");
 	}
 	const primary = main.path;
-	refuseUnlessOrdinaryLayout(input.runner, main);
+	const gitDir = refuseUnlessOrdinaryLayout(input.runner, main);
 
-	const path = join(resolveContainer(primary, input.root), leafOf(branch));
+	const path = join(resolveContainer(primary, input.root, gitDir), leafOf(branch));
 
 	const onBranch = registrations.find((one) => one.head.kind === "branch" && one.head.name === branch);
 	if (onBranch !== undefined && onBranch.path !== path) {
@@ -216,7 +216,7 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 
 	const atPath = registrations.find((one) => one.path === path);
 	if (atPath !== undefined) {
-		refuseUnlessAttachable(atPath, path, branch);
+		refuseUnlessAttachable(atPath, path, branch, gitDir);
 		// Asked only on the routes that return, since it spawns a process whose answer every refusal above
 		// would discard — and re-running onto an existing worktree is the ordinary path here, not the rare one.
 		return { kind: "attached", path, branch, command: null, primary, warnings: driftWarnings(input.runner, primary, main.head) };
@@ -246,7 +246,7 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
  * invariants are re-asked here rather than skipped: both routes into the worktree have to enforce them,
  * and `gone` alone is satisfied by a file that replaced a deleted worktree.
  */
-function refuseUnlessAttachable(registration: Registration, path: string, branch: string): void {
+function refuseUnlessAttachable(registration: Registration, path: string, branch: string, gitDir: string): void {
 	if (registration.locked) {
 		// Locking is what makes `gone` unreliable: git suppresses `prunable` on a locked worktree however
 		// broken it is, so a locked one whose `.git` link had been deleted looked attachable while holding no
@@ -275,6 +275,24 @@ function refuseUnlessAttachable(registration: Registration, path: string, branch
 		// two calls. Said plainly rather than left to `git worktree add`, which is not run on this route.
 		throw new WorktreeError(`${path} is registered as a worktree but went away while being checked`, "stale-directory");
 	}
+	// Nothing git reports distinguishes a worktree whose `.git` file has been rewritten to another
+	// repository: no `locked`, no `prunable`, and the registration still names the wanted branch. Reading the
+	// link is the only way to tell, and without it the run reported the ticket branch while git in that
+	// directory resolved to the primary's — a session working somewhere it was not told it was.
+	const link = refusingOnError(path, "read as a worktree", () =>
+		existsSync(join(path, ".git")) ? readFileSync(join(path, ".git"), "utf8") : null,
+	);
+	if (link === null) {
+		throw new WorktreeError(`${path} is registered as a worktree but has no git link`, "stale-directory");
+	}
+	const target = link.trim().startsWith(GITDIR) ? link.trim().slice(GITDIR.length).trim() : "";
+	const administration = join(gitDir, "worktrees");
+	if (!within(target, administration)) {
+		throw new WorktreeError(
+			`${path} is registered as a worktree but its git link points at ${target || "nothing this could read"}, not inside ${administration}`,
+			"stale-directory",
+		);
+	}
 }
 
 /**
@@ -285,7 +303,7 @@ function refuseUnlessAttachable(registration: Registration, path: string, branch
  *
  * @throws WorktreeError `"git"` where the repository could not say, an empty answer included.
  */
-function refuseUnlessOrdinaryLayout(runner: Runner, main: Registration): void {
+function refuseUnlessOrdinaryLayout(runner: Runner, main: Registration): string {
 	const primary = main.path;
 	const result = runner([...gitCommonDirCommand(primary)]);
 	if (result.code !== 0 || result.stdout.trim() === "") {
@@ -295,8 +313,8 @@ function refuseUnlessOrdinaryLayout(runner: Runner, main: Registration): void {
 		);
 	}
 	const common = result.stdout.trim();
-	if (common === join(primary, ".git")) return;
-	if (common === primary && main.head.kind === "bare") return;
+	if (common === join(primary, ".git")) return common;
+	if (common === primary && main.head.kind === "bare") return common;
 	throw new WorktreeError(
 		`${primary} keeps its git directory at ${common}, which this does not work in`,
 		"unsupported-repository",
@@ -321,21 +339,23 @@ function refuseUnlessOrdinaryLayout(runner: Runner, main: Registration): void {
  *   own tracked files at its top level, where nothing ignores them. Not because the root is inside the
  *   working tree — ADR-0013's default `.worktrees` is too, deliberately — so a root pointed anywhere else
  *   inside the checkout is taken as given, tracked directory or not.
- * - **Inside `.git`**, which puts git's own administration (`HEAD`, `index`, `index.lock`, `commondir`)
- *   into the session's working tree as untracked files, where `git clean -fd` deletes them and `git add
- *   -A` commits them. Compared with case folded, so `.GIT` on a case-insensitive filesystem is refused
- *   too. `refuseUnlessOrdinaryLayout` has already turned away repositories whose git directory is
- *   elsewhere, so a component match is all this needs.
+ * - **Inside this repository's git directory**, which puts git's own administration (`HEAD`, `index`,
+ *   `index.lock`, `commondir`) into the session's working tree as untracked files, where `git clean -fd`
+ *   deletes them and `git add -A` commits them. Compared against the directory `refuseUnlessOrdinaryLayout`
+ *   read, rather than against any component spelled `.git`: a checkout can legitimately live under an
+ *   ancestor of that name — `/srv/.git/repo` keeps its administration at `/srv/.git/repo/.git` — and a
+ *   component scan refused it. Skipped for a bare repository, whose git directory *is* the primary, so
+ *   containment would hold for every root including the default — the exemption ADR-0025 records.
  * - **Reached through a symlink**, per `refuseIfReachedThroughLink`.
  */
-function resolveContainer(primary: string, root: string | null | undefined): string {
+function resolveContainer(primary: string, root: string | null | undefined, gitDir: string): string {
 	const given = root ?? "";
 	const container = resolve(primary, given.trim() === "" ? DEFAULT_WORKTREE_ROOT : given);
 	if (folded(container) === folded(primary)) {
 		throw new WorktreeError(`${primary} is the primary checkout, so it cannot also be the worktree root`, "stale-directory");
 	}
-	if (container.split(sep).some((one) => folded(one) === ".git")) {
-		throw new WorktreeError(`${container} is inside a git directory, which a worktree cannot be`, "stale-directory");
+	if (gitDir !== primary && within(container, gitDir)) {
+		throw new WorktreeError(`${container} is inside ${gitDir}, which a worktree cannot be`, "stale-directory");
 	}
 	refuseIfReachedThroughLink(container);
 	return container;
@@ -355,6 +375,14 @@ function resolveContainer(primary: string, root: string | null | undefined): str
  */
 function folded(path: string): string {
 	return path.toLowerCase();
+}
+
+/**
+ * Whether `path` is `parent` or sits under it, compared with case folded so a differently-cased spelling of
+ * an ancestor does not read as a different tree on a case-insensitive filesystem.
+ */
+function within(path: string, parent: string): boolean {
+	return folded(path) === folded(parent) || folded(path).startsWith(`${folded(parent)}${sep}`);
 }
 
 /** The last component of a branch name, which is what the branch is called under the worktree root. */
@@ -549,6 +577,7 @@ function driftWarnings(runner: Runner, primary: string, head: Head): readonly st
 	return [`the primary checkout ${primary} is on ${head.name}, not on ${target}`];
 }
 
+const GITDIR = "gitdir:";
 const REMOTES = "refs/remotes/";
 const REMOTE_HEAD = `${REMOTES}origin/`;
 
