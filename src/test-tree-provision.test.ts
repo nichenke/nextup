@@ -322,6 +322,10 @@ describe("provisionTestTree", () => {
 		["a list of nulls", `[null]`, /not a list of issue numbers/],
 		["a list of strings", `["7"]`, /not a list of issue numbers/],
 		["a list holding zero", `[0]`, /not a list of issue numbers/],
+		// Blank is not an empty list. `gh api --jq` prints nothing and exits 0 when its path stops matching, and
+		// an issue with no edges returns `[]`, so blank means unreadable — and reading it as "no blockers" feeds
+		// a confirmed answer into the undeclared-edge refusal.
+		["blank, which gh prints when its jq path stops matching", ``, /came back blank/],
 	])("refuses a blocker listing that is %s", (_label, stdout, because) => {
 		const tracker = fakeTracker();
 		provisionTestTree(GITHUB_TEST_TREE, tracker.runner);

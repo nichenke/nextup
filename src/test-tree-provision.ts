@@ -310,11 +310,19 @@ function blockedBy(spec: TestTreeSpec, number: number, runner: Runner): readonly
 	// Checked rather than cast, matching `parseIssues` above: `present.includes(...)` decides whether an edge
 	// exists, and a shape this could not read would report every blocker absent and re-POST all of them.
 	// GitHub accepts that, so the symptom is a change report claiming work it did not do.
+	// Blank is unreadable, not empty. An issue with no edges returns `[]`, and `gh api --jq` prints nothing when
+	// its path stops matching, so defaulting blank to `[]` turned an unreadable response into the confirmed
+	// answer "no blockers" — which now decides whether an undeclared edge is refused. `parseIssues` already
+	// treats the same condition as malformed.
+	const raw = stdout.trim();
+	if (raw === "") {
+		throw new TestTreeError(`the blockers of issue ${number} came back blank, which is not an empty list`);
+	}
 	// Wrapped for the same reason `parseIssues` is: a raw SyntaxError is not a TestTreeError, so the wrapper
 	// that attaches the writes so far would drop them on the floor.
 	let parsed: unknown;
 	try {
-		parsed = JSON.parse(stdout.trim() || "[]");
+		parsed = JSON.parse(raw);
 	} catch (cause) {
 		throw new TestTreeError(
 			`the blockers of issue ${number} are not JSON: ${cause instanceof Error ? cause.message : String(cause)}`,
