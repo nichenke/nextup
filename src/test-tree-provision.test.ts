@@ -249,16 +249,29 @@ describe("provisionTestTree", () => {
 		expect(() => provisionTestTree(GITHUB_TEST_TREE, denied)).toThrow(/gh label create/);
 	});
 
-	test("reads edges only for the issues that declare one", () => {
+	// Every issue, including those the spec gives no blockers. Skipping those bought nine calls and cost the
+	// ability to see an edge nobody declared — see the refusal below for what that silence leads to.
+	test("reads the edges of every issue, not only those that declare one", () => {
 		const tracker = fakeTracker();
 		provisionTestTree(GITHUB_TEST_TREE, tracker.runner);
 		tracker.calls.length = 0;
 		provisionTestTree(GITHUB_TEST_TREE, tracker.runner);
 
 		const reads = tracker.calls.filter((argv) => argv[2]?.endsWith("/dependencies/blocked_by"));
-		const withBlockers = GITHUB_TEST_TREE.issues.filter((issue) => issue.blockedBy.length > 0);
-		expect(reads).toHaveLength(withBlockers.length);
-		expect(reads.length).toBeLessThan(GITHUB_TEST_TREE.issues.length);
+		expect(reads).toHaveLength(GITHUB_TEST_TREE.issues.length);
+	});
+
+	// An undeclared edge is not merely untidy. Its reverse direction can make a *declared* edge un-writable:
+	// GitHub refuses an edge whose direct reverse exists, so once the declared one is lost, every later run
+	// throws on the same write and the provisioner cannot converge or even name what is in the way.
+	test("refuses an edge the spec does not declare", () => {
+		const tracker = fakeTracker();
+		provisionTestTree(GITHUB_TEST_TREE, tracker.runner);
+		const base = tracker.issues.find((issue) => issue.title.startsWith("Chain base"));
+		const middle = tracker.issues.find((issue) => issue.title.startsWith("Chain middle"));
+		if (base !== undefined && middle !== undefined) base.blockedBy.push(middle.number);
+
+		expect(() => provisionTestTree(GITHUB_TEST_TREE, tracker.runner)).toThrow(/does not declare/);
 	});
 
 	test("treats any assignee as satisfying a claim, and releases every one of them", () => {

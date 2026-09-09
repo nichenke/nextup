@@ -129,9 +129,16 @@ state had to follow edges was describing a constraint that does not exist. It ma
 the answer gone the other way, adding a blocker to an existing spec issue would have made every subsequent run
 throw at the same write, which would contradict this ADR's claim that an interrupted run heals.
 
-What reconciliation does **not** do, in either case, is remove an edge. It only adds missing ones, and it now
-skips the read entirely for an issue the spec gives no blockers — so an edge nobody declared survives, and is
-not even looked for. Read "reconciles dependency edges" above as "adds the declared ones".
+What reconciliation does **not** do is *remove* an edge. It adds the declared ones and refuses an undeclared
+one, which is a different thing from healing it: the repair is a hand `DELETE`, deliberately, per the scope
+paragraph below.
+
+Refusing rather than ignoring is worth the calls it costs. Skipping the read for an issue the spec gives no
+blockers saved nine round trips and made an undeclared edge invisible — and an undeclared edge is not merely
+untidy, because its *reverse* direction makes the declared edge un-writable. Hand-add `chain-base blocked by
+chain-middle` while probing, lose the declared `chain-middle blocked by chain-base`, and every later run
+throws on the same write with nothing able to name what is in the way. That is this ADR's "an interrupted run
+heals" failing for a state the probe workflow recorded above can reach.
 
 ## A dependency cycle is reachable on GitHub, at three hops and not at two
 

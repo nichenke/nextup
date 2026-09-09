@@ -4,8 +4,10 @@ import { GITHUB_PLACEHOLDER_HOST, redactRecordingIdentifiers } from "./recording
 
 const redact = (text: string): string => redactRecordingIdentifiers(text, GITHUB_PLACEHOLDER_HOST);
 
-// Each of these ends its line, because the identifier guard breaks tokens on whitespace: a URL literal
-// followed immediately by more code is read as one long token that matches no allowlist entry.
+// Each of these must be the last thing on its line, with nothing after it but the closing quote and the
+// semicolon. The guard breaks tokens on whitespace and strips one run of trailing punctuation, so a URL
+// followed by anything else — a second constant, a trailing comment — becomes one long token that matches no
+// allowlist entry. Ending the line is necessary and not sufficient; what follows has to be strippable.
 const ISSUE_URL = "https://example.com/example/repo/issues/1";
 const SSH_URL = "ssh://git@example.com/example/repo.git";
 const USERINFO_URL = "https://alice@example.com/group/project/-/issues/1";

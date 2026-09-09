@@ -1,5 +1,12 @@
 # Provenance prevents identifier leaks; the guard is a frozen backstop
 
+> Extended, **not** superseded, by
+> [0024](./0024-a-recordings-hosts-become-a-dot-less-placeholder.md): the guard has a second job there, as
+> the oracle that redaction of a recording is checked against. That is a new use, not a new shape — the
+> recognition list this ADR freezes stays frozen, and 0024 routes the one shape redaction cannot reach to
+> redaction rather than to the guard. The freeze is what makes the guard usable as an oracle at all, since a
+> stable recognition list is a stable parity target. Everything below stands.
+
 An internal registry hostname reached this repo while it was public: `bun install` resolved through a
 mirror and wrote that host into `bun.lock`, which was committed and pushed. What fixed the cause was
 `bunfig.toml` pinning the public registry, so a lockfile can no longer record whatever mirror a machine

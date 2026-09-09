@@ -78,6 +78,14 @@ gaps above stop needing a documentation rule to hold them off. Until then the pa
 holding the coupling, over a fixed corpus, which is weaker than it sounds: a fifth shape added to the guard
 would pass that test untouched.
 
+**Known and unclosed:** host-shape knowledge now lives in three files with no owner — the guard's `PATTERN`,
+`URL_REMOTE`/`SCP_REMOTE` in `src/git-remote.ts`, and the rules here. The parity test ties this file to the
+guard; nothing ties `git-remote.ts` to either. A widening in one is a silent gap in the others in both
+directions: if `git-remote.ts` learns a shape redaction lacks, a host reaches a recording, and if redaction
+learns one `git-remote.ts` lacks, the same host is spelled two ways in one repository. The capture-time gate
+above closes the first direction, since the guard would see the bytes; the second stays open, and the only
+signal today is a reviewer noticing that a third file wants the same edit.
+
 **Considered and not taken:** replacing the tree's known host strings literally instead of matching host
 *shapes*, which would retire the grammar this reintroduces — the same argument ADR-0006 accepted when it
 chose whole-token comparison over URL parsing. It is a real objection. It is not taken because a recording

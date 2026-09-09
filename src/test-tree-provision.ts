@@ -82,11 +82,20 @@ function provision(spec: TestTreeSpec, runner: Runner, changes: TestTreeChange[]
 	}
 
 	for (const issue of spec.issues) {
-		// Most of the tree declares no blockers, and an issue cannot gain one without a spec change, so
-		// reading its edges back is a round trip whose answer is discarded.
-		if (issue.blockedBy.length === 0) continue;
 		const number = numberOf(numbers, issue.key);
 		const present = blockedBy(spec, number, runner);
+		// Read for every issue, including the ones the spec gives no blockers. Skipping those saved nine calls
+		// and made an undeclared edge invisible — and an undeclared edge is not merely untidy, because its
+		// reverse direction makes the declared edge un-writable: GitHub refuses an edge whose direct reverse
+		// exists, so once the declared one is lost every later run throws on the same write and nothing here
+		// can report or remove what is blocking it. Refused rather than deleted, per ADR-0023's scope.
+		const declared = issue.blockedBy.map((key) => numberOf(numbers, key));
+		const undeclared = present.filter((blocker) => !declared.includes(blocker));
+		if (undeclared.length > 0) {
+			throw new TestTreeError(
+				`issue ${number} is blocked by ${undeclared.join(", ")}, which the spec does not declare`,
+			);
+		}
 		for (const blockerKey of issue.blockedBy) {
 			const blockerNumber = numberOf(numbers, blockerKey);
 			if (present.includes(blockerNumber)) continue;
@@ -298,9 +307,11 @@ function numberOf(numbers: ReadonlyMap<string, number>, key: string): number {
 function run(runner: Runner, argv: readonly string[]): string {
 	const result = runner([...argv]);
 	if (result.code !== 0) {
-		// Three tokens, because two collapse `create`, `list`, `edit`, `close` and `reopen` into one
-		// indistinguishable "gh issue exited 1" and the operator cannot tell which call failed.
-		const called = argv.slice(0, 3).join(" ");
+		// Two tokens collapse `create`, `list`, `edit`, `close` and `reopen` into one indistinguishable
+		// "gh issue exited 1". Three still collapse every dependency write into "gh api --method", which is the
+		// one failure ADR-0023 makes a design point of, so the endpoint carries the rest of the answer.
+		const endpoint = argv.find((word) => word.startsWith("repos/"));
+		const called = [...argv.slice(0, 3), endpoint].filter((word) => word !== undefined).join(" ");
 		throw new TestTreeError(`${called} exited ${result.code}: ${result.stderr.trim() || result.stdout.trim()}`);
 	}
 	return result.stdout;
