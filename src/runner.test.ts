@@ -101,10 +101,8 @@ afterAll(() => rmSync(shared.root, { recursive: true, force: true }));
  * Runs `body` against this module in a child process whose environment is `overrides` and nothing else.
  *
  * A child rather than a call, because Bun hands an inherited child the environment as it stood at *startup*:
- * a variable assigned into `process.env` mid-run never reaches a git process at all, so a case that sets one
- * that way passes whether the scrub is there or not. Every case here was that shape once, and removing
- * `env: git?.env` from the runner left all five of them green — the false green this ticket exists to
- * correct, rebuilt inside its own fix.
+ * a variable assigned into `process.env` mid-run never reaches a git process, so a case setting one that way
+ * asserts nothing about the scrub and passes without it.
  *
  * Built rather than inherited for the same reason in reverse: a `GIT_` name in the developer's shell must not
  * be able to decide a result.

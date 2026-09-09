@@ -23,8 +23,7 @@ set -euo pipefail
 unset "${!GIT_@}"
 
 # An empty listing is refused rather than scanned: both pipelines below end in `|| true`, so nothing to scan
-# reads as nothing found. A redirected environment was one cause of that. Measured in a directory that is not
-# a repository at all, where `ls-files` failed, the failure was swallowed, and the run printed `ok` at exit 0.
+# reads as nothing found and this printed `ok` at exit 0. ADR-0029.
 if [ "$(git ls-files | wc -l | tr -d ' ')" -eq 0 ]; then
 	printf 'check-identifiers: nothing is tracked here, so a pass would mean nothing\n' >&2
 	exit 1

@@ -26,11 +26,16 @@ nothing to be wrong about: a program merely *named* `git` loses variables it doe
 git reached through another program — `env git`, `sudo git`, `sh -c "git …"` — or a wrapper under a different
 name. None of those shapes exists in the tool, and this is the bound to widen if one is added.
 
-**Reported once per name per run**, naming what was removed and saying to unset it. A removal is silent for
-names measured as changing no answer and exported by ordinary tooling — `GIT_EDITOR`, `GIT_PAGER` — because a
-notice that fires on a harmless configuration is one its reader learns to skip. Mis-listing a name as quiet
-costs a silent removal that was correct anyway; it cannot admit a redirect, because the removal is
-unconditional either way.
+**Reported once per run**, on stderr, naming every variable removed and saying that whatever they configured
+went with them. It does not advise unsetting them, for the reason "Consequences" gives. Once per run rather
+than once per name, because the environment does not change while the process lives, so the second call has
+nothing new to name.
+
+A removal is silent for names measured as changing no answer and exported by ordinary tooling — `GIT_EDITOR`,
+`GIT_PAGER` — because a notice that fires on a harmless configuration is one its reader learns to skip. That
+suppression is a second enumerated list, in a decision arguing against them, and it is worth naming as such:
+what makes it safe is that it governs only the message. Removal is unconditional either way, so mis-listing a
+name here costs a silent removal that was correct anyway and can never admit a redirect.
 
 ## The measurement
 

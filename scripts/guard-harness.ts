@@ -34,8 +34,8 @@ export function runGuardOn(contents: string) {
 				throw new Error(`fixture setup failed: ${cmd.join(" ")}`);
 			}
 		}
-		// Passed explicitly rather than inherited, or a case that sets a variable could not reach the guard:
-		// Bun gives a child the environment as it stood at startup. Whole, for the reason in ADR-0029.
+		// Explicitly, or a case that sets a variable cannot reach the guard — `src/runner.test.ts` has why an
+		// inherited child cannot see one. Whole, for the reason in ADR-0029.
 		return spawnSync({ cmd: ["bash", script], cwd: dir, env: { ...process.env } });
 	} finally {
 		rmSync(dir, { recursive: true, force: true });

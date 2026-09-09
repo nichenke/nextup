@@ -66,15 +66,29 @@ describe("check-identifiers under a redirected git environment", () => {
 		return join(root, "decoy", ".git");
 	}
 
-	// The redirected environment is one cause of an empty listing; the refusal covers the rest, including the
-	// case where `ls-files` fails outright and the failure is swallowed by a trailing `|| true`.
-	test("refuses a scan with nothing tracked, rather than reporting a pass", () => {
+	/** The guard as CI invokes it, in `cwd`. ADR-0029 has why an empty listing is refused rather than scanned. */
+	function guardIn(cwd: string): { code: number; stderr: string } {
+		const result = spawnSync({ cmd: ["bash", join(import.meta.dir, "check-identifiers.sh")], cwd });
+		return { code: result.exitCode ?? 1, stderr: result.stderr.toString() };
+	}
+
+	test("refuses a repository with nothing tracked, rather than reporting a pass", () => {
 		const root = mkdtempSync(join(tmpdir(), "nextup-decoy-"));
 		decoys.push(root);
 		expect(defaultRunner(["git", "init", "--quiet", root]).code).toBe(0);
-		const result = spawnSync({ cmd: ["bash", join(import.meta.dir, "check-identifiers.sh")], cwd: root });
-		expect(result.exitCode).toBe(1);
-		expect(result.stderr.toString()).toContain("nothing is tracked");
+		const { code, stderr } = guardIn(root);
+		expect(code).toBe(1);
+		expect(stderr).toContain("nothing is tracked");
+	});
+
+	// The other shape of an empty listing: `ls-files` fails rather than returning nothing, and the failure is
+	// swallowed. Both reach the same refusal, and only one of them is a repository.
+	test("refuses a directory that is not a repository at all", () => {
+		const root = mkdtempSync(join(tmpdir(), "nextup-decoy-"));
+		decoys.push(root);
+		const { code, stderr } = guardIn(root);
+		expect(code).toBe(1);
+		expect(stderr).toContain("nothing is tracked");
 	});
 
 	test("scans the fixture rather than reporting ok on nothing", () => {
