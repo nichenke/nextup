@@ -247,12 +247,20 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
  * and `gone` alone is satisfied by a file that replaced a deleted worktree.
  */
 function refuseUnlessAttachable(registration: Registration, path: string, branch: string): void {
+	if (registration.locked) {
+		// Locking is what makes `gone` unreliable: git suppresses `prunable` on a locked worktree however
+		// broken it is, so a locked one whose `.git` link had been deleted looked attachable while holding no
+		// link at all. Git run there then walks up to the primary checkout — which the default root sits
+		// inside — so the run reported the ticket branch while git in that directory reported the primary's.
+		// Unlocked, git reports `prunable` and `gone` below already refuses. Nothing here locks a worktree, so
+		// the whole shape is turned away rather than each way it can mislead being chased down.
+		throw new WorktreeError(`${path} is a locked worktree, which this does not work in; unlock it first`, "stale-directory");
+	}
 	if (gone(registration)) {
-		// Refused rather than healed, though `git worktree prune` would clear an unlocked one: prune takes
-		// no path, so it would also drop every other stale registration in the repository.
-		const unlock = registration.locked ? "unlock it and " : "";
+		// Refused rather than healed, though `git worktree prune` would clear it: prune takes no path, so it
+		// would also drop every other stale registration in the repository.
 		throw new WorktreeError(
-			`${path} is registered as a worktree but the directory is not there; ${unlock}clear it with "git worktree prune"`,
+			`${path} is registered as a worktree but the directory is not there; clear it with "git worktree prune"`,
 			"stale-directory",
 		);
 	}

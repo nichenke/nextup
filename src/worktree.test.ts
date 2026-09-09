@@ -626,13 +626,12 @@ describe("ensure", () => {
 		writeFileSync(path, "a file where the worktree used to be\n");
 		const git = stubGit({
 			...state,
-			worktrees: [
-				...state.worktrees,
-				[`worktree ${path}`, "HEAD abc", `branch refs/heads/${READER_BRANCH}`, "locked keep"],
-			],
+			worktrees: [...state.worktrees, [`worktree ${path}`, "HEAD abc", `branch refs/heads/${READER_BRANCH}`]],
 		});
 
-		// Something is there, so `gone` is false, and the lock keeps git from saying prunable.
+		// A file is something, so `gone` is false and the registration reads as attachable until the entry is
+		// asked what it is. Deliberately not locked: locking is refused outright now, which would short-circuit
+		// this before it reached the check under test.
 		expect(() => ensure({ runner: git.runner, repo, ticket: READER })).toThrow(/not a directory/);
 	});
 
@@ -896,6 +895,18 @@ describe("ensure against real git", () => {
 		expect(kindOf(() => ensure({ runner: defaultRunner, repo, ticket: READER, root: join(outer, "link", "trees") }))).toBe(
 			"stale-directory",
 		);
+	});
+
+	test("refuses a locked worktree, which suppresses the prunable git would otherwise report", () => {
+		const repo = realRepo();
+		const outcome = ensure({ runner: defaultRunner, repo, ticket: READER });
+		expect(defaultRunner(["git", "-C", repo, "worktree", "lock", "--reason", "keep", outcome.path]).code).toBe(0);
+		rmSync(join(outcome.path, ".git"), { force: true });
+
+		// Unlocked, git reports `prunable` here and `gone` already refuses. Locking suppresses that, so the
+		// directory looked attachable while holding no git link — and git run there walks up to the primary
+		// checkout, which the default root sits inside. The run reported the ticket branch; git said `main`.
+		expect(kindOf(() => ensure({ runner: defaultRunner, repo, ticket: READER }))).toBe("stale-directory");
 	});
 
 	test("refuses a locked registration whose directory is gone, which git never calls prunable", () => {
