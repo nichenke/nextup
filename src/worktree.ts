@@ -279,7 +279,7 @@ function refuseUnlessAttachable(registration: Registration, path: string, branch
 
 /**
  * @throws WorktreeError `"unsupported-repository"` unless the repository keeps its administration where
- * this tool assumes — `<primary>/.git`, or the primary itself when bare. ADR-0023 has why such a
+ * this tool assumes — `<primary>/.git`, or the primary itself when bare. ADR-0025 has why such a
  * repository is turned away rather than supported, and why bareness is what separates the two accepted
  * shapes from the refused one.
  *
