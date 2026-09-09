@@ -110,6 +110,18 @@ export function gitCommonDirCommand(repo: string): readonly string[] {
 }
 
 /**
+ * What a directory *is*, asked of git from inside it: its own worktree root, the repository it belongs to,
+ * and the branch checked out there — three lines, in that order.
+ *
+ * One question rather than three, and asked of git rather than read off `git worktree list`, because the
+ * listing is the thing that can be wrong: a worktree whose `.git` file has been edited is still listed
+ * under the branch it was registered with, while git run inside it answers about somewhere else.
+ */
+export function worktreeIdentityCommand(path: string): readonly string[] {
+	return ["git", "-C", path, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir", "--abbrev-ref", "HEAD"];
+}
+
+/**
  * Which branch the repository treats as its default.
  *
  * The full ref, because `--short` shortens only as far as stays unambiguous: with a local branch named

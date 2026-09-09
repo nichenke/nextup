@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import {
 	type Argv,
@@ -7,6 +7,7 @@ import {
 	gitCommonDirCommand,
 	remoteBranchesCommand,
 	worktreeAddCommand,
+	worktreeIdentityCommand,
 	worktreeListCommand,
 } from "./command-builders";
 import type { Runner } from "./runner";
@@ -216,7 +217,7 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 
 	const atPath = registrations.find((one) => one.path === path);
 	if (atPath !== undefined) {
-		refuseUnlessAttachable(atPath, path, branch, gitDir);
+		refuseUnlessAttachable(input.runner, atPath, path, branch, gitDir);
 		// Asked only on the routes that return, since it spawns a process whose answer every refusal above
 		// would discard — and re-running onto an existing worktree is the ordinary path here, not the rare one.
 		return { kind: "attached", path, branch, command: null, primary, warnings: driftWarnings(input.runner, primary, main.head) };
@@ -246,7 +247,13 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
  * invariants are re-asked here rather than skipped: both routes into the worktree have to enforce them,
  * and `gone` alone is satisfied by a file that replaced a deleted worktree.
  */
-function refuseUnlessAttachable(registration: Registration, path: string, branch: string, gitDir: string): void {
+function refuseUnlessAttachable(
+	runner: Runner,
+	registration: Registration,
+	path: string,
+	branch: string,
+	gitDir: string,
+): void {
 	if (registration.locked) {
 		// Locking is what makes `gone` unreliable: git suppresses `prunable` on a locked worktree however
 		// broken it is, so a locked one whose `.git` link had been deleted looked attachable while holding no
@@ -275,24 +282,7 @@ function refuseUnlessAttachable(registration: Registration, path: string, branch
 		// two calls. Said plainly rather than left to `git worktree add`, which is not run on this route.
 		throw new WorktreeError(`${path} is registered as a worktree but went away while being checked`, "stale-directory");
 	}
-	// Nothing git reports distinguishes a worktree whose `.git` file has been rewritten to another
-	// repository: no `locked`, no `prunable`, and the registration still names the wanted branch. Reading the
-	// link is the only way to tell, and without it the run reported the ticket branch while git in that
-	// directory resolved to the primary's — a session working somewhere it was not told it was.
-	const link = refusingOnError(path, "read as a worktree", () =>
-		existsSync(join(path, ".git")) ? readFileSync(join(path, ".git"), "utf8") : null,
-	);
-	if (link === null) {
-		throw new WorktreeError(`${path} is registered as a worktree but has no git link`, "stale-directory");
-	}
-	const target = link.trim().startsWith(GITDIR) ? link.trim().slice(GITDIR.length).trim() : "";
-	const administration = join(gitDir, "worktrees");
-	if (!within(target, administration)) {
-		throw new WorktreeError(
-			`${path} is registered as a worktree but its git link points at ${target || "nothing this could read"}, not inside ${administration}`,
-			"stale-directory",
-		);
-	}
+	refuseUnlessOurs(runner, path, branch, gitDir);
 }
 
 /**
@@ -383,6 +373,38 @@ function folded(path: string): string {
  */
 function within(path: string, parent: string): boolean {
 	return folded(path) === folded(parent) || folded(path).startsWith(`${folded(parent)}${sep}`);
+}
+
+/**
+ * @throws WorktreeError `"stale-directory"` unless `path` is exactly the worktree this would have made: its
+ * own root, in this repository, on this branch.
+ *
+ * Asserted positively, and this is the point rather than a detail. Three review rounds each found another
+ * way a worktree's `.git` file can be edited to point somewhere else — deleted, aimed at the primary, aimed
+ * at a sibling — and each was closed by refusing that spelling, which left the next one to find. Asking git
+ * what the directory *is* refuses every spelling at once, including ones nobody has thought of, because
+ * anything that is not this worktree fails the comparison rather than having to be recognised.
+ *
+ * All three answers are load-bearing: a deleted link makes git report the *primary's* root, while a link
+ * aimed at the primary or at a sibling keeps the root and changes the branch.
+ *
+ * @throws WorktreeError `"git"` where git could not answer.
+ */
+function refuseUnlessOurs(runner: Runner, path: string, branch: string, gitDir: string): void {
+	const result = runner([...worktreeIdentityCommand(path)]);
+	const [root, common, head] = result.stdout.trim().split("\n").map((line) => line.trim());
+	if (result.code !== 0 || root === undefined || common === undefined || head === undefined) {
+		throw new WorktreeError(
+			`${path} is registered as a worktree but git could not say what it is: ${gitFailure(result.stderr, result.code)}`,
+			"git",
+		);
+	}
+	if (root !== path || common !== gitDir || head !== branch) {
+		throw new WorktreeError(
+			`${path} is registered as a worktree on ${branch} but git there reports ${head} in ${common} rooted at ${root}`,
+			"stale-directory",
+		);
+	}
 }
 
 /** The last component of a branch name, which is what the branch is called under the worktree root. */
@@ -577,7 +599,6 @@ function driftWarnings(runner: Runner, primary: string, head: Head): readonly st
 	return [`the primary checkout ${primary} is on ${head.name}, not on ${target}`];
 }
 
-const GITDIR = "gitdir:";
 const REMOTES = "refs/remotes/";
 const REMOTE_HEAD = `${REMOTES}origin/`;
 

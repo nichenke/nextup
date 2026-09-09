@@ -13,6 +13,7 @@ import {
 	remoteBranchesCommand,
 	sessionCommand,
 	worktreeAddCommand,
+	worktreeIdentityCommand,
 	worktreeListCommand,
 } from "./command-builders";
 import type { TicketRef } from "./ticket-ref";
@@ -108,6 +109,12 @@ const CASES: readonly Case[] = [
 		description: "The branch the primary checkout is warned about drifting off.",
 		input: { repo: "/repo" },
 		build: () => defaultBranchCommand("/repo"),
+	},
+	{
+		name: "worktree-identity",
+		description: "What a directory is, asked of git inside it: its own root, its repository, its branch — the listing can be wrong where this cannot.",
+		input: { path: WORKTREE_PATH },
+		build: () => worktreeIdentityCommand(WORKTREE_PATH),
 	},
 	{
 		name: "worktree-add-new-branch",

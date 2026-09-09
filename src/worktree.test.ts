@@ -136,6 +136,8 @@ interface GitState {
 	readonly defaultBranch?: string | null;
 	/** Overrides the git directory, for the layouts `refuseUnlessOrdinaryLayout` turns away. */
 	readonly commonDir?: string;
+	/** What git says a worktree is — root, repository, branch — for the cases where it disagrees with us. */
+	readonly identity?: (path: string) => readonly [string, string, string];
 }
 
 /** Where an ordinary repository keeps its administration: `<primary>/.git`, or the primary when bare. */
@@ -172,6 +174,11 @@ function stubGit(state: GitState): { runner: Runner; issued: string[][] } {
 				: [];
 			return { code: 0, stdout: remotes.map((one) => `refs/remotes/${one}/${branch}\n`).join(""), stderr: "" };
 		}
+		if (words.includes("--show-toplevel")) {
+			const path = argv[2]!;
+			const identity = state.identity?.(path) ?? [path, ordinaryCommonDir(state), READER_BRANCH];
+			return { code: 0, stdout: `${identity.join("\n")}\n`, stderr: "" };
+		}
 		if (words.includes("rev-parse")) {
 			return { code: 0, stdout: `${state.commonDir ?? ordinaryCommonDir(state)}\n`, stderr: "" };
 		}
@@ -179,15 +186,6 @@ function stubGit(state: GitState): { runner: Runner; issued: string[][] } {
 		throw new Error(`the worktree step asked git something unexpected: ${words}`);
 	};
 	return { runner, issued };
-}
-
-/**
- * A directory that looks to `ensure` like a worktree git registered: `ensure` reads the `.git` link to
- * confirm the directory belongs to this repository, so a bare `mkdir` is not enough.
- */
-function linkedWorktree(repo: string, path: string): void {
-	mkdirSync(path, { recursive: true });
-	writeFileSync(join(path, ".git"), `gitdir: ${join(repo, ".git", "worktrees", READER_LEAF)}\n`);
 }
 
 /** A primary checkout on the default branch, at a real directory so path checks have one to read. */
@@ -238,7 +236,7 @@ describe("ensure", () => {
 	test("attaches to the worktree already at the expected path, issuing nothing", () => {
 		const { repo, state } = primaryOn();
 		const path = join(repo, DEFAULT_WORKTREE_ROOT, READER_LEAF);
-		linkedWorktree(repo, path);
+		mkdirSync(path, { recursive: true });
 		const git = stubGit({
 			...state,
 			worktrees: [...state.worktrees, [`worktree ${path}`, "HEAD abc", `branch refs/heads/${READER_BRANCH}`]],
@@ -250,6 +248,28 @@ describe("ensure", () => {
 		expect(outcome.path).toBe(path);
 		expect(outcome.command).toBeNull();
 		expect(git.issued.some((argv) => argv.includes("add"))).toBe(false);
+	});
+
+	test("refuses whenever git disagrees that the directory is this worktree, however it came to disagree", () => {
+		const { repo, state } = primaryOn();
+		const path = join(repo, DEFAULT_WORKTREE_ROOT, READER_LEAF);
+		mkdirSync(path, { recursive: true });
+		const registered = [...state.worktrees, [`worktree ${path}`, "HEAD abc", `branch refs/heads/${READER_BRANCH}`]];
+
+		// One assertion for every way the directory can fail to be ours, rather than one refusal per way a
+		// `.git` file can be edited. Each row is a real shape found by review: a deleted link makes git report
+		// the primary's root, and a link aimed at the primary or a sibling keeps the root and moves the branch.
+		const disagreements: readonly (readonly [string, readonly [string, string, string]])[] = [
+			["root is the primary", [repo, join(repo, ".git"), READER_BRANCH]],
+			["branch is another ticket's", [path, join(repo, ".git"), "feature/other-9"]],
+			["branch is the primary's", [path, join(repo, ".git"), "main"]],
+			["repository is a different one", [path, "/elsewhere/.git", READER_BRANCH]],
+		];
+
+		for (const [, identity] of disagreements) {
+			const git = stubGit({ ...state, worktrees: registered, identity: () => identity });
+			expect(kindOf(() => ensure({ runner: git.runner, repo, ticket: READER }))).toBe("stale-directory");
+		}
 	});
 
 	test("refuses a branch checked out at another path rather than adding a second worktree for it", () => {
