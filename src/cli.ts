@@ -1,4 +1,4 @@
-import { GitHubAdapterError, readGitHubTicketSet } from "./github-adapter";
+import { GitHubAdapterError, isReadableLimit, readGitHubTicketSet } from "./github-adapter";
 import {
 	DEFAULT_LABEL_FILTER,
 	type LabelFilter,
@@ -186,17 +186,16 @@ function parse(argv: readonly string[]): Options {
 }
 
 /**
- * A count of tickets to read. Refused here rather than by the adapter, so that a mistyped flag reads as a
- * bad invocation with the usage beside it rather than as a tracker read that would not run — which means
- * this has to refuse everything the adapter would, including the count whose over-fetched row would leave
- * the safe-integer range.
+ * A count of tickets to read, refused here so that a mistyped flag reads as a bad invocation with the usage
+ * beside it rather than as a tracker read that would not run.
  *
- * Decimal digits rather than whatever `Number` accepts: it reads `0x10` as sixteen and `1e3` as a
- * thousand, so a flag and the rows it asks for would be different numbers with nothing saying so.
+ * What this adds is the string: decimal digits rather than whatever `Number` accepts, which reads `0x10` as
+ * sixteen and `1e3` as a thousand — a flag and the rows it asks for would be different numbers with nothing
+ * saying so.
  */
 function tickets(given: string, flag: string): number {
 	const limit = /^[0-9]+$/.test(given) ? Number(given) : Number.NaN;
-	if (!Number.isSafeInteger(limit) || limit < 1 || !Number.isSafeInteger(limit + 1)) {
+	if (!isReadableLimit(limit)) {
 		throw new CliError(`${flag} takes a whole number of tickets above zero, and ${given} is not one`);
 	}
 	return limit;

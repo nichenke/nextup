@@ -72,10 +72,7 @@ export type Degrade = { readonly kind: "truncated" } | { readonly kind: "unknown
  */
 export interface SelectionCounts {
 	readonly tickets: number;
-	/**
-	 * `"not-asked"` where the read never requested closed tickets, so that the one reading a reader
-	 * would take from a zero — that the tracker holds none — is not the one this reports.
-	 */
+	/** `"not-asked"` where the read never requested closed tickets; ADR-0028 has why that is not a zero. */
 	readonly closed: number | "not-asked";
 	readonly claimed: number;
 	readonly filtered: number;

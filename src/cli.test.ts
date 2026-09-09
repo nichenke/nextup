@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { type CliDeps, DEFAULT_LIMIT, run } from "./cli";
 import { type Runner, RunnerRefusal } from "./runner";
-import { githubRecording, replayRunner, respondingRunner, sentinelLines } from "./test-support";
+import { answeringOrigin, githubRecording, replayRunner, respondingRunner, sentinelLines } from "./test-support";
 import { GITHUB_TEST_TREE, openIssues, shapeTitle } from "./test-tree";
 import { GITHUB_HOST } from "./ticket-ref";
 
@@ -26,13 +26,11 @@ function deps(runner: Runner = refuseToRun, confirm: CliDeps["confirm"] = termin
 }
 
 /**
- * A runner answering the repository question with the test tree, whatever directory the run is in, and
- * everything else from `answer`. The origin is spelled from the adapter's own accepted host, so no literal
- * host reaches the identifier guard and the remote cannot drift from the one the read accepts.
+ * The test tree as the working directory's origin. Spelled from the adapter's own accepted host, so no
+ * literal host reaches the identifier guard and the remote cannot drift from the one the read accepts.
  */
 function inTestTree(answer: Runner): Runner {
-	const origin = `git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo}.git`;
-	return (argv) => (argv[0] === "git" ? { code: 0, stdout: `${origin}\n`, stderr: "" } : answer(argv));
+	return answeringOrigin(`git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo}.git`, answer);
 }
 
 describe("run, over a ticket set read from GitHub", () => {
@@ -137,10 +135,7 @@ describe("run, over a ticket set read from GitHub", () => {
 	});
 
 	test("refuses a working directory whose origin is not on GitHub", () => {
-		const elsewhere: Runner = (argv) =>
-			argv[0] === "git"
-				? { code: 0, stdout: "https://example.com/example/repo.git\n", stderr: "" }
-				: { code: 0, stdout: "[]", stderr: "" };
+		const elsewhere = answeringOrigin("https://example.com/example/repo.git", () => ({ code: 0, stdout: "[]", stderr: "" }));
 		const result = run([], deps(elsewhere));
 		expect(result.code).toBe(2);
 		expect(result.stderr).toContain("example.com");

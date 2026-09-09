@@ -91,6 +91,24 @@ caller to restate it. A set that is open-only *and* holds a closed ticket is ref
 
 The rendered line reads `14 tickets: closed not asked, 0 claimed, ...`.
 
+### What this does not generalize to
+
+`closed` gets a sentinel; `filtered` and `claimed` do not. That asymmetry is load-bearing only while the
+label filter and the claim check run *locally*, over rows the read already returned — there, a zero is a
+count.
+
+The moment a filter moves into the query, it stops being one. This ADR prescribes `--include` as the answer
+to the truncation window, and the only way `--include` can reach work outside the newest-N window is by
+being pushed into the `gh` query — at which point `SelectionCounts.filtered` is zero whatever the tracker
+holds, which is this same collapse in a field with no sentinel, no required input flag and no guard.
+`--assignee` would do it to `claimed`.
+
+So the next person to push a filter server-side should carry the read's asked-for scope once — the states,
+the labels, the assignees — and derive from it which count fields may report a number, rather than writing
+this three-part fix a second and third time. Doing that now would be building for a query nothing sends;
+writing it down costs nothing and is the difference between generalising the mechanism and adding a fourth
+special case.
+
 ## Why 199, and why the command defaults it at all
 
 The adapter still refuses to default a limit — a default is a claim about somebody's backlog, and the

@@ -94,6 +94,7 @@ describe("loadScenario", () => {
 	const ONE_TICKET = {
 		description: "one open ticket",
 		truncated: false,
+		openOnly: false,
 		tickets: [{ ref: "gh:example/repo#1", title: "First", state: "open", blockers: [] }],
 	};
 
@@ -115,6 +116,13 @@ describe("loadScenario", () => {
 		expect(() => loadScenario(scenarioFile({ ...ONE_TICKET, tickets: [{ ref: "gh:example/repo#1", title: "First", state: "open" }] }))).toThrow(
 			ScenarioError,
 		);
+	});
+
+	// Omitting it used to read as false, which asserted a real closed count of zero over a set that may never
+	// have been read for closed tickets at all — the one reading ADR-0028 exists to forbid, passing silently.
+	test("refuses a set that does not state whether closed tickets were asked for", () => {
+		const { openOnly, ...unstated } = ONE_TICKET;
+		expect(() => loadScenario(scenarioFile(unstated))).toThrow(ScenarioError);
 	});
 
 	test("refuses a reference that would resolve against the surrounding checkout", () => {

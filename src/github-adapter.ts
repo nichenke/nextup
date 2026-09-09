@@ -13,6 +13,18 @@ export class GitHubAdapterError extends Error {}
 /** Read off the query rather than asserted beside it, so the two cannot come to disagree. */
 const OPEN_ONLY = GITHUB_TICKET_STATE === "open";
 
+/**
+ * Whether a limit is one this read can use: a whole number above zero whose over-fetched row is still a safe
+ * integer, since the read asks for `limit + 1` to tell a capped page from an exactly-full one.
+ *
+ * Exported because `cli.ts` refuses a bad `--limit` before the read, so that a mistyped flag reads as a bad
+ * invocation rather than as a tracker read that would not run. A second copy of this bound there would be a
+ * promise nothing enforces — the two would drift with no compiler error.
+ */
+export function isReadableLimit(limit: number): boolean {
+	return Number.isSafeInteger(limit) && limit >= 1 && Number.isSafeInteger(limit + 1);
+}
+
 export interface GitHubReadInput {
 	readonly runner: Runner;
 	/**
@@ -39,9 +51,7 @@ export interface GitHubReadInput {
  * past instead.
  */
 export function readGitHubTicketSet(input: GitHubReadInput): TicketSetRead {
-	// The over-fetched row is bounded here rather than left to the command builder: past the safe-integer range
-	// `limit + 1` is refused there instead, with the wrong error class for a caller reading this contract.
-	if (!Number.isSafeInteger(input.limit) || input.limit < 1 || !Number.isSafeInteger(input.limit + 1)) {
+	if (!isReadableLimit(input.limit)) {
 		throw new GitHubAdapterError(`${input.limit} is not a number of tickets to read: it must be a whole number above zero`);
 	}
 	const repo = resolveRepo(input);
@@ -99,7 +109,10 @@ function buildGraph(readings: readonly RowReading[], repo: string): GraphReading
  * @throws GitHubAdapterError when the failure is a defect.
  */
 function failedRead(repo: string, stderr: string): TicketSetRead {
-	const detail = stderr.trim();
+	// Collapsed here rather than at a render boundary, so `ReadDegrade.detail` is one line by construction:
+	// `gh` writes an error over several, and every consumer would otherwise have to remember to collapse it
+	// again — which is how a newline reached the human rendering while `--json` still carried the raw text.
+	const detail = stderr.trim().replace(/\s+/g, " ");
 	if (classifyFailure(stderr) === "defect") {
 		// Not "the request is wrong": a missing or unauthenticated `gh` lands here too, and the fix is neither the
 		// query nor a retry.

@@ -4,7 +4,7 @@ import { deriveEffectiveBlockedness } from "./effective-blockedness";
 import { GitHubAdapterError, readGitHubTicketSet } from "./github-adapter";
 import { readPriority } from "./priority";
 import type { Runner } from "./runner";
-import { githubRecording, replayRunner, respondingRunner } from "./test-support";
+import { answeringOrigin, githubRecording, replayRunner, respondingRunner } from "./test-support";
 import { GITHUB_TEST_TREE, openIssues, shapeTitle } from "./test-tree";
 import { type Ticket, ticketId } from "./ticket";
 import { GITHUB_HOST } from "./ticket-ref";
@@ -186,6 +186,19 @@ describe("a read that failed", () => {
 		expect(read.truncated).toBe(true);
 		expect(read.degraded).toHaveLength(1);
 		expect(read.degraded[0]?.kind).toBe("outage");
+	});
+
+	// One line at construction rather than at a render boundary: `--json` carries this field raw, so a
+	// newline surviving here reaches a consumer whatever the human rendering does about it.
+	test("reports the outage detail as one line, though the tracker wrote several", () => {
+		const read = readGitHubTicketSet({
+			repo: REPO,
+			limit: WHOLE_TREE,
+			runner: () => ({ code: 1, stdout: "", stderr: "error connecting to somewhere.invalid\ncheck your connection\n" }),
+		});
+		const outage = read.degraded[0];
+		if (outage?.kind !== "outage") throw new Error("the failed read was expected to report an outage");
+		expect(outage.detail).toBe("error connecting to somewhere.invalid check your connection");
 	});
 
 	test("fails loud on a request that is itself wrong, rather than degrading past a defect", () => {
@@ -416,9 +429,10 @@ describe("two edges disagreeing about one blocker outside the read", () => {
 describe("the repository a read is about", () => {
 	function watching(remote: string, response: Runner): { readonly asked: string[][]; readonly runner: Runner } {
 		const asked: string[][] = [];
+		const answering = answeringOrigin(remote, response);
 		const runner: Runner = (argv) => {
 			asked.push([...argv]);
-			return argv[0] === "git" ? { code: 0, stdout: `${remote}\n`, stderr: "" } : response(argv);
+			return answering(argv);
 		};
 		return { asked, runner };
 	}

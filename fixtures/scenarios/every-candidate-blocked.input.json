@@ -1,6 +1,7 @@
 {
 	"description": "A tracker that answers the blocking query for every ticket and reports an open blocker on each — a GitHub repository whose dependencies API is enabled, mid-migration, where nothing has been started yet. There is nothing to recommend, and the answer says so rather than reaching into the blocked set.",
 	"truncated": false,
+	"openOnly": false,
 	"filter": { "include": [], "exclude": ["wayfinder:*"] },
 	"tickets": [
 		{ "ref": "gh:example/repo#1", "title": "Migrate the store", "state": "open", "blockers": ["gh:example/repo#2"], "labels": [] },
