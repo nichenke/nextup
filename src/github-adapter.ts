@@ -40,8 +40,10 @@ export type ReadDegrade =
 export interface TicketSetRead {
 	readonly tickets: readonly Ticket[];
 	/**
-	 * Spans every blocker the read learned of, including ones outside `tickets`: a blocker the read stopped
-	 * short of still gates its dependent, on the openness its own edge carried.
+	 * Spans every row the read returned, plus every blocker named by an edge it could read — including blockers
+	 * outside `tickets`, since one the read stopped short of still gates its dependent, on the openness its own
+	 * edge carried. A row whose blocking field did not answer contributes no edges, so nothing is seeded for
+	 * blockers only it would have named.
 	 */
 	readonly graph: DependencyGraph;
 	/** Whether the read stopped short of the whole ticket set. */
@@ -151,11 +153,10 @@ function resolveRepo(input: GitHubReadInput): string {
 }
 
 /**
- * Refuses a read whose rows do not all name one repository. `ticketId` requires that refs entering one graph
- * agree on how much they know, and taking each ref's repository from its own row is what stopped enforcing
- * that for free — every ref used to carry the one repository the caller asked about. The rows may name a
- * different repository than was asked for, since a rename redirects and the tracker answers under the new
- * name; what they may not do is disagree with each other.
+ * Refuses a read whose rows do not all name one repository, which is `ticketId`'s requirement that refs
+ * entering one graph agree on how much they know. The rows may name a different repository than was asked for,
+ * since a rename redirects and the tracker answers under the new name; what they may not do is disagree with
+ * each other.
  */
 function requireOneRepository(readings: readonly RowReading[], asked: string): void {
 	const named = new Set(readings.map((reading) => reading.ticket.ref.repo));
@@ -340,8 +341,8 @@ function readEdges(raw: unknown, where: string): EdgeReading {
 const ISSUE_ADDRESS = /([^/\s?#]+\/[^/\s?#]+)\/(?:issues|pull)\/\d+$/;
 
 // A query, fragment or trailing slash addresses a place within the page rather than another page, so it is
-// removed before matching rather than tolerated inside the pattern. Tolerating it there made `exec` take the
-// leftmost pair, so an address holding two issue numbers resolved to the repository before the first.
+// removed before matching rather than tolerated inside the pattern — which keeps the pair taken the one before
+// the *final* issue number, where an address holding two would otherwise resolve to the first.
 const ADDRESS_TAIL = /[?#].*$|\/+$/;
 
 /**

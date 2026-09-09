@@ -77,9 +77,16 @@ ticket in the repository unreachable, with no limit or filter that got the calle
 refusal is to judge that one ticket not at all. It still seeds the graph — its own row remains the authority on
 whether it is open, so tickets blocked by it are unaffected — but it is never a candidate, and
 `partial-blocking` names it. Paging the edges through `gh api graphql` is still the fuller fix, left until
-something reaches this. Reaching it needs more blockers on one issue than the CLI returns at once, which the
-test tree cannot hold, and [0019](./0019-every-recording-is-captured-from-a-test-tree.md) takes that inability
-as information rather than as licence to hand-write the shape.
+something reaches this.
+
+Reaching that shape needs more blockers on one issue than the CLI returns at once, which the test tree cannot
+hold, so **no recording stands behind it** — [0019](./0019-every-recording-is-captured-from-a-test-tree.md)
+takes that inability as information rather than as licence to write one. The behaviour is still asserted, from
+an input built inline in the test: what that test claims is our own policy on an incomplete list, which holds
+whoever produced it, and nothing about what GitHub returns. That distinction is the whole of what 0019 governs —
+a stored recording asserts a tracker produces a shape, so it has to come from one; an inline input asserting a
+refusal to conclude asserts nothing of the sort. The same reading covers the two edges that disagree about one
+blocker, for the same reason.
 
 Every row seeds the graph, including the row fetched only to detect truncation. `limit` bounds what may be
 recommended, not what the graph knows: dropping a row from the graph leaves a dependent's edge — a copy, which

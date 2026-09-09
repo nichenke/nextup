@@ -288,16 +288,6 @@ describe("a response the read cannot parse", () => {
 		}
 	});
 
-	test("holds back a ticket whose blocker list is a page, rather than losing the whole read to it", () => {
-		// Neither answer is available from a page: a retained edge may be the confirmed block, and a missing one
-		// may be too. So this ticket is not judged — while every other ticket in the read still is.
-		const blockedBy = { nodes: [blockerNode(2, "OPEN")], totalCount: 3 };
-		const read = reading(issueRow({ blockedBy }), issueRow({ number: 5, title: "readable", url: `${INLINE_REPO}/issues/5` }));
-		expect(read.tickets.map((one) => one.ref.key)).toEqual(["5"]);
-		expect(read.degraded).toEqual([
-			{ kind: "partial-blocking", refs: [{ tracker: "github", repo: INLINE_REPO, host: null, key: "1" }] },
-		]);
-	});
 });
 
 describe("the row fetched only to detect truncation", () => {
@@ -344,6 +334,21 @@ describe("a repository spelled differently from how the tracker spells it", () =
 		expect(read.tickets[0]?.ref.repo).toBe(INLINE_REPO);
 		expect(blockednessOfFirst(read)).toBe("blocked");
 		expect(read.degraded).toEqual([]);
+	});
+});
+
+describe("a blocker list that arrived as a page", () => {
+	// GitHub emits this — an issue with more blockers than the CLI returns at once — and the tree cannot hold one,
+	// so there is no recording behind it and ADR-0026 says so rather than hand-writing one. What is asserted here
+	// is our own policy on an incomplete list, which holds whoever produced it; the input stays inline and is
+	// never stored under `fixtures/recordings`, which is what ADR-0019 governs.
+	test("holds its ticket back, rather than judging it or losing the whole read", () => {
+		const blockedBy = { nodes: [blockerNode(2, "OPEN")], totalCount: 3 };
+		const read = reading(issueRow({ blockedBy }), issueRow({ number: 5, title: "readable", url: `${INLINE_REPO}/issues/5` }));
+		expect(read.tickets.map((one) => one.ref.key)).toEqual(["5"]);
+		expect(read.degraded).toEqual([
+			{ kind: "partial-blocking", refs: [{ tracker: "github", repo: INLINE_REPO, host: null, key: "1" }] },
+		]);
 	});
 });
 
