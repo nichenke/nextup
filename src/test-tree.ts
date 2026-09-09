@@ -238,6 +238,9 @@ export function validateTestTree(spec: TestTreeSpec): void {
 	const declared = new Set(spec.labels.map((label) => label.name));
 	const blockedBy = new Map(spec.issues.map((issue) => [issue.key, new Set(issue.blockedBy)]));
 	for (const issue of spec.issues) {
+		if (new Set(issue.blockedBy).size !== issue.blockedBy.length) {
+			throw new TestTreeError(`${issue.key} names the same blocker twice`);
+		}
 		for (const blocker of issue.blockedBy) {
 			// GitHub refuses any edge whose direct reverse already exists — ADR-0023 has the probe. Self-block is
 			// that rule at length one and a mutual pair is it at length two; both resolve to real keys, so the

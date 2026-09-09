@@ -76,6 +76,17 @@ describe("validateTestTree", () => {
 		expect(() => validateTestTree(spec)).toThrow(TestTreeError);
 	});
 
+	// The `Set` used for the mutual-pair check collapses a repeat, so validation saw nothing wrong. Provisioning
+	// reads the present edges once before its loop, so both copies look absent: two writes and two report lines
+	// for the single edge GitHub stores.
+	test("refuses a blocker named twice by the same issue", () => {
+		const spec: TestTreeSpec = {
+			...tree,
+			issues: [issue("chain-base"), { ...issue("chain-middle"), blockedBy: ["chain-base", "chain-base"] }],
+		};
+		expect(() => validateTestTree(spec)).toThrow(TestTreeError);
+	});
+
 	test("refuses a blocker that names no issue", () => {
 		const spec: TestTreeSpec = { ...tree, issues: [{ ...issue("no-priority"), blockedBy: ["absent"] }] };
 		expect(() => validateTestTree(spec)).toThrow(TestTreeError);
