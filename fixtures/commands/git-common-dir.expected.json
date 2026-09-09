@@ -1,0 +1,14 @@
+{
+	"description": "Where the repository keeps its administration, so a layout this does not work in can be refused.",
+	"input": {
+		"repo": "/repo"
+	},
+	"argv": [
+		"git",
+		"-C",
+		"/repo",
+		"rev-parse",
+		"--path-format=absolute",
+		"--git-common-dir"
+	]
+}

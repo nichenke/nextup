@@ -4,3 +4,8 @@
 # then 403s for everyone else, including CI.
 [install]
 registry = "https://registry.npmjs.org"
+
+[test]
+# Refuses a root run before any test executes; `src/test-preload.ts` says why root cannot hold the
+# controls some cases depend on.
+preload = ["./src/test-preload.ts"]

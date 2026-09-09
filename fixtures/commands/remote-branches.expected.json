@@ -1,0 +1,15 @@
+{
+	"description": "Which remotes have the branch, asked when the repository does not: origin's tip is adopted, and two remotes are ambiguous to git.",
+	"input": {
+		"repo": "/repo",
+		"branch": "feature/reader-8"
+	},
+	"argv": [
+		"git",
+		"-C",
+		"/repo",
+		"for-each-ref",
+		"--format=%(refname)",
+		"refs/remotes/*/feature/reader-8"
+	]
+}

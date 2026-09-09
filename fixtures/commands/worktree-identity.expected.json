@@ -1,0 +1,16 @@
+{
+	"description": "What a directory is, asked of git inside it: its own root, its repository, its branch — the listing can be wrong where this cannot.",
+	"input": {
+		"path": "/repo/.worktrees/reader-8"
+	},
+	"argv": [
+		"git",
+		"-C",
+		"/repo/.worktrees/reader-8",
+		"rev-parse",
+		"--path-format=absolute",
+		"--show-toplevel",
+		"--symbolic-full-name",
+		"HEAD"
+	]
+}

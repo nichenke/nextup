@@ -1,0 +1,13 @@
+{
+	"description": "The branch the primary checkout is warned about drifting off.",
+	"input": {
+		"repo": "/repo"
+	},
+	"argv": [
+		"git",
+		"-C",
+		"/repo",
+		"symbolic-ref",
+		"refs/remotes/origin/HEAD"
+	]
+}

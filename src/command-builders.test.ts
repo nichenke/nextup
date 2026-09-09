@@ -4,10 +4,17 @@ import { dirname, join } from "node:path";
 import {
 	DEFAULT_SLASH_COMMAND,
 	authStatusCommand,
+	refExistsCommand,
+	defaultBranchCommand,
 	formatCommand,
+	gitCommonDirCommand,
 	jiraIdentityCommand,
 	originRemoteCommand,
+	remoteBranchesCommand,
 	sessionCommand,
+	worktreeAddCommand,
+	worktreeIdentityCommand,
+	worktreeListCommand,
 } from "./command-builders";
 import type { TicketRef } from "./ticket-ref";
 
@@ -26,6 +33,9 @@ interface Case {
 
 const github: TicketRef = { tracker: "github", repo: "example/repo", host: null, key: "1" };
 const jira: TicketRef = { tracker: "jira", repo: null, host: null, key: "ABC-7" };
+
+const BRANCH = "feature/reader-8";
+const WORKTREE_PATH = "/repo/.worktrees/reader-8";
 
 const CASES: readonly Case[] = [
 	{
@@ -69,6 +79,54 @@ const CASES: readonly Case[] = [
 		description: "The remote a repository-scoped short form is resolved against.",
 		input: {},
 		build: () => originRemoteCommand(),
+	},
+	{
+		name: "worktree-list",
+		description: "Every worktree the repository has registered, which is what the worktree step reads first.",
+		input: { repo: "/repo" },
+		build: () => worktreeListCommand("/repo"),
+	},
+	{
+		name: "ref-exists",
+		description: "Whether one fully-qualified ref is there, asked of a local branch and of the target origin/HEAD names.",
+		input: { repo: "/repo", ref: `refs/heads/${BRANCH}` },
+		build: () => refExistsCommand("/repo", `refs/heads/${BRANCH}`),
+	},
+	{
+		name: "remote-branches",
+		description: "Which remotes have the branch, asked when the repository does not: origin's tip is adopted, and two remotes are ambiguous to git.",
+		input: { repo: "/repo", branch: BRANCH },
+		build: () => remoteBranchesCommand("/repo", BRANCH),
+	},
+	{
+		name: "git-common-dir",
+		description: "Where the repository keeps its administration, so a layout this does not work in can be refused.",
+		input: { repo: "/repo" },
+		build: () => gitCommonDirCommand("/repo"),
+	},
+	{
+		name: "default-branch",
+		description: "The branch the primary checkout is warned about drifting off.",
+		input: { repo: "/repo" },
+		build: () => defaultBranchCommand("/repo"),
+	},
+	{
+		name: "worktree-identity",
+		description: "What a directory is, asked of git inside it: its own root, its repository, its branch — the listing can be wrong where this cannot.",
+		input: { path: WORKTREE_PATH },
+		build: () => worktreeIdentityCommand(WORKTREE_PATH),
+	},
+	{
+		name: "worktree-add-new-branch",
+		description: "A worktree for a branch that does not exist yet, cut from the primary checkout's HEAD.",
+		input: { repo: "/repo", path: WORKTREE_PATH, branch: BRANCH, create: true },
+		build: () => worktreeAddCommand("/repo", WORKTREE_PATH, BRANCH, true),
+	},
+	{
+		name: "worktree-add-existing-branch",
+		description: "A worktree for a branch that already exists, where -b would be a fatal error instead.",
+		input: { repo: "/repo", path: WORKTREE_PATH, branch: BRANCH, create: false },
+		build: () => worktreeAddCommand("/repo", WORKTREE_PATH, BRANCH, false),
 	},
 ];
 

@@ -1,0 +1,69 @@
+# A repository whose git directory is not `<checkout>/.git` is turned away
+
+`git init --separate-git-dir <elsewhere>` leaves a `.git` *file* holding `gitdir: <elsewhere>` instead of
+a directory. Ticket 08 assumed against that shape without saying so, and an adversarial review found the
+assumption. Two facts, both reproduced against git 2.55 rather than reasoned about:
+
+- `git worktree list --porcelain` names the **git directory** as the primary worktree in that layout, not
+  the working tree. So `ensure`'s `primary` — which it reads from the first porcelain record — becomes the
+  git directory.
+- The default worktree root is resolved against `primary`, so it becomes `<git-dir>/.worktrees`. Worktrees
+  land inside the repository's administration with no caller-supplied root involved, and the guard that
+  refuses a root under `.git` cannot see it, because such a path has no `.git` component.
+
+A session in a worktree there reports `HEAD`, `ORIG_HEAD`, `index`, `index.lock`, `commondir` and `gitdir`
+as untracked files in its own working tree, so `git clean -fd` deletes the repository's worktree
+administration and `git add -A` commits it.
+
+The repository is refused rather than supported. Supporting it means reading the working tree from
+`rev-parse --show-toplevel` and carrying two notions of "primary" — the working tree for paths, the git
+directory for administration — through every path decision in the module. Nothing here uses the layout, so
+it is turned away at the door: `refuseUnlessOrdinaryLayout` requires the common directory to be
+`<primary>/.git`, or the primary itself when the repository is bare.
+
+Bareness is load-bearing and easy to get wrong. A bare repository and a separate git directory both report
+a common directory equal to `primary`; only bareness separates them, and it is read from the porcelain
+listing already in hand rather than asked for again.
+
+The same refusal catches a shape far more ordinary than `--separate-git-dir`: **a git submodule**. A
+submodule's `.git` is a file too, and `git worktree list` names `<super>/.git/modules/<child>` as its
+primary worktree, so without this guard the default root would be
+`<super>/.git/modules/<child>/.worktrees` — worktrees inside the superproject's administration. Reproduced,
+and the refusal fires. That means the guard is not only insurance against a configuration nobody here uses;
+it is what stops a plausible checkout from planting worktrees somewhere no reader would predict.
+
+An inherited `GIT_DIR` is a different shape and is **not** what this guards — it is worse, and this
+decision does not address it. An earlier draft of this ADR claimed `defaultRunner` passes no environment
+to the subprocess so `GIT_DIR` could not reach git. That is false, and the test behind it was
+mis-designed: it set `process.env` at runtime, which Bun's `spawnSync` does not forward, and concluded
+that nothing is forwarded. A variable **inherited** from the parent shell does reach git.
+
+`GIT_DIR` overrides `-C`, so an inherited one redirects every command this issues at another repository:
+`git -C <intended> worktree list` reports `<other>`, `primary` becomes `<other>`, and `ensure` creates the
+branch and worktree there while reporting `created`. That is a silent write to the wrong repository, and
+no guard here catches it, because every answer git gives is self-consistent — just about the wrong
+repository. Closing it belongs to the runner seam rather than to this decision.
+
+## Consequences
+
+Bare repositories stay supported, which matters because bare-plus-worktrees is a layout people choose
+deliberately, and ADR-0013 resolves the root against the primary for reasons that hold there too.
+
+That exemption is inconsistent with the reason given above, and knowingly so. For a bare primary the
+default root resolves to `<bare.git>/.worktrees` — inside the administration, which is what this decision
+refuses everywhere else, and invisible to the `.git`-component check because the component is `bare.git`.
+The harm named above does not reach it: a bare repository's administrative files sit *above* the worktree
+rather than inside it, so a session's `git clean -fd` cannot touch them. So the behaviour is safe and the
+rationale is not universal. Siting a bare repository's worktrees outside its git directory would mean
+changing where the root resolves for one class of repository, which is ADR-0013's rule rather than this
+one's.
+
+The refusal is a fifth `WorktreeError` kind, `"unsupported-repository"`, rather than a reading of an
+existing one. No path is stale and no root or ticket changes the answer, so neither `stale-directory` nor
+`unnameable-ticket` describes it.
+
+This costs one `git rev-parse` per `ensure`, on every run rather than only when a caller names a root,
+because the default root is affected too.
+
+Reopening this means deciding to carry a working tree separate from the git directory, which is a change
+to what `primary` means and therefore touches ADR-0013's resolution rule as well.

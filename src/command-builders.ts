@@ -2,6 +2,11 @@ import { type TicketRef, formatTicketRef } from "./ticket-ref";
 
 export class CommandBuilderError extends Error {}
 
+/**
+ * Argv carrying at least the program, so a value of this type cannot be a command with nothing to run.
+ */
+export type Argv = readonly [string, ...string[]];
+
 /** The verb the launched session runs when nothing names another; ticket 09 exposes the choice. */
 export const DEFAULT_SLASH_COMMAND = "/implement";
 
@@ -60,6 +65,97 @@ export function jiraIdentityCommand(): readonly string[] {
 /** The remote a repository-scoped reference is resolved against. */
 export function originRemoteCommand(): readonly string[] {
 	return ["git", "remote", "get-url", "origin"];
+}
+
+export function worktreeListCommand(repo: string): readonly string[] {
+	// `-z`, for the reason `parseWorktreeList` gives.
+	return ["git", "-C", repo, "worktree", "list", "--porcelain", "-z"];
+}
+
+/**
+ * Whether one fully-qualified ref is there. Answered by `show-ref` rather than by scanning the worktree
+ * listing, which sees only branches that are checked out somewhere.
+ *
+ * Takes the whole ref rather than a branch name, because two callers need different namespaces: a local
+ * branch under `refs/heads/`, and the target `origin/HEAD` points at, which `symbolic-ref` will report
+ * happily even when the ref itself does not exist.
+ */
+export function refExistsCommand(repo: string, ref: string): readonly string[] {
+	return ["git", "-C", repo, "show-ref", "--verify", "--quiet", ref];
+}
+
+/**
+ * Every remote-tracking ref for this branch, asked when the repository has no branch of its own. A branch
+ * that exists only on a remote must not be created: `git worktree add` without `-b` checks out the remote
+ * tip and sets up tracking, while `-b` cuts a new branch from local HEAD and silently leaves the pushed
+ * work behind.
+ *
+ * The whole list rather than `show-ref` on `origin` alone, because the count is the other half of the
+ * answer. `git worktree add <path> <branch>` resolves a remote-only branch by guessing, and it refuses to
+ * guess when more than one remote offers the name — `fatal: invalid reference` rather than a worktree.
+ * Asking this way costs no extra command and tells us both whether `origin` has it and whether anything
+ * else does.
+ */
+export function remoteBranchesCommand(repo: string, branch: string): readonly string[] {
+	return ["git", "-C", repo, "for-each-ref", "--format=%(refname)", `refs/remotes/*/${branch}`];
+}
+
+/**
+ * Where the repository keeps its administration, absolutely, and shared across every worktree.
+ *
+ * Asked so that a repository whose git directory is not `<checkout>/.git` can be refused rather than
+ * worked in. `--path-format=absolute` because the default is relative to the current directory, which is
+ * not the directory being asked about; `--git-common-dir` rather than `--git-dir` because a linked
+ * worktree's own `--git-dir` is its private subdirectory, and the shared one is what identifies the
+ * repository.
+ */
+export function gitCommonDirCommand(repo: string): readonly string[] {
+	return ["git", "-C", repo, "rev-parse", "--path-format=absolute", "--git-common-dir"];
+}
+
+/**
+ * What a directory *is*, asked of git from inside it: its own worktree root, then the ref checked out there.
+ *
+ * Asked of git rather than read off `git worktree list`, because the listing is the thing that can be
+ * wrong: a worktree whose `.git` file has been edited is still listed under the branch it was registered
+ * with, while git run inside it answers about somewhere else.
+ *
+ * `--symbolic-full-name` rather than `--abbrev-ref`, because abbreviation is not stable: it disambiguates
+ * against other refs, so a tag sharing the branch's name turns `feature/x` into `heads/feature/x` and a
+ * comparison against the branch name stops matching a worktree that is perfectly valid.
+ *
+ * The ref comes last on purpose. A path may contain a newline — `parseWorktreeList` supports that
+ * deliberately — while a ref cannot, so a caller can take the final line as the ref and everything before it
+ * as the path. Asking for two paths in one call would have no such delimiter.
+ */
+export function worktreeIdentityCommand(path: string): readonly string[] {
+	return ["git", "-C", path, "rev-parse", "--path-format=absolute", "--show-toplevel", "--symbolic-full-name", "HEAD"];
+}
+
+/**
+ * Which branch the repository treats as its default.
+ *
+ * The full ref, because `--short` shortens only as far as stays unambiguous: with a local branch named
+ * `origin/main` in the repository it answers `remotes/origin/main` rather than `origin/main`, and a
+ * caller stripping `origin/` is then left comparing `remotes/origin/main` against a branch name.
+ *
+ * The answer is not always under `refs/remotes/origin/`, so a caller must check the prefix rather than
+ * slice a fixed width off it. git accepts `symbolic-ref refs/remotes/origin/HEAD refs/heads/main`, and
+ * also a pointer to a branch that does not exist. `driftWarnings` in `worktree.ts` is where that is
+ * checked.
+ */
+export function defaultBranchCommand(repo: string): readonly string[] {
+	return ["git", "-C", repo, "symbolic-ref", "refs/remotes/origin/HEAD"];
+}
+
+/**
+ * The worktree for one branch, at one path. `create` picks between cutting a new branch from `repo`'s
+ * HEAD and checking out one that already exists; `-b` against an existing branch is a fatal error
+ * rather than an attach, so the two cannot share an invocation.
+ */
+export function worktreeAddCommand(repo: string, path: string, branch: string, create: boolean): Argv {
+	const add = ["git", "-C", repo, "worktree", "add", path] as const;
+	return create ? [...add, "-b", branch] : [...add, branch];
 }
 
 /**
