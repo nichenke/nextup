@@ -10,7 +10,7 @@ import {
 	gitCommonDirCommand,
 	jiraIdentityCommand,
 	originRemoteCommand,
-	remoteBranchExistsCommand,
+	remoteBranchesCommand,
 	sessionCommand,
 	worktreeAddCommand,
 	worktreeListCommand,
@@ -92,10 +92,10 @@ const CASES: readonly Case[] = [
 		build: () => branchExistsCommand("/repo", BRANCH),
 	},
 	{
-		name: "remote-branch-exists",
-		description: "Whether origin has the branch, asked when the repository does not, so pushed work is checked out rather than overwritten.",
+		name: "remote-branches",
+		description: "Which remotes have the branch, asked when the repository does not: origin's tip is adopted, and two remotes are ambiguous to git.",
 		input: { repo: "/repo", branch: BRANCH },
-		build: () => remoteBranchExistsCommand("/repo", BRANCH),
+		build: () => remoteBranchesCommand("/repo", BRANCH),
 	},
 	{
 		name: "git-common-dir",

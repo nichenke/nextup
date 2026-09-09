@@ -128,6 +128,8 @@ interface GitState {
 	readonly branches?: readonly string[];
 	/** Branches on `origin` only, which must be checked out rather than created. */
 	readonly remoteBranches?: readonly string[];
+	/** Further remotes carrying `remoteBranches`, which makes the name ambiguous to git. */
+	readonly alsoOnRemotes?: readonly string[];
 	/** `null` where `origin/HEAD` is not set, which is what a repo with no remote reports. */
 	readonly defaultBranch?: string | null;
 	/** Overrides the git directory, for the layouts `refuseUnlessOrdinaryLayout` turns away. */
@@ -158,11 +160,13 @@ function stubGit(state: GitState): { runner: Runner; issued: string[][] } {
 				: { code: 0, stdout: `refs/remotes/origin/${target}\n`, stderr: "" };
 		}
 		if (words.includes("show-ref")) {
-			const ref = argv[argv.length - 1]!;
-			const local = ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) : null;
-			const remote = ref.startsWith("refs/remotes/origin/") ? ref.slice("refs/remotes/origin/".length) : null;
-			const known = local === null ? (state.remoteBranches ?? []) : (state.branches ?? []);
-			return { code: known.includes(local ?? remote ?? "") ? 0 : 1, stdout: "", stderr: "" };
+			const ref = argv[argv.length - 1]!.slice("refs/heads/".length);
+			return { code: (state.branches ?? []).includes(ref) ? 0 : 1, stdout: "", stderr: "" };
+		}
+		if (words.includes("for-each-ref")) {
+			const branch = argv[argv.length - 1]!.slice("refs/remotes/*/".length);
+			const remotes = (state.remoteBranches ?? []).includes(branch) ? ["origin", ...(state.alsoOnRemotes ?? [])] : [];
+			return { code: 0, stdout: remotes.map((one) => `refs/remotes/${one}/${branch}\n`).join(""), stderr: "" };
 		}
 		if (words.includes("rev-parse")) {
 			return { code: 0, stdout: `${state.commonDir ?? ordinaryCommonDir(state)}\n`, stderr: "" };
@@ -208,6 +212,14 @@ describe("ensure", () => {
 
 		expect(outcome.kind).toBe("checked-out");
 		expect(outcome.command).not.toContain("-b");
+	});
+
+	test("refuses a branch offered by more than one remote rather than leaving git to guess", () => {
+		const { repo, state } = primaryOn();
+		const git = stubGit({ ...state, remoteBranches: [READER_BRANCH], alsoOnRemotes: ["up"] });
+
+		expect(kindOf(() => ensure({ runner: git.runner, repo, ticket: READER }))).toBe("unsupported-repository");
+		expect(git.issued.some((argv) => argv.includes("add"))).toBe(false);
 	});
 
 	test("attaches to the worktree already at the expected path, issuing nothing", () => {
@@ -753,6 +765,34 @@ describe("ensure against real git", () => {
 		expect(outcome.kind).toBe("checked-out");
 		expect(defaultRunner(["git", "-C", outcome.path, "rev-parse", "HEAD"]).stdout.trim()).toBe(pushed);
 		expect(git("config", "--get", `branch.${READER_BRANCH}.remote`)).toBe("origin");
+	});
+
+	test("refuses when two real remotes offer the branch, which git itself will not resolve", () => {
+		const repo = realRepo();
+		const outer = tempDir("nextup-two-remotes-");
+		const identity = ["-c", "user.email=nobody@invalid", "-c", "user.name=nobody"];
+		const git = (...argv: string[]): void => {
+			const result = defaultRunner(["git", "-C", repo, ...argv]);
+			if (result.code !== 0) throw new Error(`git ${argv.join(" ")} failed: ${result.stderr}`);
+		};
+		for (const name of ["origin", "up"]) {
+			expect(defaultRunner(["git", "init", "--quiet", "--bare", join(outer, `${name}.git`)]).code).toBe(0);
+		}
+		git("remote", "set-url", "origin", join(outer, "origin.git"));
+		git("remote", "add", "up", join(outer, "up.git"));
+		git("checkout", "--quiet", "-b", READER_BRANCH);
+		git(...identity, "commit", "--quiet", "--allow-empty", "-m", "pushed");
+		for (const name of ["origin", "up"]) git("push", "--quiet", name, READER_BRANCH);
+		git("checkout", "--quiet", "main");
+		git("branch", "-D", READER_BRANCH);
+		git("fetch", "--quiet", "--all");
+
+		// git resolves a remote-only branch by guessing and will not guess between two remotes: the argv this
+		// would otherwise issue dies on `fatal: invalid reference`. Asserted, so the refusal is not theoretical.
+		expect(defaultRunner(["git", "-C", repo, "worktree", "add", join(outer, "guess"), READER_BRANCH]).stderr).toContain(
+			"invalid reference",
+		);
+		expect(kindOf(() => ensure({ runner: defaultRunner, repo, ticket: READER }))).toBe("unsupported-repository");
 	});
 
 	test("refuses a branch git has already handed to another worktree", () => {

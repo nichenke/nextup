@@ -5,7 +5,7 @@ import {
 	branchExistsCommand,
 	defaultBranchCommand,
 	gitCommonDirCommand,
-	remoteBranchExistsCommand,
+	remoteBranchesCommand,
 	worktreeAddCommand,
 	worktreeListCommand,
 } from "./command-builders";
@@ -225,10 +225,9 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 	refuseIfOccupied(path);
 
 	// A registered worktree at the path is the case above, so a branch that exists at this point is one
-	// checked out nowhere. `origin` is asked too, for the reason `remoteBranchExistsCommand` gives.
+	// checked out nowhere. The remotes are asked too, for the reason `remoteBranchesCommand` gives.
 	const create =
-		!branchExists(input.runner, primary, branch, branchExistsCommand) &&
-		!branchExists(input.runner, primary, branch, remoteBranchExistsCommand);
+		!branchExists(input.runner, primary, branch) && !adoptableFromOrigin(input.runner, primary, branch);
 	const warnings = driftWarnings(input.runner, primary, main.head);
 	// primary, not input.repo — see `driftWarnings`.
 	const command = worktreeAddCommand(primary, path, branch, create);
@@ -312,8 +311,9 @@ function refuseUnlessOrdinaryLayout(runner: Runner, main: Registration): void {
  *   inside the checkout is taken as given, tracked directory or not.
  * - **Inside `.git`**, which puts git's own administration (`HEAD`, `index`, `index.lock`, `commondir`)
  *   into the session's working tree as untracked files, where `git clean -fd` deletes them and `git add
- *   -A` commits them. A lexical match is enough here because `refuseUnlessOrdinaryLayout` has already
- *   turned away every repository whose git directory is not `<primary>/.git`.
+ *   -A` commits them. Matched literally, so an odd-cased spelling such as `.GIT` is not covered on a
+ *   case-insensitive filesystem — out of scope deliberately, since no untrusted input reaches a root.
+ *   `refuseUnlessOrdinaryLayout` has already turned away repositories whose git directory is elsewhere.
  * - **Reached through a symlink**, per `refuseIfReachedThroughLink`.
  */
 function resolveContainer(primary: string, root: string | null | undefined): string {
@@ -417,16 +417,40 @@ function refusingOnError<T>(path: string, verb: string, work: () => T): T {
  * answering, and 128 is what it uses; read as absent, that failure would arrive as `git worktree add`'s
  * own unclassified fatal instead of as this typed refusal.
  */
-function branchExists(
-	runner: Runner,
-	repo: string,
-	branch: string,
-	build: (repo: string, branch: string) => readonly string[],
-): boolean {
-	const result = runner([...build(repo, branch)]);
+function branchExists(runner: Runner, repo: string, branch: string): boolean {
+	const result = runner([...branchExistsCommand(repo, branch)]);
 	if (result.code === 0) return true;
 	if (result.code === 1) return false;
 	throw new WorktreeError(`${repo} could not be asked whether ${branch} exists: ${gitFailure(result.stderr, result.code)}`, "git");
+}
+
+/**
+ * Whether `origin` has a branch this can adopt by checking it out rather than cutting a new one.
+ *
+ * @throws WorktreeError `"unsupported-repository"` where more than one remote offers the name. Adopting a
+ * remote-only branch leaves git to resolve the name, and git refuses to resolve an ambiguous one — so the
+ * argv would fail with `fatal: invalid reference` after the guards had passed. One remote is what this
+ * expects; the ambiguity is detected and refused rather than engineered around, because naming the start
+ * point explicitly would commit this to picking a winner among remotes it has no basis to rank.
+ *
+ * @throws WorktreeError `"git"` where the repository could not answer.
+ */
+function adoptableFromOrigin(runner: Runner, repo: string, branch: string): boolean {
+	const result = runner([...remoteBranchesCommand(repo, branch)]);
+	if (result.code !== 0) {
+		throw new WorktreeError(
+			`${repo} could not be asked which remotes have ${branch}: ${gitFailure(result.stderr, result.code)}`,
+			"git",
+		);
+	}
+	const refs = result.stdout.split("\n").filter((line) => line.trim() !== "");
+	if (refs.length > 1) {
+		throw new WorktreeError(
+			`${branch} is on more than one remote (${refs.join(", ")}), and this expects only origin`,
+			"unsupported-repository",
+		);
+	}
+	return refs[0]?.trim() === `${REMOTE_HEAD}${branch}`;
 }
 
 /**

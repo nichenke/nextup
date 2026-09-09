@@ -81,12 +81,19 @@ export function branchExistsCommand(repo: string, branch: string): readonly stri
 }
 
 /**
- * Whether `origin` has this branch, asked when the repository does not. A branch that exists only on the
- * remote must not be created: `git worktree add` without `-b` checks out the remote tip and sets up
- * tracking, while `-b` cuts a new branch from local HEAD and silently leaves the pushed work behind.
+ * Every remote-tracking ref for this branch, asked when the repository has no branch of its own. A branch
+ * that exists only on a remote must not be created: `git worktree add` without `-b` checks out the remote
+ * tip and sets up tracking, while `-b` cuts a new branch from local HEAD and silently leaves the pushed
+ * work behind.
+ *
+ * The whole list rather than `show-ref` on `origin` alone, because the count is the other half of the
+ * answer. `git worktree add <path> <branch>` resolves a remote-only branch by guessing, and it refuses to
+ * guess when more than one remote offers the name — `fatal: invalid reference` rather than a worktree.
+ * Asking this way costs no extra command and tells us both whether `origin` has it and whether anything
+ * else does.
  */
-export function remoteBranchExistsCommand(repo: string, branch: string): readonly string[] {
-	return ["git", "-C", repo, "show-ref", "--verify", "--quiet", `refs/remotes/origin/${branch}`];
+export function remoteBranchesCommand(repo: string, branch: string): readonly string[] {
+	return ["git", "-C", repo, "for-each-ref", "--format=%(refname)", `refs/remotes/*/${branch}`];
 }
 
 /**
