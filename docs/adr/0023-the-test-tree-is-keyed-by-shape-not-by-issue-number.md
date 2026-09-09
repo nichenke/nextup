@@ -30,9 +30,14 @@ That defeats the specific thing 0019 buys. Its consequence is that continuous in
 foreign content "by construction rather than by review"; content anyone can write is content review is the
 only defence for.
 
-So visibility is load-bearing here, not cosmetic. Making this repository public again reopens both paths and
-requires replacing them with something else first — validating each issue's author against the provisioning
-identity is the cheap version, since `author` rides along in the listing call already made.
+So visibility is load-bearing here, not cosmetic, and provisioning **enforces** it: it reads the repository's
+visibility and refuses before its first write if the answer is anything but private. Documenting the rule was
+not enough — it left the tool willing to provision a publicly writable tree and report it as matching, which
+is the one outcome the rule exists to prevent.
+
+Making the repository public therefore stops provisioning outright, and reopening it means replacing the
+control rather than removing the check. Validating each issue's author against the provisioning identity is
+the cheap replacement, since `author` rides along in the listing call already made.
 
 What that costs is real but smaller than 0019's wording suggests. The check "does the tree produce this
 shape?" is still performed by looking at the tree, by whoever holds a token for it — the maintainer, and any

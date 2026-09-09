@@ -16,6 +16,17 @@ interface FakeIssue {
 const ok = (stdout = ""): CommandResult => ({ code: 0, stdout, stderr: "" });
 
 /**
+ * Answers the visibility check with `PRIVATE` and passes everything else to `answer`.
+ *
+ * Provisioning refuses a tree that is not private before its first write, so a stub runner that does not
+ * answer that call fails there instead of at the call it was written to exercise.
+ */
+const onPrivateRepo =
+	(answer: Runner): Runner =>
+	(argv) =>
+		argv[1] === "repo" && argv[2] === "view" ? ok("PRIVATE\n") : answer(argv);
+
+/**
  * A tracker that answers the calls provisioning makes. It refuses an edge whose direct reverse already
  * exists, which is the rule the real GitHub enforces.
  *
@@ -48,6 +59,8 @@ function fakeTracker(seed: FakeIssue[] = []) {
 			const at = argv.indexOf(name);
 			return at < 0 ? undefined : argv[at + 1];
 		};
+
+		if (noun === "repo" && verb === "view") return ok("PRIVATE\n");
 
 		if (noun === "label") return ok();
 
@@ -151,6 +164,23 @@ describe("provisionTestTree", () => {
 		}
 	});
 
+	// ADR-0023 makes visibility a security control; before this it was a control nothing checked, so the tool
+	// would happily provision a publicly writable tree and report it as matching.
+	test.each(["PUBLIC", "INTERNAL", ""])("refuses to write to a %s repository", (visibility) => {
+		const tracker = fakeTracker();
+		const exposed: Runner = (argv) =>
+			argv[1] === "repo" && argv[2] === "view" ? ok(`${visibility}\n`) : tracker.runner(argv);
+
+		expect(() => provisionTestTree(GITHUB_TEST_TREE, exposed)).toThrow(/requires it to be private/);
+		expect(tracker.issues).toHaveLength(0);
+	});
+
+	test("checks visibility before the first write", () => {
+		const tracker = fakeTracker();
+		provisionTestTree(GITHUB_TEST_TREE, tracker.runner);
+		expect(tracker.calls[0]?.slice(0, 3)).toEqual(["gh", "repo", "view"]);
+	});
+
 	test("declares every label before any issue names one", () => {
 		const tracker = fakeTracker();
 		provisionTestTree(GITHUB_TEST_TREE, tracker.runner);
@@ -190,15 +220,16 @@ describe("provisionTestTree", () => {
 	});
 
 	test("stops loudly when a call fails, rather than reporting a tree that does not exist", () => {
-		const failing: Runner = () => ({ code: 1, stdout: "", stderr: "gh: HTTP 403" });
+		const failing = onPrivateRepo(() => ({ code: 1, stdout: "", stderr: "gh: HTTP 403" }));
 		expect(() => provisionTestTree(GITHUB_TEST_TREE, failing)).toThrow(TestTreeError);
 	});
 
 	test("refuses a listing that fills the page, which cannot be told from a truncated one", () => {
-		const flooded: Runner = (argv) =>
+		const flooded = onPrivateRepo((argv) =>
 			argv[2] === "list"
 				? ok(JSON.stringify(Array.from({ length: 200 }, (_, i) => ({ number: i + 1, title: `t${i}`, state: "OPEN", assignees: [] }))))
-				: ok();
+				: ok(),
+		);
 		expect(() => provisionTestTree(GITHUB_TEST_TREE, flooded)).toThrow(/truncated/);
 	});
 
@@ -222,13 +253,13 @@ describe("provisionTestTree", () => {
 	])("refuses a listing missing %s", (_label, stdout, because) => {
 		// Every other call has to answer plausibly, or these pass on `createIssue`'s "printed no issue
 		// number" throw instead of on the parse — the same error class, proving nothing about the listing.
-		const broken: Runner = (argv) => {
+		const broken = onPrivateRepo((argv) => {
 			if (argv[2] === "list") return ok(stdout);
 			if (argv[2] === "create") return ok(`${GITHUB_PLACEHOLDER_HOST}/owner/repo/issues/1\n`);
 			if (argv[1] === "api" && argv[2]?.endsWith("/dependencies/blocked_by")) return ok("[]");
 			if (argv[1] === "api") return ok("1001\n");
 			return ok();
-		};
+		});
 		expect(() => provisionTestTree(GITHUB_TEST_TREE, broken)).toThrow(TestTreeError);
 		expect(() => provisionTestTree(GITHUB_TEST_TREE, broken)).toThrow(because);
 	});
@@ -245,7 +276,7 @@ describe("provisionTestTree", () => {
 	});
 
 	test("names the failing subcommand, not just the binary", () => {
-		const denied: Runner = () => ({ code: 1, stdout: "", stderr: "gh: HTTP 403" });
+		const denied = onPrivateRepo(() => ({ code: 1, stdout: "", stderr: "gh: HTTP 403" }));
 		expect(() => provisionTestTree(GITHUB_TEST_TREE, denied)).toThrow(/gh label create/);
 	});
 
@@ -348,9 +379,41 @@ describe("provisionTestTree", () => {
 		}
 	});
 
+	test("reports a create that landed even when its output cannot be read", () => {
+		const tracker = fakeTracker();
+		const mute: Runner = (argv) =>
+			argv[1] === "issue" && argv[2] === "create" ? ok("created\n") : tracker.runner(argv);
+
+		try {
+			provisionTestTree(GITHUB_TEST_TREE, mute);
+			throw new Error("expected provisioning to fail");
+		} catch (error) {
+			expect(error).toBeInstanceOf(TestTreeError);
+			// The call succeeded, so the issue exists; a report claiming nothing landed is the misleading answer.
+			expect((error as TestTreeError).changes).toEqual([{ key: "chain-base", action: "created" }]);
+		}
+	});
+
+	test.each([
+		["malformed", `{{{`],
+		["not a list", `{"a":1}`],
+	])("refuses a %s blocker read as a TestTreeError, keeping the writes so far", (_label, stdout) => {
+		const tracker = fakeTracker();
+		const broken: Runner = (argv) =>
+			argv[1] === "api" && argv[2]?.endsWith("/dependencies/blocked_by") ? ok(stdout) : tracker.runner(argv);
+
+		try {
+			provisionTestTree(GITHUB_TEST_TREE, broken);
+			throw new Error("expected provisioning to fail");
+		} catch (error) {
+			expect(error).toBeInstanceOf(TestTreeError);
+			expect((error as TestTreeError).changes.length).toBeGreaterThan(0);
+		}
+	});
+
 	test("refuses a create whose output carries no issue number", () => {
 		const spec: TestTreeSpec = { ...GITHUB_TEST_TREE, issues: GITHUB_TEST_TREE.issues.slice(0, 1) };
-		const mute: Runner = (argv) => (argv[2] === "list" ? ok("[]") : ok("created\n"));
+		const mute = onPrivateRepo((argv) => (argv[2] === "list" ? ok("[]") : ok("created\n")));
 		expect(() => provisionTestTree(spec, mute)).toThrow(/no issue number/);
 	});
 });

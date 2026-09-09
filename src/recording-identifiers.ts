@@ -39,6 +39,12 @@ const EMAIL_HOST = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]*\.[A-Za-z]{2,}/;
 // and copying that here would destroy the path this function promises to keep.
 const BARE_HOST = /[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}(?=[:/])/;
 
+// JSON's optional `\/` escape, and only that. The lookbehind is what separates it from a *literal* backslash
+// that happens to precede a slash: JSON writes such a backslash as two, so the second one plus the slash are
+// byte-identical to the escape. Replacing unconditionally turned content `a\/b` into `a/b`, corrupting text
+// that has nothing to do with a host.
+const ESCAPED_SLASH = /(?<!\\)\\\//g;
+
 const REDACTABLE = new RegExp(
 	[JSON_ESCAPE, SCHEME_AUTHORITY, EMAIL_HOST, BARE_HOST].map((rule) => rule.source).join("|"),
 	"g",
@@ -60,6 +66,6 @@ export function redactRecordingIdentifiers(text: string, placeholderHost: string
 	// into a real newline, is deliberately not copied: that would break the JSON a recording is made of, which
 	// is why escapes are stepped over below rather than resolved.
 	return text
-		.replaceAll("\\/", "/")
+		.replace(ESCAPED_SLASH, "/")
 		.replace(REDACTABLE, (match) => (match.startsWith("\\") ? match : placeholderHost));
 }

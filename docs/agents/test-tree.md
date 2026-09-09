@@ -44,10 +44,11 @@ limit below its size rather than by adding issues.
 
 ## Rules
 
-- **Leave the repository private.** Its visibility is a security control, not a preference: public means
-  anyone can open an issue under a known spec title or comment on an existing one, and provisioning adopts
-  by title while never reconciling bodies, labels or comments. ADR-0023 has the path and what would have to
-  replace it first.
+- **Leave the repository private.** Provisioning checks and refuses otherwise, before its first write, so
+  making it public stops the tool rather than silently widening the tree. Its visibility is a security
+  control, not a preference: public means anyone can open an issue under a known spec title or comment on an
+  existing one, and provisioning adopts by title while never reconciling bodies, labels or comments. ADR-0023
+  has the path and what would have to replace the control.
 - **`write-target` is the only issue a test may assign and unassign.** Every other issue's claim is a
   captured shape. If a run leaves a stray claim behind, `bun run provision:test-tree` releases it.
 - **Never capture from a real repository** — ADR-0019 is the rule and `CLAUDE.md` carries it into every

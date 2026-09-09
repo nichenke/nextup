@@ -104,6 +104,15 @@ describe("redactRecordingIdentifiers", () => {
 		}
 	});
 
+	// JSON encodes a literal backslash as two, so the second one plus the following slash look exactly like
+	// JSON's optional `\/` escape. Unescaping unconditionally ate the real backslash and changed content that
+	// has nothing to do with any host.
+	test("preserves a literal backslash that precedes a slash", () => {
+		const redacted = redact(JSON.stringify({ body: "a\\/b" }));
+		expect(() => JSON.parse(redacted)).not.toThrow();
+		expect((JSON.parse(redacted) as { body: string }).body).toBe("a\\/b");
+	});
+
 	test("leaves a package version alone, which is the other thing spelled with an @", () => {
 		expect(redact("typescript@5.1.2")).toBe("typescript@5.1.2");
 		expect(redact("@types/bun@1.4.0")).toBe("@types/bun@1.4.0");

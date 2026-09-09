@@ -57,6 +57,8 @@ export function provisionTestTree(spec: TestTreeSpec, runner: Runner): TestTreeR
 
 function provision(spec: TestTreeSpec, runner: Runner, changes: TestTreeChange[]): TestTreeReport {
 
+	requirePrivate(spec, runner);
+
 	for (const label of spec.labels) {
 		// `--force` updates rather than failing, and this writes unconditionally and reports no change —
 		// ADR-0023 has why a label definition is reconciled when a per-issue label is not.
@@ -77,8 +79,12 @@ function provision(spec: TestTreeSpec, runner: Runner, changes: TestTreeChange[]
 			numbers.set(issue.key, found.number);
 			continue;
 		}
-		numbers.set(issue.key, createIssue(spec, issue, runner));
+		// Recorded before the number is parsed, not after: the call has already created the issue, so a stdout
+		// this cannot read means the write landed while the report claimed it did not — losing exactly the
+		// recovery information the error carries changes for.
+		const created = run(runner, createIssueCommand(spec, issue));
 		changes.push({ key: issue.key, action: "created" });
+		numbers.set(issue.key, issueNumberFrom(created, issue.key));
 	}
 
 	for (const issue of spec.issues) {
@@ -170,6 +176,27 @@ function reconcileState(
 	return [{ key: issue.key, action: issue.closed ? "closed" : "reopened" }];
 }
 
+/**
+ * Refuses to touch a tree that is not private, before the first write.
+ *
+ * ADR-0023 calls the repository's visibility a security control rather than a preference: public means anyone
+ * can pre-create an issue under a known spec title, which provisioning would then adopt, or comment on one,
+ * and neither body nor comments are ever reconciled. Documenting that left the tool willing to provision a
+ * publicly writable tree and report it as matching, which is the one outcome the control exists to prevent.
+ *
+ * @throws TestTreeError when the repository is anything but private, or when its visibility cannot be read.
+ */
+function requirePrivate(spec: TestTreeSpec, runner: Runner): void {
+	const visibility = run(runner, ["gh", "repo", "view", spec.repo, "--json", "visibility", "--jq", ".visibility"])
+		.trim()
+		.toUpperCase();
+	if (visibility !== "PRIVATE") {
+		throw new TestTreeError(
+			`${spec.repo} is ${visibility || "of unknown visibility"}, and ADR-0023 requires it to be private`,
+		);
+	}
+}
+
 function listIssues(spec: TestTreeSpec, runner: Runner): readonly ExistingIssue[] {
 	const stdout = run(runner, [
 		"gh",
@@ -254,23 +281,16 @@ function parseIssues(stdout: string): readonly ExistingIssue[] {
 	});
 }
 
-function createIssue(spec: TestTreeSpec, issue: TestTreeIssue, runner: Runner): number {
+function createIssueCommand(spec: TestTreeSpec, issue: TestTreeIssue): readonly string[] {
 	const labels = issue.labels.flatMap((label) => ["--label", label]);
-	const stdout = run(runner, [
-		"gh",
-		"issue",
-		"create",
-		"--repo",
-		spec.repo,
-		"--title",
-		issue.title,
-		"--body",
-		issue.body,
-		...labels,
-	]);
+	return ["gh", "issue", "create", "--repo", spec.repo, "--title", issue.title, "--body", issue.body, ...labels];
+}
+
+/** @throws TestTreeError when `gh issue create` succeeded but printed no URL this can read a number out of. */
+function issueNumberFrom(stdout: string, key: string): number {
 	const number = Number(stdout.trim().split("/").pop());
 	if (!Number.isSafeInteger(number) || number <= 0) {
-		throw new TestTreeError(`creating ${issue.key} printed no issue number: ${stdout.trim()}`);
+		throw new TestTreeError(`creating ${key} printed no issue number: ${stdout.trim()}`);
 	}
 	return number;
 }
@@ -290,7 +310,16 @@ function blockedBy(spec: TestTreeSpec, number: number, runner: Runner): readonly
 	// Checked rather than cast, matching `parseIssues` above: `present.includes(...)` decides whether an edge
 	// exists, and a shape this could not read would report every blocker absent and re-POST all of them.
 	// GitHub accepts that, so the symptom is a change report claiming work it did not do.
-	const parsed: unknown = JSON.parse(stdout.trim() || "[]");
+	// Wrapped for the same reason `parseIssues` is: a raw SyntaxError is not a TestTreeError, so the wrapper
+	// that attaches the writes so far would drop them on the floor.
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(stdout.trim() || "[]");
+	} catch (cause) {
+		throw new TestTreeError(
+			`the blockers of issue ${number} are not JSON: ${cause instanceof Error ? cause.message : String(cause)}`,
+		);
+	}
 	const numbers = Array.isArray(parsed) ? parsed : undefined;
 	if (numbers === undefined || numbers.some((one) => !Number.isSafeInteger(one) || Number(one) <= 0)) {
 		throw new TestTreeError(`the blockers of issue ${number} are not a list of issue numbers: ${stdout.trim()}`);
