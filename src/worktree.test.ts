@@ -136,9 +136,10 @@ interface GitState {
 
 /** Where an ordinary repository keeps its administration: `<primary>/.git`, or the primary when bare. */
 function ordinaryCommonDir(state: GitState): string {
-	const record = state.worktrees[0] ?? [];
-	const primary = (record.find((one) => one.startsWith("worktree ")) ?? "worktree ").slice("worktree ".length);
-	return record.includes("bare") ? primary : join(primary, ".git");
+	const attributes = state.worktrees[0] ?? [];
+	const main = parseWorktreeList(record(attributes))[0];
+	if (main === undefined) return "";
+	return main.head.kind === "bare" ? main.path : join(main.path, ".git");
 }
 
 /** A git that answers from `state`, and records every argv it was asked for. */
@@ -511,6 +512,16 @@ describe("ensure", () => {
 		expect(kindOf(() => ensure({ runner: failing, repo, ticket: READER }))).toBe("git");
 	});
 
+	test("reads an empty answer about the git directory as a git failure, not as an unsupported layout", () => {
+		const { repo, state } = primaryOn();
+		const git = stubGit(state);
+		const silent: Runner = (argv) => (argv.includes("rev-parse") ? { code: 0, stdout: "", stderr: "" } : git.runner(argv));
+
+		// Exit 0 saying nothing is what `WorktreeError`'s `"git"` covers. Matched against neither accepted
+		// shape it would otherwise report a layout refusal naming no directory at all.
+		expect(kindOf(() => ensure({ runner: silent, repo, ticket: READER }))).toBe("git");
+	});
+
 	test("refuses a root naming the primary checkout, where worktrees would sit unignored beside its own files", () => {
 		const { repo, state } = primaryOn();
 		const git = stubGit(state);
@@ -828,9 +839,7 @@ describe("ensure against real git", () => {
 			defaultRunner(["git", "-C", work, "-c", "user.email=n@invalid", "-c", "user.name=n", "commit", "--quiet", "--allow-empty", "-m", "init"]).code,
 		).toBe(0);
 
-		// `git worktree list` reports the git directory as the primary worktree here, not `wt`, so `primary`
-		// becomes that directory and even the default root would resolve inside it — with no `.git` component
-		// for the lexical guard to catch.
+		// Asserted because it is the premise `refuseUnlessOrdinaryLayout` rests on, not to restate it.
 		expect(defaultRunner(["git", "-C", work, "worktree", "list", "--porcelain"]).stdout).toContain(gitDir);
 		expect(kindOf(() => ensure({ runner: defaultRunner, repo: work, ticket: READER }))).toBe("unsupported-repository");
 	});

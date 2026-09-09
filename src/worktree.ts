@@ -191,6 +191,7 @@ export interface Registration {
  *
  * @throws WorktreeError — `"branch-elsewhere"` where the branch is checked out at another path,
  * `"stale-directory"` where the expected path holds anything else, `"unnameable-ticket"` from `branchName`,
+ * `"unsupported-repository"` where the repository keeps its git directory somewhere this cannot work,
  * `"git"` where a command failed.
  */
 export function ensure(input: EnsureInput): WorktreeOutcome {
@@ -203,7 +204,7 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 		throw new WorktreeError(`${input.repo} reports no worktrees, so it is not a git checkout`, "git");
 	}
 	const primary = main.path;
-	refuseUnlessOrdinaryLayout(input.runner, primary, main.head);
+	refuseUnlessOrdinaryLayout(input.runner, main);
 
 	const path = join(resolveContainer(primary, input.root), leafOf(branch));
 
@@ -271,25 +272,16 @@ function refuseUnlessAttachable(registration: Registration, path: string, branch
 
 /**
  * @throws WorktreeError `"unsupported-repository"` unless the repository keeps its administration where
- * this tool assumes — `<primary>/.git`, or the primary itself when bare.
+ * this tool assumes — `<primary>/.git`, or the primary itself when bare. ADR-0023 has why such a
+ * repository is turned away rather than supported, and why bareness is what separates the two accepted
+ * shapes from the refused one.
  *
- * Refused rather than accommodated, deliberately. Under `--separate-git-dir` (or an inherited `GIT_DIR`)
- * `git worktree list` reports the *git directory* as the primary worktree rather than the working tree,
- * so `primary` becomes that directory and even the default root resolves to `<git-dir>/.worktrees` —
- * worktrees inside the administration, which `resolveContainer`'s `.git` check cannot see because such a
- * path has no `.git` component. Supporting the layout would mean reading the working tree from
- * `rev-parse --show-toplevel` and carrying two notions of "primary" everywhere; nothing here uses the
- * layout, so it is turned away at the door instead.
- *
- * Bareness is read from the porcelain listing rather than asked again, and it is load-bearing: a bare
- * repository and a separate git directory both report a common directory equal to `primary`, and only
- * bareness tells them apart.
- *
- * @throws WorktreeError `"git"` where the repository could not say.
+ * @throws WorktreeError `"git"` where the repository could not say, an empty answer included.
  */
-function refuseUnlessOrdinaryLayout(runner: Runner, primary: string, head: Head): void {
+function refuseUnlessOrdinaryLayout(runner: Runner, main: Registration): void {
+	const primary = main.path;
 	const result = runner([...gitCommonDirCommand(primary)]);
-	if (result.code !== 0) {
+	if (result.code !== 0 || result.stdout.trim() === "") {
 		throw new WorktreeError(
 			`${primary} could not be asked where it keeps its git directory: ${gitFailure(result.stderr, result.code)}`,
 			"git",
@@ -297,7 +289,7 @@ function refuseUnlessOrdinaryLayout(runner: Runner, primary: string, head: Head)
 	}
 	const common = result.stdout.trim();
 	if (common === join(primary, ".git")) return;
-	if (common === primary && head.kind === "bare") return;
+	if (common === primary && main.head.kind === "bare") return;
 	throw new WorktreeError(
 		`${primary} keeps its git directory at ${common}, which this does not work in`,
 		"unsupported-repository",
