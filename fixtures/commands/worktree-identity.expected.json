@@ -10,8 +10,7 @@
 		"rev-parse",
 		"--path-format=absolute",
 		"--show-toplevel",
-		"--git-common-dir",
-		"--abbrev-ref",
+		"--symbolic-full-name",
 		"HEAD"
 	]
 }

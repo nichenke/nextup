@@ -114,15 +114,22 @@ export function gitCommonDirCommand(repo: string): readonly string[] {
 }
 
 /**
- * What a directory *is*, asked of git from inside it: its own worktree root, the repository it belongs to,
- * and the branch checked out there — three lines, in that order.
+ * What a directory *is*, asked of git from inside it: its own worktree root, then the ref checked out there.
  *
- * One question rather than three, and asked of git rather than read off `git worktree list`, because the
- * listing is the thing that can be wrong: a worktree whose `.git` file has been edited is still listed
- * under the branch it was registered with, while git run inside it answers about somewhere else.
+ * Asked of git rather than read off `git worktree list`, because the listing is the thing that can be
+ * wrong: a worktree whose `.git` file has been edited is still listed under the branch it was registered
+ * with, while git run inside it answers about somewhere else.
+ *
+ * `--symbolic-full-name` rather than `--abbrev-ref`, because abbreviation is not stable: it disambiguates
+ * against other refs, so a tag sharing the branch's name turns `feature/x` into `heads/feature/x` and a
+ * comparison against the branch name stops matching a worktree that is perfectly valid.
+ *
+ * The ref comes last on purpose. A path may contain a newline — `parseWorktreeList` supports that
+ * deliberately — while a ref cannot, so a caller can take the final line as the ref and everything before it
+ * as the path. Asking for two paths in one call would have no such delimiter.
  */
 export function worktreeIdentityCommand(path: string): readonly string[] {
-	return ["git", "-C", path, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir", "--abbrev-ref", "HEAD"];
+	return ["git", "-C", path, "rev-parse", "--path-format=absolute", "--show-toplevel", "--symbolic-full-name", "HEAD"];
 }
 
 /**

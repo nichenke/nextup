@@ -138,8 +138,8 @@ interface GitState {
 	readonly danglingDefault?: boolean;
 	/** Overrides the git directory, for the layouts `refuseUnlessOrdinaryLayout` turns away. */
 	readonly commonDir?: string;
-	/** What git says a worktree is — root, repository, branch — for the cases where it disagrees with us. */
-	readonly identity?: (path: string) => readonly [string, string, string];
+	/** What git says a worktree is — its root and its ref — for the cases where it disagrees with us. */
+	readonly identity?: (path: string) => readonly [string, string];
 }
 
 /** Where an ordinary repository keeps its administration: `<primary>/.git`, or the primary when bare. */
@@ -185,8 +185,8 @@ function stubGit(state: GitState): { runner: Runner; issued: string[][] } {
 		}
 		if (words.includes("--show-toplevel")) {
 			const path = argv[2]!;
-			const identity = state.identity?.(path) ?? [path, ordinaryCommonDir(state), READER_BRANCH];
-			return { code: 0, stdout: `${identity.join("\n")}\n`, stderr: "" };
+			const [root, ref] = state.identity?.(path) ?? [path, `refs/heads/${READER_BRANCH}`];
+			return { code: 0, stdout: `${root}\n${ref}\n`, stderr: "" };
 		}
 		if (words.includes("rev-parse")) {
 			return { code: 0, stdout: `${state.commonDir ?? ordinaryCommonDir(state)}\n`, stderr: "" };
@@ -268,11 +268,11 @@ describe("ensure", () => {
 		// One assertion for every way the directory can fail to be ours, rather than one refusal per way a
 		// `.git` file can be edited. Each row is a real shape found by review: a deleted link makes git report
 		// the primary's root, and a link aimed at the primary or a sibling keeps the root and moves the branch.
-		const disagreements: readonly (readonly [string, readonly [string, string, string]])[] = [
-			["root is the primary", [repo, join(repo, ".git"), READER_BRANCH]],
-			["branch is another ticket's", [path, join(repo, ".git"), "feature/other-9"]],
-			["branch is the primary's", [path, join(repo, ".git"), "main"]],
-			["repository is a different one", [path, "/elsewhere/.git", READER_BRANCH]],
+		const disagreements: readonly (readonly [string, readonly [string, string]])[] = [
+			["root is the primary", [repo, `refs/heads/${READER_BRANCH}`]],
+			["branch is another ticket's", [path, "refs/heads/feature/other-9"]],
+			["branch is the primary's", [path, "refs/heads/main"]],
+			["head is detached", [path, "HEAD"]],
 		];
 
 		for (const [, identity] of disagreements) {
@@ -945,6 +945,28 @@ describe("ensure against real git", () => {
 		expect(kindOf(() => ensure({ runner: defaultRunner, repo, ticket: READER, root: join(outer, "link", "trees") }))).toBe(
 			"stale-directory",
 		);
+	});
+
+	test("attaches to its own worktree when a tag shares the branch's name", () => {
+		const repo = realRepo();
+		const outcome = ensure({ runner: defaultRunner, repo, ticket: READER });
+		expect(defaultRunner(["git", "-C", repo, "tag", READER_BRANCH, "HEAD"]).code).toBe(0);
+
+		// `--abbrev-ref` disambiguates against other refs, so a same-named tag turns `feature/reader-8` into
+		// `heads/feature/reader-8` and a valid worktree failed its own identity check on every retry.
+		expect(ensure({ runner: defaultRunner, repo, ticket: READER }).kind).toBe("attached");
+		expect(outcome.path).toBe(join(repo, DEFAULT_WORKTREE_ROOT, READER_LEAF));
+	});
+
+	test("attaches to its own worktree under a root containing a newline", () => {
+		const repo = realRepo();
+		const root = join(repo, "trees\nwith a newline");
+		const first = ensure({ runner: defaultRunner, repo, ticket: READER, root });
+
+		// `parseWorktreeList` supports a newline in a path deliberately, so the identity read has to as well;
+		// splitting its output on newlines assigned part of the path to the next field.
+		expect(first.kind).toBe("created");
+		expect(ensure({ runner: defaultRunner, repo, ticket: READER, root }).kind).toBe("attached");
 	});
 
 	test("refuses a worktree whose git link points at another repository, lock or no lock", () => {
