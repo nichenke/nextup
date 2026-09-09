@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import type { ReadDegrade } from "./github-adapter";
 import { seedGraph } from "./graph-store";
 import { DEFAULT_LABEL_FILTER, compileLabelFilter } from "./label-filter";
 import { DEGRADED_PREFIX, type Answer, answerJson, renderAnswer, renderSelection, selectionJson } from "./selection-output";
@@ -7,6 +6,7 @@ import { type Selection, select } from "./selector";
 import { sentinelLines } from "./test-support";
 import { type Ticket, ticketId } from "./ticket";
 import type { TicketRef } from "./ticket-ref";
+import type { ReadDegrade } from "./ticket-set-read";
 
 interface Spec {
 	readonly key: string;
@@ -215,6 +215,16 @@ describe("renderAnswer", () => {
 			readDegraded: [{ kind: "unreadable-blocking", tickets: 1, of: 1 }],
 		};
 		expect(sentinelLines(renderAnswer(answer))).toHaveLength(3);
+	});
+
+	// A tracker's own message is what an outage carries, and `gh` writes those over two lines: the second one
+	// reaching the output unprefixed is a line of tracker text presented as the tool's own.
+	test("keeps a reason to one line though the tracker's message ran to several", () => {
+		const detail = "error connecting to somewhere.invalid\ncheck your internet connection";
+		const lines = sentinelLines(renderAnswer(answerOf([{ kind: "outage", detail }])));
+		expect(lines).toHaveLength(1);
+		expect(lines[0]).toContain("error connecting to somewhere.invalid check your internet connection");
+		expect(renderAnswer(answerOf([{ kind: "outage", detail }])).split("\n").filter((line) => line.includes("check your internet"))).toEqual(lines);
 	});
 
 	test("renders exactly the selection when the read answered everything", () => {

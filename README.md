@@ -33,11 +33,15 @@ count.
 measurement that makes that safe for blocking, and what the default limit claims.
 
 `--help` has the label-filter semantics and the exit codes. A degraded answer carries one `degraded: ` line
-per reason, which is the sentinel to grep for: a truncated read, a pick whose blockers nothing could
-confirm, a tracker that could not be reached, and the tickets a read held back because it could not judge
-their blocking. A tracker that could not be reached is a degraded answer with nothing to recommend rather
-than a failure — the request was fine, so a retry is the response, and only a request that is itself wrong
-exits 2.
+per reason, which is the sentinel to grep for — a truncated read, a pick whose blockers nothing could
+confirm, a tracker that could not be reached, rows that did not report their blockers, tickets held back
+because only part of their blockers arrived, and blockers two edges disagreed about. Each is one line
+whatever the tracker's own message did, so the prefix is a reliable filter.
+
+A tracker that could not be reached is a degraded answer with nothing to recommend rather than a failure:
+the request was fine, so a retry is the response. Exit 2 is for what needs a person — a bad invocation, an
+origin that is not GitHub, a request the tracker rejects, a response that cannot be read, and any failure
+nothing classified.
 
 Nothing is claimed without an answer. The gate asks on the controlling terminal rather than through
 stdin and stdout, so it still works when either is redirected. `--print-command` neither claims nor asks: it prints the

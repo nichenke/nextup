@@ -26,9 +26,9 @@ function deps(runner: Runner = refuseToRun, confirm: CliDeps["confirm"] = termin
 }
 
 /**
- * A runner answering the repository question from the working directory, and everything else from `answer`.
- * The origin is spelled from the adapter's own accepted host, so no literal host reaches the identifier
- * guard and the remote cannot drift from the one the read accepts.
+ * A runner answering the repository question with the test tree, whatever directory the run is in, and
+ * everything else from `answer`. The origin is spelled from the adapter's own accepted host, so no literal
+ * host reaches the identifier guard and the remote cannot drift from the one the read accepts.
  */
 function inTestTree(answer: Runner): Runner {
 	const origin = `git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo}.git`;
@@ -36,7 +36,10 @@ function inTestTree(answer: Runner): Runner {
 }
 
 describe("run, over a ticket set read from GitHub", () => {
-	/** Has to match the limit the recording was captured under, or `replayRunner` answers nothing. */
+	/**
+	 * The limit the CLI has to be given for its argv to match the recording, which was captured asking for one
+	 * row more than this — so `replayRunner` answers nothing if the over-fetch ever stops happening.
+	 */
 	const TREE = openIssues(GITHUB_TEST_TREE).length;
 
 	/**
@@ -57,11 +60,8 @@ describe("run, over a ticket set read from GitHub", () => {
 		expect(result.code).toBe(0);
 		expect(result.stdout).toContain(shapeTitle(GITHUB_TEST_TREE, "several-priorities"));
 		expect(result.stdout).toContain(`${TREE} tickets:`);
+		expect(result.stdout).toContain("closed not asked");
 		expect(result.stderr).toBe("");
-	});
-
-	test("says the closed count was never asked for, rather than reporting a zero", () => {
-		expect(run(["--limit", String(TREE)], readingTree("ticket-set")).stdout).toContain("closed not asked");
 	});
 
 	test("bounds the read at a default of its own rather than at whatever the tracker CLI does", () => {

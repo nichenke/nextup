@@ -1,13 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { githubIssueListCommand } from "./command-builders";
 import { deriveEffectiveBlockedness } from "./effective-blockedness";
-import { GitHubAdapterError, type TicketSetRead, readGitHubTicketSet } from "./github-adapter";
+import { GitHubAdapterError, readGitHubTicketSet } from "./github-adapter";
 import { readPriority } from "./priority";
 import type { Runner } from "./runner";
 import { githubRecording, replayRunner, respondingRunner } from "./test-support";
 import { GITHUB_TEST_TREE, openIssues, shapeTitle } from "./test-tree";
 import { type Ticket, ticketId } from "./ticket";
 import { GITHUB_HOST } from "./ticket-ref";
+import type { TicketSetRead } from "./ticket-set-read";
 
 const REPO = GITHUB_TEST_TREE.repo;
 
