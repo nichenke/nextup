@@ -329,14 +329,16 @@ function resolveContainer(primary: string, root: string | null | undefined): str
 }
 
 /**
- * A path lowered for comparison, for the guards that must fail closed.
+ * A path or path component lowered for comparison. A bare helper rather than a comparison claiming a
+ * policy, because folding is safe in opposite directions at its two kinds of use: `resolveContainer` folds
+ * to refuse *more*, and the only thing it newly rejects is a genuinely distinct `.GIT` directory on a
+ * case-sensitive filesystem; `adoptableFromOrigin` folds a remote's name to *accept* a differently-cased
+ * `Origin`, which is the same remote by intent.
  *
- * Only the two refusals in `resolveContainer` use it, and both refuse rather than accept, so folding can
- * only refuse more: the one thing it newly rejects is a genuinely distinct `.GIT` directory on a
- * case-sensitive filesystem, which nothing here has. The path matching in `ensure` is deliberately *not*
- * folded — it decides which worktree to attach to, so on a case-sensitive filesystem folding would attach
- * to a different directory than the one asked for. Closing that needs to know whether the filesystem folds,
- * which this does not ask.
+ * The path matching in `ensure` is deliberately not folded. It decides which worktree to attach to, so on
+ * a case-sensitive filesystem folding would attach to a different directory than the one asked for —
+ * failing open, where these fail closed. Closing that needs to know whether the filesystem folds, which
+ * this does not ask.
  */
 function folded(path: string): string {
 	return path.toLowerCase();
@@ -470,8 +472,7 @@ function adoptableFromOrigin(runner: Runner, repo: string, branch: string): bool
 	const slash = rest.indexOf("/");
 	// The remote's name is whatever it is called on disk and git records it verbatim, so a remote named
 	// `Origin` is still the one meant; the branch is compared exactly, because git branch names are
-	// case-sensitive. Compared as one string this returned `created` for such a remote, cutting from HEAD
-	// and leaving the pushed tip behind — the loss asking the remotes exists to prevent.
+	// case-sensitive.
 	return slash !== -1 && folded(rest.slice(0, slash)) === "origin" && rest.slice(slash + 1) === branch;
 }
 

@@ -560,8 +560,6 @@ describe("ensure", () => {
 		const { repo, state } = primaryOn();
 		const git = stubGit({ ...state, remoteBranches: [READER_BRANCH], originName: "Origin" });
 
-		// Cutting a new branch here would leave every commit already pushed to that remote behind, which is
-		// what asking the remotes at all is for.
 		const outcome = ensure({ runner: git.runner, repo, ticket: READER });
 		expect(outcome.kind).toBe("checked-out");
 		expect(outcome.command).not.toContain("-b");
