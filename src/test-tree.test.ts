@@ -46,6 +46,16 @@ describe("validateTestTree", () => {
 
 	// Reconciliation matches on title, not on key, so two issues sharing a title collapse to one number:
 	// the tree gains an issue no key reaches, and every later run oscillates between the two specs.
+	// The fourth identity in the spec, and the last one left unchecked. Two definitions of one name cannot both
+	// be satisfied: `--force` writes each in turn, so every run sets the colour twice and the spec stays wrong.
+	test("refuses two definitions of the same label", () => {
+		const spec: TestTreeSpec = {
+			...tree,
+			labels: [...tree.labels, { name: "P0", color: "000000" }],
+		};
+		expect(() => validateTestTree(spec)).toThrow(TestTreeError);
+	});
+
 	test("refuses a repeated title, which is the identity the tracker is matched on", () => {
 		const spec: TestTreeSpec = {
 			...tree,

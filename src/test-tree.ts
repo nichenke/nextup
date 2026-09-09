@@ -236,6 +236,9 @@ export function validateTestTree(spec: TestTreeSpec): void {
 		titles.add(issue.title);
 	}
 	const declared = new Set(spec.labels.map((label) => label.name));
+	if (declared.size !== spec.labels.length) {
+		throw new TestTreeError("two labels share a name, and no tracker state satisfies both definitions");
+	}
 	const blockedBy = new Map(spec.issues.map((issue) => [issue.key, new Set(issue.blockedBy)]));
 	for (const issue of spec.issues) {
 		if (new Set(issue.blockedBy).size !== issue.blockedBy.length) {
