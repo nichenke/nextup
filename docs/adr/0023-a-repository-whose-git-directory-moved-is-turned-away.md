@@ -32,10 +32,17 @@ primary worktree, so without this guard the default root would be
 and the refusal fires. That means the guard is not only insurance against a configuration nobody here uses;
 it is what stops a plausible checkout from planting worktrees somewhere no reader would predict.
 
-An inherited `GIT_DIR` is a different shape and is **not** what this guards. It cannot reach git through
-this tool at all: `defaultRunner` passes no environment to the subprocess, so a `GIT_DIR` in the parent's
-environment is not visible to any git it runs. Even where it did reach git, only a `GIT_DIR` pointing away
-from `<worktree>/.git` behaves like the layouts above; one pointing at the ordinary place passes.
+An inherited `GIT_DIR` is a different shape and is **not** what this guards — it is worse, and this
+decision does not address it. An earlier draft of this ADR claimed `defaultRunner` passes no environment
+to the subprocess so `GIT_DIR` could not reach git. That is false, and the test behind it was
+mis-designed: it set `process.env` at runtime, which Bun's `spawnSync` does not forward, and concluded
+that nothing is forwarded. A variable **inherited** from the parent shell does reach git.
+
+`GIT_DIR` overrides `-C`, so an inherited one redirects every command this issues at another repository:
+`git -C <intended> worktree list` reports `<other>`, `primary` becomes `<other>`, and `ensure` creates the
+branch and worktree there while reporting `created`. That is a silent write to the wrong repository, and
+no guard here catches it, because every answer git gives is self-consistent — just about the wrong
+repository. Closing it belongs to the runner seam rather than to this decision.
 
 ## Consequences
 
