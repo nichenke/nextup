@@ -62,6 +62,20 @@ describe("validateTestTree", () => {
 		expect(() => validateTestTree(spec)).toThrow(TestTreeError);
 	});
 
+	// GitHub refuses any edge whose direct reverse already exists. Self-block is that rule at length one and a
+	// mutual pair is it at length two, so checking only the first leaves the second to fail partway through
+	// provisioning — and two hops is the obvious way to write a cycle, three being the non-obvious probe result.
+	test("refuses two issues that block each other", () => {
+		const spec: TestTreeSpec = {
+			...tree,
+			issues: [
+				{ ...issue("chain-base"), blockedBy: ["chain-middle"] },
+				{ ...issue("chain-middle"), blockedBy: ["chain-base"] },
+			],
+		};
+		expect(() => validateTestTree(spec)).toThrow(TestTreeError);
+	});
+
 	test("refuses a blocker that names no issue", () => {
 		const spec: TestTreeSpec = { ...tree, issues: [{ ...issue("no-priority"), blockedBy: ["absent"] }] };
 		expect(() => validateTestTree(spec)).toThrow(TestTreeError);

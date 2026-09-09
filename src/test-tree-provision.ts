@@ -45,6 +45,17 @@ export interface TestTreeReport {
 export function provisionTestTree(spec: TestTreeSpec, runner: Runner): TestTreeReport {
 	validateTestTree(spec);
 	const changes: TestTreeChange[] = [];
+	try {
+		return provision(spec, runner, changes);
+	} catch (cause) {
+		// Re-thrown carrying what had already been written, so a failure halfway through says which writes
+		// landed rather than only which call failed.
+		if (cause instanceof TestTreeError) throw new TestTreeError(cause.message, changes);
+		throw cause;
+	}
+}
+
+function provision(spec: TestTreeSpec, runner: Runner, changes: TestTreeChange[]): TestTreeReport {
 
 	for (const label of spec.labels) {
 		// `--force` updates rather than failing, and this writes unconditionally and reports no change —
@@ -99,8 +110,9 @@ export function provisionTestTree(spec: TestTreeSpec, runner: Runner): TestTreeR
 		}
 	}
 
-	// State comes after the edge loop so a blocker this run closes has its edges already in place —
-	// `closed-blocker` is created open, edged, and only then closed.
+	// This runs after the edge loop for no reason the tracker imposes: GitHub accepts an edge whose target is
+	// already closed, measured, so the two loops would work in either order. ADR-0023 records the probe,
+	// because an earlier comment here asserted an ordering constraint that does not exist.
 	for (const issue of spec.issues) {
 		const number = numberOf(numbers, issue.key);
 		const found = byTitle.get(issue.title);
@@ -176,6 +188,15 @@ function listIssues(spec: TestTreeSpec, runner: Runner): readonly ExistingIssue[
 		}
 		seen.add(issue.title);
 	}
+	// An issue the spec does not describe, which is what a rename actually leaves behind: the renamed issue
+	// and the one provisioning then creates carry different titles, so the collision check above never sees it.
+	// The same check catches an issue created by hand and one filed under any title the spec does not use.
+	const described = new Set(spec.issues.map((issue) => issue.title));
+	for (const issue of issues) {
+		if (!described.has(issue.title)) {
+			throw new TestTreeError(`${spec.repo} issue ${issue.number} is titled ${issue.title}, which the spec does not describe`);
+		}
+	}
 	return issues;
 }
 
@@ -202,9 +223,8 @@ function parseIssues(stdout: string): readonly ExistingIssue[] {
 	if (!Array.isArray(parsed)) throw new TestTreeError(`the issue listing is not a list: ${stdout.slice(0, 80)}`);
 	return parsed.map((raw, index) => {
 		const at = `issue ${index} of the listing`;
-		// Before the field checks, not with them: destructuring a null element raises a TypeError that
-		// escapes the TestTreeError this promises, while a null *inside* `assignees` is caught below. The
-		// guard was one level too shallow.
+		// Before the field checks, not with them: destructuring a null element raises a TypeError that escapes
+		// the TestTreeError this promises, while a null *inside* `assignees` is caught below.
 		if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
 			throw new TestTreeError(`${at} is not an object: ${JSON.stringify(raw)}`);
 		}

@@ -5,34 +5,31 @@
  */
 export const GITHUB_PLACEHOLDER_HOST = "github-test-tree";
 
-// Every rule refuses to start immediately after a backslash. `n`, `r` and `t` are legal first characters
-// for a scheme, a host and an email local part, so without that a host following a JSON `\n` swallowed the
-// escape's letter and left a lone backslash — the recording stopped being JSON, and the guard saw nothing
-// wrong with it. Requiring the character before the match not to be a backslash is what keeps the escape
-// intact while still rewriting the host that follows it.
-//
-// One rule per host shape the guard matches, applied in the order they are declared, after the unescaping
-// the guard also does first. Each consumes what
-// the next would otherwise mangle: a scheme carrying userinfo has to be taken whole rather than split at
-// its `@`, and a host inside a scheme has to be gone before the schemeless rule runs, or that rule leaves
-// the scheme standing in front of the placeholder and the result trips the guard it was meant to satisfy.
+// A JSON escape, matched only so it can be handed back untouched. It leads the alternation below because
+// consuming `\x` is the only thing that stops a host rule matching *inside* an escape: `n`, `r` and `t` are
+// legal first characters for a scheme, a host and an email local part alike. A lookbehind was tried here and
+// is not enough — it refuses a match starting at the escape's own letter, but not one starting a character
+// later, so a literal `\\` before a host still ate the host's first letter and glued the rest to the
+// backslash. Corrupt rather than leaked, and invisible: the guard passes on the result.
+const JSON_ESCAPE = /\\u[0-9a-fA-F]{4}|\\[\s\S]/;
+
+// The three host shapes the guard matches, in the order they must be tried. Each would mangle what a later
+// one leaves: a scheme carrying userinfo has to be taken whole rather than split at its `@`, and a host
+// inside a scheme has to be consumed before the schemeless rule sees it, or that rule leaves the scheme
+// standing in front of the placeholder and the result trips the guard it was meant to satisfy.
 //
 // A scheme and everything up to the path: userinfo, host and port together, since all three name a system.
 // `?` and `#` end the authority as surely as `/` does. Without them in the excluded class, a query or
 // fragment sitting directly against the host is swallowed with it, so the recording loses what it said and
 // not merely where it said it.
-const SCHEME_AUTHORITY = /(?<!\\)[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s"'<>\\/?#]*/g;
+const SCHEME_AUTHORITY = /[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s"'<>\\/?#]*/;
 
-// The scp-form remote and the email, neither of which carries a scheme. A dot followed by two letters has
-// to appear somewhere after the `@`, which is what keeps an ordinary `package@1.2.3` out. It is not a claim
-// about the final label: the pattern is unanchored, so a pre-release version such as `1.2.rc3` reached
-// through an `@` matches through the `rc` and leaves the `3` behind. The guard's own pattern is unanchored
-// the same way and matches the same token, so parity holds — see `scripts/check-identifiers.sh` on why it
-// accepts that noise rather than tightening.
-// The host part is spelled exactly as the guard spells it, including the `*` that admits an empty label:
-// requiring one character there let a degenerate `user@` and a bare dotted suffix through redaction while
-// the guard still flagged it, which is the parity this whole rule exists to hold.
-const EMAIL_HOST = /(?<!\\)[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]*\.[A-Za-z]{2,}/g;
+// The scp-form remote and the email, neither of which carries a scheme. A dot followed by two letters has to
+// appear somewhere after the `@`, which is what keeps an ordinary `package@1.2.3` out — not a claim about the
+// final label, since the pattern is unanchored and matches through the letters of a pre-release version.
+// Spelled exactly as the guard spells it, including the `*` that admits an empty label, because parity is the
+// point; `scripts/check-identifiers.sh` says why it accepts that noise rather than tightening.
+const EMAIL_HOST = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]*\.[A-Za-z]{2,}/;
 
 // A dotted host with no scheme and no user, spelled to match the guard's schemeless shape rather than a
 // tidier subset — ADR-0024 has why parity is the design and what it costs. Runs last, so the two rules
@@ -40,7 +37,12 @@ const EMAIL_HOST = /(?<!\\)[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]*\.[A-Za-z]{2,}/g;
 //
 // A lookahead for the separator rather than consuming it: the guard's shape swallows the rest of the line,
 // and copying that here would destroy the path this function promises to keep.
-const BARE_HOST = /(?<!\\)[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}(?=[:/])/g;
+const BARE_HOST = /[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}(?=[:/])/;
+
+const REDACTABLE = new RegExp(
+	[JSON_ESCAPE, SCHEME_AUTHORITY, EMAIL_HOST, BARE_HOST].map((rule) => rule.source).join("|"),
+	"g",
+);
 
 /**
  * A captured exchange with each host the identifier guard would flag replaced by `placeholderHost`, leaving
@@ -51,15 +53,13 @@ const BARE_HOST = /(?<!\\)[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}(?=[:/]
  * it means extending this rather than adding an allowlist line — ADR-0024.
  */
 export function redactRecordingIdentifiers(text: string, placeholderHost: string): string {
-	// Unescaping first, because the guard's own normalization does it first: a URL whose slashes are
-	// backslash-escaped carries no literal `://`, so every rule below misses it while the guard — which
-	// unescapes before matching — still flags the host. Left alone, that is a real host stored verbatim in a
-	// recording. Rewriting the bytes is safe where a JSON `\/` and a `/` denote the same character; the
-	// guard's other normalization, turning `\n` into a real newline, is deliberately not copied, since that
-	// would break the JSON a recording is made of.
+	// Unescaping `\/` first, because the guard's own normalization does it first: a URL whose slashes are
+	// backslash-escaped carries no literal `://`, so every rule would miss it while the guard — which
+	// unescapes before matching — still flags the host, leaving a real host stored verbatim. Safe to rewrite,
+	// because a JSON `\/` and a `/` denote the same character. The guard's other normalization, turning `\n`
+	// into a real newline, is deliberately not copied: that would break the JSON a recording is made of, which
+	// is why escapes are stepped over below rather than resolved.
 	return text
 		.replaceAll("\\/", "/")
-		.replace(SCHEME_AUTHORITY, placeholderHost)
-		.replace(EMAIL_HOST, placeholderHost)
-		.replace(BARE_HOST, placeholderHost);
+		.replace(REDACTABLE, (match) => (match.startsWith("\\") ? match : placeholderHost));
 }

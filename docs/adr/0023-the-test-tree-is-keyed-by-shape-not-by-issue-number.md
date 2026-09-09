@@ -83,10 +83,20 @@ would carry our bookkeeping, and the first ticket to need a body byte-for-byte w
 Revisit if a rename ever actually happens; the cost of being wrong is one duplicated issue, caught by the
 check below.
 
-What *is* detectable is the state a rename leaves behind, and the two are worth separating. Provisioning
-refuses a listing in which two issues share a title, checked against the tracker rather than the spec,
-because the title map keeps the last of such a pair and strands the rest where no later run can reach them
-and every recording captures them. So the rename is documented and its consequence is caught.
+What *is* detectable is the state a rename leaves behind, and it took review to work out which check does it.
+
+The duplicate-title refusal does **not**. A rename produces two *different* titles — the renamed original and
+the fresh issue provisioning creates under the spec title — so nothing collides and that check never fires.
+It earns its place for the cases it does cover: a rename onto another spec issue's title, a spec that once
+held a duplicate, and an issue filed under a title already in use. It is not the rename control, and an
+earlier version of this ADR credited it as one.
+
+The check that does the job is the inverse, over the same listing: any issue the spec does not describe is an
+orphan. That is what a rename leaves — along with an issue created by hand, and one filed under any unused
+title. Provisioning refuses on it. The cost of not having it: fix a typo in one of these long prose titles
+and the next run creates a second issue, leaves the original with its edges and its claim, reports a single
+`created` line, and then converges — eighteen issues against a seventeen-issue spec, reporting that every
+issue matches, with every later recording carrying the orphan.
 
 A **label definition** is the exception, and the distinction is easy to lose: the name and colour of each
 label in `spec.labels` are re-asserted on every run with `gh label create --force`, because a recording
@@ -107,10 +117,21 @@ judgment, and an agent makes it against the tracker directly, or the spec change
 rebuilt. Encoding it here would grow a general tracker-sync tool inside a fixture builder, and every
 rule it learned would be one more thing to be wrong about the tracker.
 
-Building from scratch rests on one more measured fact, worth recording because the fake in the tests would
-vouch for it either way: the dependency endpoint answers `200` with an empty list for an issue that has no
-dependency records, rather than `404`. Checked against an issue that has never had an edge. Had it been a
-`404`, `run()` would throw and the tree could never be built from empty — the primary documented use.
+Two more measured facts, both worth recording because the fake in the tests would vouch for either answer.
+
+The dependency endpoint answers `200` with an empty list for an issue that has no dependency records, rather
+than `404`. Checked against an issue that has never had an edge. Had it been a `404`, `run()` would throw and
+the tree could never be built from empty — the primary documented use.
+
+GitHub accepts an edge whose **target is already closed**. Checked by pointing a new edge at `closed-blocker`
+while it was closed. So the edge loop and the state loop are independent, and a comment here that claimed
+state had to follow edges was describing a constraint that does not exist. It matters beyond tidiness: had
+the answer gone the other way, adding a blocker to an existing spec issue would have made every subsequent run
+throw at the same write, which would contradict this ADR's claim that an interrupted run heals.
+
+What reconciliation does **not** do, in either case, is remove an edge. It only adds missing ones, and it now
+skips the read entirely for an issue the spec gives no blockers — so an edge nobody declared survives, and is
+not even looked for. Read "reconciles dependency edges" above as "adds the declared ones".
 
 ## A dependency cycle is reachable on GitHub, at three hops and not at two
 

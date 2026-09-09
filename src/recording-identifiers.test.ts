@@ -92,6 +92,16 @@ describe("redactRecordingIdentifiers", () => {
 		}
 	});
 
+	// A lookbehind stops a match beginning at the escape's own letter but not one beginning a character later,
+	// so a literal `\\` before a host ate the host's first character and glued the rest to the backslash.
+	test("keeps every escape intact when a host follows it directly", () => {
+		for (const prefix of ["first\n", "tab\t", "back\\", "ret\r"]) {
+			const redacted = redact(JSON.stringify({ body: prefix + BARE_HOST_PATH }));
+			expect(() => JSON.parse(redacted)).not.toThrow();
+			expect((JSON.parse(redacted) as { body: string }).body).toBe(`${prefix}${HOST}/group/project/-/issues/1`);
+		}
+	});
+
 	test("leaves a package version alone, which is the other thing spelled with an @", () => {
 		expect(redact("typescript@5.1.2")).toBe("typescript@5.1.2");
 		expect(redact("@types/bun@1.4.0")).toBe("@types/bun@1.4.0");
@@ -107,9 +117,7 @@ describe("redactRecordingIdentifiers", () => {
 		expect(redact(once)).toBe(once);
 	});
 
-	// Asserted against the real bash guard rather than a TypeScript copy of its pattern. A copy is what let an
-	// escaped-slash URL through redaction untouched while the guard flagged it: the transcription agreed with
-	// the code it was transcribed from, and neither agreed with the guard.
+	// Asserted against the real bash guard rather than a TypeScript copy of its pattern — ADR-0024 has why.
 	// Scoped to hosts on purpose: the guard's fourth shape, a slug and a `#` before digits, carries no host,
 	// so no rule here reaches it and this corpus deliberately holds none. ADR-0024 covers that gap.
 	test("leaves behind no host the real identifier guard matches", () => {

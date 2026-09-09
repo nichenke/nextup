@@ -271,9 +271,8 @@ describe("provisionTestTree", () => {
 		expect(claimed?.assignees).toEqual([{ login: "somebody-else" }]);
 	});
 
-	// The same treatment `parseIssues` gets, for the same reason: this decides whether an edge already
-	// exists, and a shape it cannot read would report every blocker as absent and re-POST all of them —
-	// which GitHub accepts, so the symptom is a change report claiming work it did not do.
+	// The same treatment `parseIssues` gets; `blockedBy`'s own comment has why a shape it cannot read is worse
+	// than a failure.
 	test.each([
 		["not a list", `{"a":1}`, /not a list of issue numbers/],
 		["a list of nulls", `[null]`, /not a list of issue numbers/],
@@ -294,8 +293,7 @@ describe("provisionTestTree", () => {
 		expect(() => provisionTestTree(GITHUB_TEST_TREE, tracker.runner)).not.toThrow();
 	});
 
-	// `gh api --jq .id` prints nothing and exits 0 when the field is absent, so an unchecked read POSTs an
-	// empty `issue_id` and the 422 that comes back names the wrong cause. Same guard as `createIssue`'s.
+	// The id fetch's own comment has why an absent field is worse than a failed call.
 	test("refuses a blocker id that came back empty", () => {
 		// A fresh tracker, so no edges exist yet and the id fetch is actually reached.
 		const tracker = fakeTracker();
@@ -303,6 +301,38 @@ describe("provisionTestTree", () => {
 			argv[1] === "api" && argv[3] === "--jq" && argv[4] === ".id" ? ok("\n") : tracker.runner(argv);
 
 		expect(() => provisionTestTree(GITHUB_TEST_TREE, blanked)).toThrow(/is not an issue id/);
+	});
+
+	// The duplicate-title refusal cannot see a rename: the renamed issue and the freshly created one carry
+	// different titles, so nothing collides. What a rename leaves is an issue the spec does not describe, and
+	// that is what this catches — along with a hand-created issue and a squat under any unclaimed title.
+	test("refuses a listed issue the spec does not describe", () => {
+		const tracker = fakeTracker();
+		provisionTestTree(GITHUB_TEST_TREE, tracker.runner);
+		const renamed = tracker.issues.find((issue) => issue.title.startsWith("Chain tip"));
+		if (renamed !== undefined) renamed.title = "Chain tip: blocked two deep (wip)";
+
+		expect(() => provisionTestTree(GITHUB_TEST_TREE, tracker.runner)).toThrow(/does not describe/);
+	});
+
+	test("carries the writes that landed when it fails partway", () => {
+		const tracker = fakeTracker();
+		let creates = 0;
+		// Keyed on `issue create`, not on `create` alone: `gh label create` shares that word, and counting it
+		// made the failure fire before a single issue existed.
+		const failing: Runner = (argv) => {
+			const isIssueCreate = argv[1] === "issue" && argv[2] === "create";
+			creates += isIssueCreate ? 1 : 0;
+			return isIssueCreate && creates > 3 ? { code: 1, stdout: "", stderr: "gh: HTTP 403" } : tracker.runner(argv);
+		};
+
+		try {
+			provisionTestTree(GITHUB_TEST_TREE, failing);
+			throw new Error("expected provisioning to fail");
+		} catch (error) {
+			expect(error).toBeInstanceOf(TestTreeError);
+			expect((error as TestTreeError).changes).toHaveLength(3);
+		}
 	});
 
 	test("refuses a create whose output carries no issue number", () => {

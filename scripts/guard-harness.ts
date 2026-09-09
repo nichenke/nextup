@@ -11,12 +11,10 @@ const script = join(import.meta.dir, "check-identifiers.sh");
  * invisible to it and an unstaged fixture would report a pass it never earned.
  *
  * Shared by the guard's own tests and by `src/recording-identifiers.test.ts`, which asserts that redaction
- * leaves nothing this rejects. That assertion has to run the real guard: a copy of its pattern in
- * TypeScript agreed with the code it was transcribed from while both disagreed with the guard, which is how
- * an escaped-slash URL passed redaction with its host intact.
+ * leaves nothing this rejects. ADR-0024 has why that assertion must run the real guard rather than a copy of
+ * its pattern.
  *
- * @throws Error when `git init` or `git add` fails, since a fixture that was never staged would otherwise
- * be scanned as an empty repository and pass.
+ * @throws Error when `git init` or `git add` fails, which would otherwise pass as a clean scan.
  */
 export function runGuardOn(contents: string) {
 	const dir = mkdtempSync(join(tmpdir(), "nextup-guard-"));

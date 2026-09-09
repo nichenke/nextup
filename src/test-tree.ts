@@ -1,4 +1,17 @@
-export class TestTreeError extends Error {}
+export class TestTreeError extends Error {
+	/**
+	 * What provisioning had already written when it failed, when it failed partway. Empty for a failure that
+	 * changed nothing, and for every validation error. Carried on the error because the alternative is an
+	 * operator who knows a call failed and nothing about the writes that landed — including whether the tree
+	 * now holds an issue no later run can reach.
+	 */
+	readonly changes: readonly { readonly key: string; readonly action: string }[];
+
+	constructor(message: string, changes: readonly { readonly key: string; readonly action: string }[] = []) {
+		super(message);
+		this.changes = changes;
+	}
+}
 
 /** The colour is pinned because a recording captures it. */
 export interface TestTreeLabel {
@@ -214,12 +227,17 @@ export function validateTestTree(spec: TestTreeSpec): void {
 		titles.add(issue.title);
 	}
 	const declared = new Set(spec.labels.map((label) => label.name));
+	const blockedBy = new Map(spec.issues.map((issue) => [issue.key, new Set(issue.blockedBy)]));
 	for (const issue of spec.issues) {
 		for (const blocker of issue.blockedBy) {
-			// Self-reference before resolvability, because a key naming its own issue passes the check below:
-			// it is in `keys`. GitHub refuses that edge, so it would fail partway through provisioning.
+			// GitHub refuses any edge whose direct reverse already exists — ADR-0023 has the probe. Self-block is
+			// that rule at length one and a mutual pair is it at length two; both resolve to real keys, so the
+			// check below passes them and the run fails partway through instead.
 			if (blocker === issue.key) throw new TestTreeError(`${issue.key} blocks itself`);
 			if (!keys.has(blocker)) throw new TestTreeError(`${issue.key} is blocked by ${blocker}, which is not an issue`);
+			if (blockedBy.get(blocker)?.has(issue.key)) {
+				throw new TestTreeError(`${issue.key} and ${blocker} block each other`);
+			}
 		}
 		for (const label of issue.labels) {
 			if (!declared.has(label)) throw new TestTreeError(`${issue.key} carries ${label}, which the spec does not declare`);
