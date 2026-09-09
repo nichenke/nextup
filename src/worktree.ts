@@ -303,6 +303,10 @@ function refuseUnlessOrdinaryLayout(runner: Runner, main: Registration): void {
  * It also discards an empty segment, and `??` does not fire for `""` — the two together turned a blank
  * root, which is what an unset variable or an empty flag hands over, into the primary checkout itself.
  *
+ * Blankness is detected by trimming, and a root that is not blank is then resolved untrimmed. Whitespace
+ * can be part of a directory's name, so trimming one away would resolve a different path than the caller
+ * named while reporting success — the opposite of taking an absolute root as given.
+ *
  * @throws WorktreeError `"stale-directory"` for the three roots no caller wants:
  *
  * - **The primary checkout itself**, which `"."` also reaches. Worktrees would land beside the checkout's
@@ -317,7 +321,8 @@ function refuseUnlessOrdinaryLayout(runner: Runner, main: Registration): void {
  * - **Reached through a symlink**, per `refuseIfReachedThroughLink`.
  */
 function resolveContainer(primary: string, root: string | null | undefined): string {
-	const container = resolve(primary, root?.trim() || DEFAULT_WORKTREE_ROOT);
+	const given = root ?? "";
+	const container = resolve(primary, given.trim() === "" ? DEFAULT_WORKTREE_ROOT : given);
 	if (folded(container) === folded(primary)) {
 		throw new WorktreeError(`${primary} is the primary checkout, so it cannot also be the worktree root`, "stale-directory");
 	}

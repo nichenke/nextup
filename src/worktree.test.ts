@@ -594,6 +594,14 @@ describe("ensure", () => {
 		}
 	});
 
+	test("keeps whitespace that is part of an explicit root, rather than trimming it into another path", () => {
+		const { repo, state } = primaryOn();
+		const git = stubGit(state);
+		const spaced = join(repo, "trees with a trailing space ");
+
+		expect(ensure({ runner: git.runner, repo, ticket: READER, root: spaced }).path).toBe(join(spaced, READER_LEAF));
+	});
+
 	test("takes a root inside the checkout as given, which is the caller's business rather than a refusal", () => {
 		const { repo, state } = primaryOn();
 		const git = stubGit(state);
