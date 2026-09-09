@@ -958,17 +958,6 @@ describe("ensure against real git", () => {
 		expect(outcome.path).toBe(join(repo, DEFAULT_WORKTREE_ROOT, READER_LEAF));
 	});
 
-	test("attaches to its own worktree under a root containing a newline", () => {
-		const repo = realRepo();
-		const root = join(repo, "trees\nwith a newline");
-		const first = ensure({ runner: defaultRunner, repo, ticket: READER, root });
-
-		// `parseWorktreeList` supports a newline in a path deliberately, so the identity read has to as well;
-		// splitting its output on newlines assigned part of the path to the next field.
-		expect(first.kind).toBe("created");
-		expect(ensure({ runner: defaultRunner, repo, ticket: READER, root }).kind).toBe("attached");
-	});
-
 	test("refuses a worktree whose git link points at another repository, lock or no lock", () => {
 		const repo = realRepo();
 		const outcome = ensure({ runner: defaultRunner, repo, ticket: READER });

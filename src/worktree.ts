@@ -354,8 +354,8 @@ function resolveContainer(primary: string, root: string | null | undefined, gitD
  *
  * The path matching in `ensure` is deliberately not folded. It decides which worktree to attach to, so on
  * a case-sensitive filesystem folding would attach to a different directory than the one asked for —
- * failing open, where these fail closed. Closing that needs to know whether the filesystem folds, which
- * this does not ask; nichenke/nextup issue 44 carries the probe design and the condition to close it.
+ * failing open, where these fail closed. Closing that would need to know whether the filesystem folds,
+ * which this does not ask.
  */
 function folded(path: string): string {
 	return path.toLowerCase();
