@@ -1,13 +1,27 @@
 import { githubIssueListCommand } from "./command-builders";
 import type { DependencyGraph, IssueId } from "./effective-blockedness";
 import { classifyFailure } from "./failure-class";
-import { resolveRepoFromOrigin } from "./git-remote";
+import { resolveOriginRemote } from "./git-remote";
 import { type GraphSeed, seedGraph } from "./graph-store";
 import type { Runner } from "./runner";
 import { type Claim, type Ticket, ticketId } from "./ticket";
 import { type TicketRef, formatTicketRef, isValidRepoPath } from "./ticket-ref";
 
 export class GitHubAdapterError extends Error {}
+
+/**
+ * A way one read answered with less than it was asked. Kinds rather than sentences, matching how `Degrade` and
+ * `DEGRADE_REASON` already divide this repo: a caller decides on the kind, and only the render boundary writes
+ * prose. A test asserting the wording instead pins text `selection-output.ts` declares free to change.
+ *
+ * `outage` is the only one named for a failure of the call. The other two are the tracker answering, with less
+ * than one answer in it — which is why neither is filed under a word `failure-class.ts` reserves for
+ * connectivity and the tracker erroring.
+ */
+export type ReadDegrade =
+	| { readonly kind: "outage"; readonly detail: string }
+	| { readonly kind: "unreadable-blocking"; readonly tickets: number; readonly of: number }
+	| { readonly kind: "contradicted-blocker"; readonly refs: readonly TicketRef[] };
 
 /**
  * One read of a ticket set: the tickets, the blocking graph over them, and what the read could not answer.
@@ -29,10 +43,10 @@ export interface TicketSetRead {
 	 */
 	readonly truncated: boolean;
 	/**
-	 * Reads that failed open, each already reflected as `"unknown"` somewhere in `tickets` or in `graph`, or
-	 * as an empty set. Empty for a read that answered everything. A defect never reaches here — it throws.
+	 * Reads that failed open, each already reflected as `"unknown"` somewhere in `tickets` or in `graph`, or as
+	 * an empty set. Empty for a read that answered everything. A defect never reaches here — it throws.
 	 */
-	readonly outages: readonly string[];
+	readonly degraded: readonly ReadDegrade[];
 }
 
 export interface GitHubReadInput {
@@ -71,24 +85,18 @@ export function readGitHubTicketSet(input: GitHubReadInput): TicketSetRead {
 	if (result.code !== 0) return failedRead(repo, result.stderr);
 
 	const rows = readRows(result.stdout, repo);
-	const readings = rows.map((row, index) => readRow(row, repo, `${repo} row ${index}`));
+	const readings = rows.map((row, index) => readRow(row, `${repo} row ${index}`));
 	const tickets = readings.map((reading) => reading.ticket);
 	// Counted from the edges rather than from the tickets' `blockers`, which mirror them: the graph is seeded
 	// from the edges, so counting the mirror would let the two disagree with nothing to catch it.
 	const unreadable = readings.filter((reading) => reading.edges === "unknown").length;
 	const { graph, contradicted } = graphFor(readings);
 
-	const outages: string[] = [];
-	if (unreadable > 0) {
-		outages.push(`${repo} answered with no readable blocking field for ${unreadable} of ${rows.length} tickets`);
-	}
-	if (contradicted.length > 0) {
-		outages.push(
-			`${repo} reported one blocker as both open and closed within one read: ${contradicted.map(formatTicketRef).join(", ")}`,
-		);
-	}
+	const degraded: ReadDegrade[] = [];
+	if (unreadable > 0) degraded.push({ kind: "unreadable-blocking", tickets: unreadable, of: rows.length });
+	if (contradicted.length > 0) degraded.push({ kind: "contradicted-blocker", refs: contradicted });
 
-	return { tickets, graph, truncated: rows.length > input.limit, outages };
+	return { tickets, graph, truncated: rows.length > input.limit, degraded };
 }
 
 /**
@@ -102,18 +110,39 @@ function failedRead(repo: string, stderr: string): TicketSetRead {
 	if (classifyFailure(stderr) === "defect") {
 		throw new GitHubAdapterError(`reading ${repo} failed, and the request itself is what is wrong: ${detail}`);
 	}
-	return { tickets: [], graph: seedGraph([]), truncated: true, outages: [`reading ${repo} failed as an outage: ${detail}`] };
+	return { tickets: [], graph: seedGraph([]), truncated: true, degraded: [{ kind: "outage", detail }] };
 }
 
+/** The only host this adapter reads. A read carries no `--hostname`, so nothing else can be reached. */
+export const GITHUB_HOST = "github.com";
+
+/**
+ * The repository to read: the one named, or the one the working directory's origin points at.
+ *
+ * A resolved remote has to be on GitHub, and that check is the point rather than a formality. The remote's
+ * host is not carried into the query, so a checkout on a GitHub Enterprise or GitLab host resolves to a bare
+ * `owner/repo` indistinguishable from a github.com one — and the read then answers with whatever public
+ * repository happens to sit at that path, which is somebody else's work presented as this project's.
+ */
 function resolveRepo(input: GitHubReadInput): string {
-	const repo = input.repo ?? resolveRepoFromOrigin(input.runner);
-	if (repo === null) {
-		throw new GitHubAdapterError("no repository was named, and the working directory's git remote could not be resolved");
-	}
+	const repo = input.repo ?? requireGitHubOrigin(input.runner);
 	if (!isValidRepoPath("github", repo)) {
 		throw new GitHubAdapterError(`${repo} is not a GitHub owner and repository`);
 	}
 	return repo;
+}
+
+function requireGitHubOrigin(runner: Runner): string {
+	const origin = resolveOriginRemote(runner);
+	if (origin === null) {
+		throw new GitHubAdapterError("no repository was named, and the working directory's git remote could not be resolved");
+	}
+	if (origin.host !== GITHUB_HOST) {
+		throw new GitHubAdapterError(
+			`the origin remote points at ${origin.host}, and this adapter reads ${GITHUB_HOST} only — reading ${origin.repo} here would answer about a different repository of the same name`,
+		);
+	}
+	return origin.repo;
 }
 
 /** One blocker an edge named, carrying the openness that edge reported for it. */
@@ -200,8 +229,17 @@ function readRows(stdout: string, repo: string): readonly Record<string, unknown
 	});
 }
 
-function readRow(row: Record<string, unknown>, repo: string, where: string): RowReading {
-	const ref: TicketRef = { tracker: "github", repo, host: null, key: String(number(row.number, `${where} number`)) };
+function readRow(row: Record<string, unknown>, where: string): RowReading {
+	const address = url(row.url, `${where} url`);
+	const ref: TicketRef = {
+		tracker: "github",
+		// From this row's own address rather than from what the caller asked for: a blocker's repository can only
+		// be read from its edge's address, and unless both come from the same place an in-read blocker can look
+		// outside the read and take its openness from a stale edge. ADR-0025 has what made that silent.
+		repo: addressRepo(address, `${where} url`),
+		host: null,
+		key: String(number(row.number, `${where} number`)),
+	};
 	const edges = readEdges(row.blockedBy, where);
 	return {
 		ticket: {
@@ -210,7 +248,7 @@ function readRow(row: Record<string, unknown>, repo: string, where: string): Row
 			state: state(row.state, `${where} state`),
 			claim: readClaim(row.assignees, where),
 			blockers: edges === "unknown" ? "unknown" : edges.map((edge) => edge.ref),
-			url: url(row.url, `${where} url`),
+			url: address,
 			labels: readLabels(row.labels, where),
 		},
 		edges,
@@ -233,9 +271,15 @@ function readEdges(raw: unknown, where: string): readonly Edge[] | "unknown" {
 	const nodes = field.nodes;
 	const total = number(field.totalCount, `${where} blockedBy.totalCount`);
 	if (!Array.isArray(nodes)) throw new GitHubAdapterError(`${where} blockedBy.nodes is not a list of blockers`);
-	// A node list shorter than the count beside it is a page of the edges rather than all of them, and a
-	// shorter list of blockers is what reads as unblocked. No recording reaches this — ADR-0025.
-	if (nodes.length !== total) return "unknown";
+	// A node list shorter than the count beside it is a page of the edges rather than all of them. Refused
+	// rather than degraded, because neither answer is available: the retained edges may hold a confirmed open
+	// blocker, so `"unknown"` would demote a confirmed block — and the missing ones may hold one too, so the
+	// retained list alone would read unblocked. ADR-0025 has why refusing is right and what would lift it.
+	if (nodes.length !== total) {
+		throw new GitHubAdapterError(
+			`${where} blockedBy returned ${nodes.length} of ${total} blockers, which is a page of them rather than all — reading a partial blocking list is refused`,
+		);
+	}
 
 	const edges: Edge[] = [];
 	for (const [index, node] of nodes.entries()) {
@@ -249,7 +293,7 @@ function readEdges(raw: unknown, where: string): readonly Edge[] | "unknown" {
 			// The blocker's own repository, read from its address rather than assumed to be the one being read:
 			// a dependency may name an issue in another repository, and keying it under this one would land two
 			// different tickets on one graph node.
-			repo: blockerRepo(blocker.url, at),
+			repo: addressRepo(text(blocker.url, `${at} url`), `${at} url`),
 			host: null,
 			key: String(number(blocker.number, `${at} number`)),
 		};
@@ -265,10 +309,9 @@ function readEdges(raw: unknown, where: string): readonly Edge[] | "unknown" {
 // requires the scheme and authority this address has lost, and resolves a tracker from the host besides.
 const ISSUE_ADDRESS = /([^/\s]+\/[^/\s]+)\/issues\/\d+$/;
 
-function blockerRepo(raw: unknown, where: string): string {
-	const address = text(raw, `${where} url`);
+function addressRepo(address: string, where: string): string {
 	const repo = ISSUE_ADDRESS.exec(address)?.[1];
-	if (repo === undefined) throw new GitHubAdapterError(`${where} url names no owner and repository: ${address}`);
+	if (repo === undefined) throw new GitHubAdapterError(`${where} names no owner and repository: ${address}`);
 	return repo;
 }
 

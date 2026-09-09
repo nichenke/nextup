@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { githubIssueListCommand } from "./command-builders";
 import { deriveEffectiveBlockedness } from "./effective-blockedness";
-import { GitHubAdapterError, type TicketSetRead, readGitHubTicketSet } from "./github-adapter";
+import { GITHUB_HOST, GitHubAdapterError, type TicketSetRead, readGitHubTicketSet } from "./github-adapter";
 import { readPriority } from "./priority";
 import { loadRecording, recordingsDir } from "./recording";
 import type { Runner } from "./runner";
@@ -17,8 +17,11 @@ const WHOLE_TREE = GITHUB_TEST_TREE.issues.length;
 /** The limit `ticket-set-truncated.json` was captured under, which `capture-github-recordings.ts` fixes. */
 const TRUNCATING = 3;
 
-const REMOTE = "https://example.com/example/repo.git";
-const NESTED_REMOTE = "https://example.com/group/subgroup/project.git";
+// Built from the adapter's own accepted host, in git's scp form, so no spelling of it appears here for the
+// identifier guard to read — and so these cannot drift from the host the adapter actually accepts.
+const REMOTE = `git@${GITHUB_HOST}:example/repo.git`;
+const NESTED_REMOTE = `git@${GITHUB_HOST}:group/subgroup/project.git`;
+const ELSEWHERE_REMOTE = "https://example.com/example/repo.git";
 
 function recording(name: string) {
 	return loadRecording(join(recordingsDir("github"), `${name}.json`));
@@ -49,7 +52,7 @@ describe("readGitHubTicketSet, over the whole test tree", () => {
 		const read = wholeTree();
 		expect(read.tickets).toHaveLength(WHOLE_TREE);
 		expect(read.truncated).toBe(false);
-		expect(read.outages).toEqual([]);
+		expect(read.degraded).toEqual([]);
 		expect([...read.tickets].map((one) => one.title).sort()).toEqual(
 			[...GITHUB_TEST_TREE.issues].map((one) => one.title).sort(),
 		);
@@ -161,7 +164,7 @@ describe("a read that could not tell us about blocking", () => {
 			runner: respondingRunner(recording("ticket-set-without-blockers")),
 		});
 		expect(read.tickets).toHaveLength(WHOLE_TREE);
-		expect(read.outages).toHaveLength(1);
+		expect(read.degraded).toEqual([{ kind: "unreadable-blocking", tickets: WHOLE_TREE, of: WHOLE_TREE }]);
 		for (const ticket of read.tickets) {
 			expect(ticket.blockers).toBe("unknown");
 		}
@@ -178,8 +181,8 @@ describe("a read that failed", () => {
 		});
 		expect(read.tickets).toEqual([]);
 		expect(read.truncated).toBe(true);
-		expect(read.outages).toHaveLength(1);
-		expect(read.outages[0]).toMatch(/connect/i);
+		expect(read.degraded).toHaveLength(1);
+		expect(read.degraded[0]?.kind).toBe("outage");
 	});
 
 	test("fails loud on a request that is itself wrong, rather than degrading past a defect", () => {
@@ -262,6 +265,35 @@ describe("a response the read cannot parse", () => {
 		const nodes = [{ number: 2, state: "OPEN", url: "issues/2" }];
 		expect(() => reading(issueRow({ blockedBy: { nodes, totalCount: 1 } }))).toThrow(/names no owner and repository/);
 	});
+
+	test("refuses a blocker list paged shorter than the count beside it, rather than answering from part of it", () => {
+		// Neither answer is available from a page: a retained edge may be the confirmed block, and a missing one
+		// may be too, so reading it either way decides a ticket's blocking state from an incomplete list.
+		const blockedBy = { nodes: [blockerNode(2, "OPEN")], totalCount: 3 };
+		expect(() => reading(issueRow({ blockedBy }))).toThrow(/1 of 3 blockers/);
+	});
+});
+
+describe("a repository spelled differently from how the tracker spells it", () => {
+	test("still matches a blocker the read returned, so its own row is what answers for it", () => {
+		// GitHub repository paths are case-insensitive, and a rename redirects, so the caller's spelling and the
+		// tracker's can differ. Keying a ticket by the caller's made an in-read blocker look outside the read and
+		// take its openness from a dependent's stale edge — here that edge claims issue 2 is closed while issue
+		// 2's own row says it is open, and the row has to win.
+		const rows = [
+			issueRow({ blockedBy: { nodes: [blockerNode(2, "CLOSED")], totalCount: 1 } }),
+			issueRow({ number: 2, title: "the blocker", url: `${INLINE_REPO}/issues/2` }),
+		];
+		const stdout = JSON.stringify(rows);
+		const read = readGitHubTicketSet({
+			repo: "Example/Repo",
+			limit: 5,
+			runner: () => ({ code: 0, stdout, stderr: "" }),
+		});
+		expect(read.tickets[0]?.ref.repo).toBe(INLINE_REPO);
+		expect(blockednessOfFirst(read)).toBe("blocked");
+		expect(read.degraded).toEqual([]);
+	});
 });
 
 describe("two edges disagreeing about one blocker outside the read", () => {
@@ -286,8 +318,11 @@ describe("two edges disagreeing about one blocker outside the read", () => {
 
 	test("says so, rather than degrading a ticket silently", () => {
 		const read = disagreeing("OPEN", "CLOSED");
-		expect(read.outages).toHaveLength(1);
-		expect(read.outages[0]).toMatch(/both open and closed/);
+		expect(read.degraded).toHaveLength(1);
+		expect(read.degraded[0]).toEqual({
+			kind: "contradicted-blocker",
+			refs: [{ tracker: "github", repo: INLINE_REPO, host: null, key: "99" }],
+		});
 	});
 
 	test("leaves a blocker the read itself returned answering for its own state", () => {
@@ -298,35 +333,37 @@ describe("two edges disagreeing about one blocker outside the read", () => {
 			issueRow({ number: 2, title: "the blocker", url: `${INLINE_REPO}/issues/2` }),
 		);
 		expect(blockednessOfFirst(read)).toBe("blocked");
-		expect(read.outages).toEqual([]);
+		expect(read.degraded).toEqual([]);
 	});
 });
 
 describe("the repository a read is about", () => {
-	function watch(response: Runner): { readonly asked: string[][]; readonly runner: Runner } {
+	function watching(remote: string, response: Runner): { readonly asked: string[][]; readonly runner: Runner } {
 		const asked: string[][] = [];
-		const remote = { code: 0, stdout: `${REMOTE}\n`, stderr: "" };
 		const runner: Runner = (argv) => {
 			asked.push([...argv]);
-			return argv[0] === "git" ? remote : response(argv);
+			return argv[0] === "git" ? { code: 0, stdout: `${remote}\n`, stderr: "" } : response(argv);
 		};
 		return { asked, runner };
 	}
 
 	test("is the working directory's remote when the caller names none", () => {
-		const defect = recording("read-defect");
-		const { asked, runner } = watch(respondingRunner(defect));
+		const { asked, runner } = watching(REMOTE, respondingRunner(recording("read-defect")));
 		expect(() => readGitHubTicketSet({ limit: 1, runner })).toThrow(GitHubAdapterError);
 		expect(asked[1]).toEqual([...githubIssueListCommand({ repo: "example/repo", rows: 2 })]);
 	});
 
+	test("refuses a remote on a host this adapter does not read, before asking any tracker anything", () => {
+		// A read carries no hostname, so a remote elsewhere would be asked of github.com — answering about a
+		// different repository that happens to share the path, which is somebody else's work.
+		const { asked, runner } = watching(ELSEWHERE_REMOTE, respondingRunner(recording("ticket-set")));
+		expect(() => readGitHubTicketSet({ limit: 1, runner })).toThrow(/reads github/);
+		expect(asked).toHaveLength(1);
+	});
+
 	test("refuses a remote that names no GitHub owner and repository, before asking the tracker anything", () => {
-		const asked: string[][] = [];
-		const runner: Runner = (argv) => {
-			asked.push([...argv]);
-			return { code: 0, stdout: `${NESTED_REMOTE}\n`, stderr: "" };
-		};
-		expect(() => readGitHubTicketSet({ limit: 1, runner })).toThrow(GitHubAdapterError);
+		const { asked, runner } = watching(NESTED_REMOTE, respondingRunner(recording("ticket-set")));
+		expect(() => readGitHubTicketSet({ limit: 1, runner })).toThrow(/owner and repository/);
 		expect(asked).toHaveLength(1);
 	});
 

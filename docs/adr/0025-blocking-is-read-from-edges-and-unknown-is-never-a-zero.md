@@ -66,7 +66,32 @@ Reading the pair as open instead is safe in that direction and wrong in the othe
 blocker had in fact just closed — and **Unknown** is the term already reserved for the tracker not telling
 us one thing.
 
-One guard ships with no recording behind it: a node list shorter than the `totalCount` beside it is read
-as Unknown, because it is a page of the edges rather than all of them. Reaching it needs more blockers on
-one issue than the CLI returns at once, which the test tree cannot hold, and [0019](./0019-every-recording-is-captured-from-a-test-tree.md)
+A blocker list paged shorter than the `totalCount` beside it is **refused**, not degraded. Unknown was the
+first answer and it is wrong: the edges that did arrive may hold a confirmed open blocker, and reading the
+row as Unknown demotes a confirmed block to a state the selector will recommend from — inverting, one layer
+below where it is implemented, the precedence `effective-blockedness.ts` exists to enforce. Reading the
+retained list as complete is worse in the other direction, since a missing edge may be the open one. With
+neither answer available, the read refuses and names the counts, and the fuller fix — paging the edges
+through `gh api graphql` — is left until something reaches it. Reaching it needs more blockers on one issue
+than the CLI returns at once, which the test tree cannot hold, and [0019](./0019-every-recording-is-captured-from-a-test-tree.md)
 takes that inability as information rather than as licence to hand-write the shape.
+
+A ticket's repository is read from its own row's address, never from what the caller asked for, because a
+blocker's repository can only come from its edge's address and the two must agree. They did not: GitHub
+repository paths are case-insensitive and a rename redirects, so `Example/Repo` and `example/repo` produced
+different graph ids for one issue. A blocker that *was* in the read then looked outside it, took its
+openness from a dependent's stale copy of it, and a ticket whose blocker was open read unblocked with
+nothing flagged. It also silently zeroed the second ranking rung, since `countUnblocks` matches edge ids
+against the read's own.
+
+The host is checked before any read. A remote's host is not carried into the query — a read carries no
+`--hostname` — so a checkout on GitHub Enterprise resolved to a bare `owner/repo` indistinguishable from a
+github.com one, and the read answered about whatever public repository sat at that path. That is somebody
+else's work presented as this project's, so a non-github.com origin is refused by name. Reading an
+enterprise host is not supported rather than approximated.
+
+Degrades are reported as kinds rather than sentences — `outage`, `unreadable-blocking`,
+`contradicted-blocker` — matching how `Degrade` and `DEGRADE_REASON` already divide this repo: structure
+inside, prose only at the render boundary. Prose built in the adapter had already pulled two tests into
+asserting wording that `selection-output.ts` declares free to change, and it filed the contradicted-blocker
+case under a word `failure-class.ts` reserves for connectivity and the tracker erroring.
