@@ -1,13 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { join } from "node:path";
 import { githubIssueListCommand } from "./command-builders";
 import { deriveEffectiveBlockedness } from "./effective-blockedness";
 import { GitHubAdapterError, type TicketSetRead, readGitHubTicketSet } from "./github-adapter";
 import { readPriority } from "./priority";
-import { loadRecording, recordingsDir } from "./recording";
 import type { Runner } from "./runner";
-import { replayRunner, respondingRunner } from "./test-support";
-import { GITHUB_TEST_TREE } from "./test-tree";
+import { githubRecording, replayRunner, respondingRunner } from "./test-support";
+import { GITHUB_TEST_TREE, openIssues, shapeTitle } from "./test-tree";
 import { type Ticket, ticketId } from "./ticket";
 import { GITHUB_HOST } from "./ticket-ref";
 
@@ -17,7 +15,7 @@ const REPO = GITHUB_TEST_TREE.repo;
  * The tree's open issues, which is every row a read returns: the read asks for open tickets only, so a
  * closed shape is reachable here as a blocker on an edge and never as a ticket — ADR-0028.
  */
-const OPEN_ISSUES = GITHUB_TEST_TREE.issues.filter((one) => !one.closed);
+const OPEN_ISSUES = openIssues(GITHUB_TEST_TREE);
 
 const WHOLE_TREE = OPEN_ISSUES.length;
 
@@ -30,25 +28,15 @@ const REMOTE = `git@${GITHUB_HOST}:example/repo.git`;
 const NESTED_REMOTE = `git@${GITHUB_HOST}:group/subgroup/project.git`;
 const ELSEWHERE_REMOTE = "https://example.com/example/repo.git";
 
-function recording(name: string) {
-	return loadRecording(join(recordingsDir("github"), `${name}.json`));
-}
-
 /**
  * The ticket carrying one test-tree shape, found by the spec's title rather than by number, because a
  * rebuilt tree renumbers — ADR-0023.
  */
 function shape(read: TicketSetRead, key: string): Ticket {
-	const title = titleOf(key);
+	const title = shapeTitle(GITHUB_TEST_TREE, key);
 	const ticket = read.tickets.find((one) => one.title === title);
 	if (ticket === undefined) throw new Error(`the read carries no ticket titled ${title}`);
 	return ticket;
-}
-
-function titleOf(key: string): string {
-	const issue = GITHUB_TEST_TREE.issues.find((one) => one.key === key);
-	if (issue === undefined) throw new Error(`${key} is not a shape the test tree carries`);
-	return issue.title;
 }
 
 function blockedness(read: TicketSetRead, key: string): string {
@@ -56,7 +44,7 @@ function blockedness(read: TicketSetRead, key: string): string {
 }
 
 function wholeTree(): TicketSetRead {
-	return readGitHubTicketSet({ repo: REPO, limit: WHOLE_TREE, runner: replayRunner([recording("ticket-set")]) });
+	return readGitHubTicketSet({ repo: REPO, limit: WHOLE_TREE, runner: replayRunner([githubRecording("ticket-set")]) });
 }
 
 describe("readGitHubTicketSet, over the whole test tree", () => {
@@ -81,7 +69,7 @@ describe("readGitHubTicketSet, over the whole test tree", () => {
 		const read = wholeTree();
 		expect(shape(read, "open-blocker").state).toBe("open");
 		for (const ticket of read.tickets) expect(ticket.state).toBe("open");
-		expect(read.tickets.map((one) => one.title)).not.toContain(titleOf("closed-blocker"));
+		expect(read.tickets.map((one) => one.title)).not.toContain(shapeTitle(GITHUB_TEST_TREE, "closed-blocker"));
 	});
 
 	test("reads the claim from the assignee, and leaves an unassigned ticket unclaimed", () => {
@@ -119,7 +107,7 @@ describe("the blocking graph the read seeds", () => {
 		const blockers = shape(read, "every-blocker-closed").blockers;
 		expect(blockers).toHaveLength(1);
 		// Derived from the closedness the edge carried, which is what ADR-0028 rests on.
-		expect(read.tickets.map((one) => one.title)).not.toContain(titleOf("closed-blocker"));
+		expect(read.tickets.map((one) => one.title)).not.toContain(shapeTitle(GITHUB_TEST_TREE, "closed-blocker"));
 		expect(blockedness(read, "every-blocker-closed")).toBe("unblocked");
 	});
 
@@ -150,7 +138,7 @@ describe("a truncated read", () => {
 		return readGitHubTicketSet({
 			repo: REPO,
 			limit: TRUNCATING,
-			runner: replayRunner([recording("ticket-set-truncated")]),
+			runner: replayRunner([githubRecording("ticket-set-truncated")]),
 		});
 	}
 
@@ -175,7 +163,7 @@ describe("a read that could not tell us about blocking", () => {
 		const read = readGitHubTicketSet({
 			repo: REPO,
 			limit: WHOLE_TREE,
-			runner: respondingRunner(recording("ticket-set-without-blockers")),
+			runner: respondingRunner(githubRecording("ticket-set-without-blockers")),
 		});
 		expect(read.tickets).toHaveLength(WHOLE_TREE);
 		expect(read.degraded).toEqual([{ kind: "unreadable-blocking", tickets: WHOLE_TREE, of: WHOLE_TREE }]);
@@ -191,7 +179,7 @@ describe("a read that failed", () => {
 		const read = readGitHubTicketSet({
 			repo: REPO,
 			limit: WHOLE_TREE,
-			runner: respondingRunner(recording("read-outage")),
+			runner: respondingRunner(githubRecording("read-outage")),
 		});
 		expect(read.tickets).toEqual([]);
 		expect(read.truncated).toBe(true);
@@ -200,7 +188,7 @@ describe("a read that failed", () => {
 	});
 
 	test("fails loud on a request that is itself wrong, rather than degrading past a defect", () => {
-		const defect = recording("read-defect");
+		const defect = githubRecording("read-defect");
 		const repo = defect.argv[defect.argv.indexOf("--repo") + 1]!;
 		expect(() =>
 			readGitHubTicketSet({ repo, limit: WHOLE_TREE, runner: replayRunner([defect]) }),
@@ -252,8 +240,20 @@ describe("a response the read cannot parse", () => {
 		expect(() => answering(`{"issues": []}`)).toThrow(/list of issues/);
 	});
 
+	/**
+	 * No recording carries a closed row any more, because the query does not ask for one — so this is what
+	 * holds the row-state path down. Without it, hard-coding every row open would pass the whole suite, and
+	 * reversing ADR-0028 would land on an adapter that had quietly stopped reading the field.
+	 */
+	test("reads a closed row as closed, and seeds it into the graph closed", () => {
+		const read = reading(issueRow({ state: "CLOSED" }), issueRow({ number: 2, url: `${INLINE_REPO}/issues/2`, blockedBy: { nodes: [blockerNode(1, "OPEN")], totalCount: 1 } }));
+		expect(read.tickets[0]!.state).toBe("closed");
+		// The row's own state wins over the edge claiming it open, which is ADR-0027's precedence.
+		expect(deriveEffectiveBlockedness(ticketId(read.tickets[1]!.ref), read.graph)).toBe("unblocked");
+	});
+
 	// As this adapter's own failure rather than as the plain `Error` `seedGraph` raises: a caller classifying on
-	// the error type has nothing to recognise that one by, and `cli.ts` lets what it cannot classify escape.
+	// the error type has nothing to recognise that one by, so it would arrive as a stack with no message.
 	test("refuses a response holding one issue twice", () => {
 		expect(() => reading(issueRow(), issueRow())).toThrow(GitHubAdapterError);
 		expect(() => reading(issueRow(), issueRow())).toThrow(/no blocking graph could be built over/);
@@ -423,7 +423,7 @@ describe("the repository a read is about", () => {
 	}
 
 	test("is the working directory's remote when the caller names none", () => {
-		const { asked, runner } = watching(REMOTE, respondingRunner(recording("read-defect")));
+		const { asked, runner } = watching(REMOTE, respondingRunner(githubRecording("read-defect")));
 		expect(() => readGitHubTicketSet({ limit: 1, runner })).toThrow(GitHubAdapterError);
 		expect(asked[1]).toEqual([...githubIssueListCommand({ repo: "example/repo", rows: 2 })]);
 	});
@@ -431,13 +431,13 @@ describe("the repository a read is about", () => {
 	test("refuses a remote on a host this adapter does not read, before asking any tracker anything", () => {
 		// A read carries no hostname, so a remote elsewhere would be asked of github.com — answering about a
 		// different repository that happens to share the path, which is somebody else's work.
-		const { asked, runner } = watching(ELSEWHERE_REMOTE, respondingRunner(recording("ticket-set")));
+		const { asked, runner } = watching(ELSEWHERE_REMOTE, respondingRunner(githubRecording("ticket-set")));
 		expect(() => readGitHubTicketSet({ limit: 1, runner })).toThrow(/reads github/);
 		expect(asked).toHaveLength(1);
 	});
 
 	test("refuses a remote that names no GitHub owner and repository, before asking the tracker anything", () => {
-		const { asked, runner } = watching(NESTED_REMOTE, respondingRunner(recording("ticket-set")));
+		const { asked, runner } = watching(NESTED_REMOTE, respondingRunner(githubRecording("ticket-set")));
 		expect(() => readGitHubTicketSet({ limit: 1, runner })).toThrow(/owner and repository/);
 		expect(asked).toHaveLength(1);
 	});
@@ -450,7 +450,7 @@ describe("the repository a read is about", () => {
 
 describe("the limit a read is given", () => {
 	const refused = (limit: number) => () =>
-		readGitHubTicketSet({ repo: REPO, limit, runner: replayRunner([recording("ticket-set")]) });
+		readGitHubTicketSet({ repo: REPO, limit, runner: replayRunner([githubRecording("ticket-set")]) });
 
 	test("is refused at zero and below, where a read would ask for a page it cannot report on", () => {
 		expect(refused(0)).toThrow(/above zero/);

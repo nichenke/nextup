@@ -9,6 +9,13 @@ export interface CommandResult {
 export type Runner = (argv: string[]) => CommandResult;
 
 /**
+ * The runner refusing to run anything at all, as against a command that ran and failed. Its own class so a
+ * caller can report the recovery path rather than a stack: `cli.ts` prints the stack of an error nobody has
+ * classified, and this one is classified — ADR-0026 says what to do about it.
+ */
+export class RunnerRefusal extends Error {}
+
+/**
  * Environment variables that make git answer about a different repository than the one it was asked about.
  * Which ones do, and how that was measured, is ADR-0026.
  */
@@ -22,7 +29,7 @@ const REDIRECTING_GIT_VARIABLES = ["GIT_DIR", "GIT_COMMON_DIR"] as const;
 function refuseRedirectedGit(): void {
 	const pointed = REDIRECTING_GIT_VARIABLES.filter((name) => (process.env[name] ?? "") !== "");
 	if (pointed.length === 0) return;
-	throw new Error(
+	throw new RunnerRefusal(
 		`${pointed.join(" and ")} ${pointed.length === 1 ? "is" : "are"} set, which points git at a different repository than the one asked about: unset ${pointed.length === 1 ? "it" : "them"} and run again`,
 	);
 }

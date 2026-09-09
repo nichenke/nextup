@@ -1,13 +1,8 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { describe, expect, test } from "bun:test";
 import { type CliDeps, DEFAULT_LIMIT, run } from "./cli";
-import { loadRecording, recordingsDir } from "./recording";
-import type { Runner } from "./runner";
-import { DEGRADED_PREFIX } from "./selection-output";
-import { replayRunner, respondingRunner } from "./test-support";
-import { GITHUB_TEST_TREE } from "./test-tree";
+import { type Runner, RunnerRefusal } from "./runner";
+import { githubRecording, replayRunner, respondingRunner, sentinelLines } from "./test-support";
+import { GITHUB_TEST_TREE, openIssues, shapeTitle } from "./test-tree";
 import { GITHUB_HOST } from "./ticket-ref";
 
 /** Every test below runs through this, so a call that started shelling out fails loudly here first. */
@@ -26,8 +21,8 @@ function terminal(answer = true): { confirm: CliDeps["confirm"]; questions: stri
 	};
 }
 
-function deps(cwd: string, runner: Runner = refuseToRun, confirm: CliDeps["confirm"] = terminal().confirm): CliDeps {
-	return { cwd, runner, confirm };
+function deps(runner: Runner = refuseToRun, confirm: CliDeps["confirm"] = terminal().confirm): CliDeps {
+	return { runner, confirm };
 }
 
 /**
@@ -40,35 +35,9 @@ function inTestTree(answer: Runner): Runner {
 	return (argv) => (argv[0] === "git" ? { code: 0, stdout: `${origin}\n`, stderr: "" } : answer(argv));
 }
 
-function recording(name: string) {
-	return loadRecording(join(recordingsDir("github"), `${name}.json`));
-}
-
-function sentinels(text: string): string[] {
-	return text.split("\n").filter((line) => line.startsWith(DEGRADED_PREFIX));
-}
-
-function titleOf(key: string): string {
-	const issue = GITHUB_TEST_TREE.issues.find((one) => one.key === key);
-	if (issue === undefined) throw new Error(`${key} is not a shape the test tree carries`);
-	return issue.title;
-}
-
-const roots: string[] = [];
-
-afterEach(() => {
-	for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
-});
-
-function tempRepo(): string {
-	const root = mkdtempSync(join(tmpdir(), "nextup-cli-"));
-	roots.push(root);
-	return root;
-}
-
 describe("run, over a ticket set read from GitHub", () => {
 	/** Has to match the limit the recording was captured under, or `replayRunner` answers nothing. */
-	const TREE = GITHUB_TEST_TREE.issues.filter((one) => !one.closed).length;
+	const TREE = openIssues(GITHUB_TEST_TREE).length;
 
 	/**
 	 * Reads through `replayRunner`, so the argv the CLI builds has to be the captured one: this asserts what
@@ -76,17 +45,17 @@ describe("run, over a ticket set read from GitHub", () => {
 	 * does with the answer.
 	 */
 	function readingTree(name: string): CliDeps {
-		return deps(tempRepo(), inTestTree(replayRunner([recording(name)])));
+		return deps(inTestTree(replayRunner([githubRecording(name)])));
 	}
 
 	function answering(name: string): CliDeps {
-		return deps(tempRepo(), inTestTree(respondingRunner(recording(name))));
+		return deps(inTestTree(respondingRunner(githubRecording(name))));
 	}
 
 	test("recommends the ticket the ladder chose, and accounts for the set it came from", () => {
 		const result = run(["--limit", String(TREE)], readingTree("ticket-set"));
 		expect(result.code).toBe(0);
-		expect(result.stdout).toContain(titleOf("several-priorities"));
+		expect(result.stdout).toContain(shapeTitle(GITHUB_TEST_TREE, "several-priorities"));
 		expect(result.stdout).toContain(`${TREE} tickets:`);
 		expect(result.stderr).toBe("");
 	});
@@ -100,7 +69,6 @@ describe("run, over a ticket set read from GitHub", () => {
 		const result = run(
 			[],
 			deps(
-				tempRepo(),
 				inTestTree((argv) => {
 					asked.push(argv);
 					return { code: 0, stdout: "[]", stderr: "" };
@@ -114,12 +82,12 @@ describe("run, over a ticket set read from GitHub", () => {
 
 	test("carries a truncated read to the user, since a capped answer is a different answer", () => {
 		const result = run(["--limit", "3"], readingTree("ticket-set-truncated"));
-		expect(sentinels(result.stdout).some((line) => line.includes("truncated"))).toBe(true);
+		expect(sentinelLines(result.stdout).some((line) => line.includes("truncated"))).toBe(true);
 	});
 
 	test("renders what the read itself could not answer, under the same sentinel as the selector's own", () => {
 		const result = run(["--limit", String(TREE)], answering("ticket-set-without-blockers"));
-		const lines = sentinels(result.stdout);
+		const lines = sentinelLines(result.stdout);
 		expect(lines.some((line) => line.includes("did not report their blockers"))).toBe(true);
 		expect(lines.some((line) => line.includes("blockers could be confirmed closed"))).toBe(true);
 	});
@@ -128,7 +96,7 @@ describe("run, over a ticket set read from GitHub", () => {
 		const result = run([], answering("read-outage"));
 		expect(result.code).toBe(1);
 		expect(result.stdout).toContain("no candidate to recommend");
-		expect(sentinels(result.stdout).some((line) => line.includes("could not be read"))).toBe(true);
+		expect(sentinelLines(result.stdout).some((line) => line.includes("could not be read"))).toBe(true);
 	});
 
 	test("refuses a read that is itself wrong, rather than reporting it as a quiet day", () => {
@@ -138,12 +106,32 @@ describe("run, over a ticket set read from GitHub", () => {
 		expect(result.stderr).toContain("a retry will not fix");
 	});
 
-	// The exit code is the point: an uncaught throw would leave 1, which this command defines as nothing to
-	// recommend, so a tracker sending one issue twice would read to a script as a quiet day.
+	// The exit code is the point in both of these: an uncaught throw leaves 1, which this command defines as
+	// nothing to recommend, so a run that failed would read to a script as a quiet day.
+	test("reports a runner that refuses to run at all as its recovery path, not as a stack", () => {
+		// What `defaultRunner` does when the environment points git elsewhere — ADR-0026.
+		const refusing: Runner = () => {
+			throw new RunnerRefusal("GIT_DIR is set: unset it and run again");
+		};
+		const result = run([], deps(refusing));
+		expect(result.code).toBe(2);
+		expect(result.stderr).toBe("GIT_DIR is set: unset it and run again\n");
+	});
+
+	test("still reports a failure nobody classified, keeping the stack that is all it has", () => {
+		const broken: Runner = () => {
+			throw new TypeError("undefined is not a function");
+		};
+		const result = run([], deps(broken));
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("undefined is not a function");
+		expect(result.stderr).toContain("at ");
+	});
+
 	test("refuses a response holding one issue twice as something needing a person", () => {
 		const row = { number: 1, title: "A ticket", state: "OPEN", assignees: [], labels: [], url: "example/repo/issues/1", blockedBy: { nodes: [], totalCount: 0 } };
 		const twice: Runner = () => ({ code: 0, stdout: JSON.stringify([row, row]), stderr: "" });
-		const result = run([], deps(tempRepo(), inTestTree(twice)));
+		const result = run([], deps(inTestTree(twice)));
 		expect(result.code).toBe(2);
 		expect(result.stderr).toContain("no blocking graph could be built over");
 	});
@@ -153,7 +141,7 @@ describe("run, over a ticket set read from GitHub", () => {
 			argv[0] === "git"
 				? { code: 0, stdout: "https://example.com/example/repo.git\n", stderr: "" }
 				: { code: 0, stdout: "[]", stderr: "" };
-		const result = run([], deps(tempRepo(), elsewhere));
+		const result = run([], deps(elsewhere));
 		expect(result.code).toBe(2);
 		expect(result.stderr).toContain("example.com");
 	});
@@ -161,7 +149,7 @@ describe("run, over a ticket set read from GitHub", () => {
 	test("emits the selection and the read's own degrades as JSON", () => {
 		const clean = JSON.parse(run(["--limit", String(TREE), "--json"], readingTree("ticket-set")).stdout);
 		expect(clean.selection.counts.closed).toBe("not-asked");
-		expect(clean.selection.pick.title).toBe(titleOf("several-priorities"));
+		expect(clean.selection.pick.title).toBe(shapeTitle(GITHUB_TEST_TREE, "several-priorities"));
 		expect(clean.readDegraded).toEqual([]);
 
 		const degraded = JSON.parse(run(["--limit", String(TREE), "--json"], answering("ticket-set-without-blockers")).stdout);
@@ -171,45 +159,45 @@ describe("run, over a ticket set read from GitHub", () => {
 
 describe("the command line itself", () => {
 	test("prints usage on request", () => {
-		const result = run(["--help"], deps(tempRepo()));
+		const result = run(["--help"], deps());
 		expect(result.code).toBe(0);
 		expect(result.stdout).toContain("--include");
 		expect(result.stdout).toContain("--json");
 	});
 
 	test("refuses an unrecognised flag rather than ignoring it", () => {
-		const result = run(["--rank-by", "size"], deps(tempRepo()));
+		const result = run(["--rank-by", "size"], deps());
 		expect(result.code).toBe(2);
 		expect(result.stderr).toContain("--rank-by");
 	});
 
 	test("refuses a flag whose value is missing", () => {
-		const result = run(["--include"], deps(tempRepo()));
+		const result = run(["--include"], deps());
 		expect(result.code).toBe(2);
 		expect(result.stderr).toContain("--include");
 	});
 
 	test("refuses a bare argument, which no flag takes yet", () => {
-		const result = run(["gh:1"], deps(tempRepo()));
+		const result = run(["gh:1"], deps());
 		expect(result.code).toBe(2);
 		expect(result.stderr).toContain("gh:1");
 	});
 
 	test("refuses a limit no read could use, before any read happens", () => {
-		expect(run(["--limit", "0"], deps(tempRepo())).code).toBe(2);
-		expect(run(["--limit", "2.5"], deps(tempRepo())).stderr).toContain("--limit");
-		expect(run(["--limit", "many"], deps(tempRepo())).stderr).toContain("--limit");
+		expect(run(["--limit", "0"], deps()).code).toBe(2);
+		expect(run(["--limit", "2.5"], deps()).stderr).toContain("--limit");
+		expect(run(["--limit", "many"], deps()).stderr).toContain("--limit");
 		// The read asks for one row more than this, which is past the range the adapter accepts at all.
-		expect(run(["--limit", String(Number.MAX_SAFE_INTEGER)], deps(tempRepo())).stderr).toContain("--limit");
+		expect(run(["--limit", String(Number.MAX_SAFE_INTEGER)], deps()).stderr).toContain("--limit");
 	});
 
 	test("takes a limit as the digits it was given, not as whatever a number parse makes of them", () => {
-		expect(run(["--limit", "0x10"], deps(tempRepo())).stderr).toContain("--limit");
-		expect(run(["--limit", "1e3"], deps(tempRepo())).stderr).toContain("--limit");
+		expect(run(["--limit", "0x10"], deps()).stderr).toContain("--limit");
+		expect(run(["--limit", "1e3"], deps()).stderr).toContain("--limit");
 	});
 
 	test("refuses a pattern the grammar does not accept", () => {
-		const result = run(["--exclude", "way*er"], deps(tempRepo()));
+		const result = run(["--exclude", "way*er"], deps());
 		expect(result.code).toBe(2);
 		expect(result.stderr).toContain("way*er");
 	});

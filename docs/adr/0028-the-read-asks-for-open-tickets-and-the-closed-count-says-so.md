@@ -44,6 +44,18 @@ claiming a blocker is closed is what would recommend a blocked ticket. What is g
 edge wrongly claiming an open blocker where the ticket is closed now over-blocks, and the tool skips
 something startable instead of handing out something blocked.
 
+Two consequences of that are worth naming rather than leaving inside "the safe direction", because both are
+quiet:
+
+- **The skip is silent.** An edge wrongly reporting an open blocker makes its dependent read `blocked`, which
+  is a *confident* state and so emits no degrade. If that dependent was the only candidate, the run prints
+  "no candidate to recommend" with no `degraded: ` line at all — indistinguishable from an empty backlog, and
+  with nothing to grep for.
+- **A disagreement between two edges now degrades the answer.** With closed blockers as rows, `graphFor`
+  discarded every edge naming one, so two dependents disagreeing about a blocker was impossible. Outside the
+  read, disagreement seeds the blocker `"unknown"`, both dependents derive `"unknown"`, and if nothing else is
+  confirmed the whole selection is reported as degraded. The row used to settle it.
+
 `docs/agents/issue-tracker.md` measures the surface this rests on. `--json blockedBy` returns each blocker
 with its own state and was observed to be correct in the same window where
 `issue_dependencies_summary` reported a stale `0` — so the edge state here is the one dependency surface
@@ -62,17 +74,23 @@ caller to restate it. A set that is open-only *and* holds a closed ticket is ref
 
 The rendered line reads `14 tickets: closed not asked, 0 claimed, ...`.
 
-## Why 200, and why the command defaults it at all
+## Why 199, and why the command defaults it at all
 
 The adapter still refuses to default a limit — a default is a claim about somebody's backlog, and the
 adapter has no standing to make one. The command does, because a bare `nextup` is what the spec's user
 stories ask for, and a tool that demands a row count before it will answer is not that.
 
-The claim 200 makes is that a repository with more than that many *open* tickets wants a narrower query
-rather than a longer read. `gh` pages at a hundred and stops when the tracker runs out, so the second page
-costs nothing where the repository holds fewer, and a read that hits the limit reports itself truncated
-rather than answering as though it were whole. `--limit` overrides it; the honest response to seeing the
-truncation sentinel is `--include`, not a bigger number.
+The claim it makes is that a repository with more than about two hundred *open* tickets wants a narrower
+query rather than a longer read. A read that hits the limit reports itself truncated rather than answering
+as though it were whole; `--limit` overrides it, and the honest response to the truncation sentinel is
+`--include`, not a bigger number.
+
+199 rather than 200, because the read asks for one row more than the limit to detect a cap, and `gh` pages
+at a hundred. Measured against a large repository with `GH_DEBUG=api`: `--limit 200` costs two GraphQL
+requests, `--limit 201` costs three — the third fetching the single probe row and then discarding it. A
+limit of 200 would therefore pay a full extra round-trip on every truncated read, which is exactly the case
+the sentinel exists for. One below the round number keeps `limit + 1` inside the same page count as the
+limit itself, and costs one ticket of consideration.
 
 ## Consequences
 

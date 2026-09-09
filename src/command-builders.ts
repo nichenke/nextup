@@ -181,6 +181,12 @@ export interface GitHubIssueListInput {
 }
 
 /**
+ * The states one read asks for, exported so that an adapter reports what was asked rather than restating it:
+ * `TicketSetRead.openOnly` is derived from this, so changing it here changes what the counts may claim.
+ */
+export const GITHUB_TICKET_STATE = "open";
+
+/**
  * One read of a GitHub ticket set. `--state open` rather than every state: a closed blocker's own state
  * arrives on its dependent's edge, so nothing needs it as a row. ADR-0028 has why that is worth the row
  * limit it buys back, and what the counts may claim in exchange.
@@ -198,7 +204,7 @@ export function githubIssueListCommand(input: GitHubIssueListInput): readonly st
 		"--repo",
 		input.repo,
 		"--state",
-		"open",
+		GITHUB_TICKET_STATE,
 		"--limit",
 		String(input.rows),
 		"--json",

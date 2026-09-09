@@ -100,7 +100,9 @@ function readDegradeReason(degrade: ReadDegrade): string {
 		case "outage":
 			return `the ticket set could not be read, so nothing was considered: ${degrade.detail}`;
 		case "unreadable-blocking":
-			return `${degrade.tickets} of ${degrade.of} tickets did not report their blockers, so nothing confirms them unblocked`;
+			// "of the rows read" rather than "of tickets", which the counts line above uses for a narrower
+			// population: a ticket held back for partial blocking is a row that was read and is not a ticket.
+			return `${degrade.tickets} of ${degrade.of} rows read did not report their blockers, so nothing confirms them unblocked`;
 		case "partial-blocking":
 			return `held out of the answer, because only a page of their blockers arrived: ${refList(degrade.refs)}`;
 		case "contradicted-blocker":

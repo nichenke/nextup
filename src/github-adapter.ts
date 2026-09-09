@@ -1,4 +1,4 @@
-import { githubIssueListCommand } from "./command-builders";
+import { GITHUB_TICKET_STATE, githubIssueListCommand } from "./command-builders";
 import type { DependencyGraph, IssueId } from "./effective-blockedness";
 import { classifyFailure } from "./failure-class";
 import { resolveOriginRemote } from "./git-remote";
@@ -8,6 +8,9 @@ import { type Claim, type Ticket, ticketId } from "./ticket";
 import { GITHUB_HOST, type TicketRef, isGitHubHost, isValidRepoPath } from "./ticket-ref";
 
 export class GitHubAdapterError extends Error {}
+
+/** Read off the query rather than asserted beside it, so the two cannot come to disagree. */
+const OPEN_ONLY = GITHUB_TICKET_STATE === "open";
 
 /**
  * A way one read answered with less than it was asked. Kinds rather than sentences, following how `Degrade` and
@@ -120,14 +123,14 @@ export function readGitHubTicketSet(input: GitHubReadInput): TicketSetRead {
 	if (partial.length > 0) degraded.push({ kind: "partial-blocking", refs: partial });
 	if (contradicted.length > 0) degraded.push({ kind: "contradicted-blocker", refs: contradicted });
 
-	return { tickets, graph, truncated, openOnly: true, degraded };
+	return { tickets, graph, truncated, openOnly: OPEN_ONLY, degraded };
 }
 
 /**
  * The graph, with whatever `seedGraph` refuses reported as this adapter's own failure. `graph-store.ts`
- * throws a plain `Error` for a read holding one issue twice, and left as one it reaches a caller with no
- * class to recognise it by: `cli.ts` classifies on these two error types, so the throw escapes as an
- * uncaught crash — exit 1, which that command defines as nothing to recommend rather than as a defect.
+ * throws a plain `Error` for a read holding one issue twice, which is a response this adapter cannot read
+ * like any other — so it arrives at a caller under the class that says so, and named after the read, rather
+ * than as an unclassified throw a caller can only report as a stack.
  */
 function buildGraph(readings: readonly RowReading[], repo: string): GraphReading {
 	try {
@@ -152,7 +155,7 @@ function failedRead(repo: string, stderr: string): TicketSetRead {
 		// query nor a retry.
 		throw new GitHubAdapterError(`reading ${repo} failed with something a retry will not fix: ${detail}`);
 	}
-	return { tickets: [], graph: seedGraph([]), truncated: true, openOnly: true, degraded: [{ kind: "outage", detail }] };
+	return { tickets: [], graph: seedGraph([]), truncated: true, openOnly: OPEN_ONLY, degraded: [{ kind: "outage", detail }] };
 }
 
 /**

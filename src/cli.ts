@@ -6,7 +6,7 @@ import {
 	type LabelFilterSpec,
 	compileLabelFilter,
 } from "./label-filter";
-import type { Runner } from "./runner";
+import { type Runner, RunnerRefusal } from "./runner";
 import { type Answer, answerJson, renderAnswer } from "./selection-output";
 import { SelectionError, select } from "./selector";
 
@@ -17,7 +17,6 @@ import { SelectionError, select } from "./selector";
 export type Confirm = (question: string) => boolean;
 
 export interface CliDeps {
-	readonly cwd: string;
 	readonly runner: Runner;
 	/** `null` where there is nobody to ask — a pipe, a cron entry, a sandbox with no terminal. */
 	readonly confirm: Confirm | null;
@@ -33,8 +32,11 @@ export interface CliResult {
 	readonly stderr: string;
 }
 
-/** How many open tickets one run considers when nothing says otherwise; ADR-0028 has what that claims. */
-export const DEFAULT_LIMIT = 200;
+/**
+ * How many open tickets one run considers when nothing says otherwise; ADR-0028 has what that claims, and
+ * why it is one below the round number rather than on it.
+ */
+export const DEFAULT_LIMIT = 199;
 
 const USAGE = `nextup — picks the ticket to start next, claims it, and says how to start work on it
 
@@ -113,15 +115,17 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 }
 
 /**
- * Whatever a read or the selection over it refused, as something for a person to fix. Anything else is left
- * to surface as a crash, which is why the read converts even a failure raised beneath it into one of these
- * two classes: an unclassifiable throw exits 1, and this command defines 1 as nothing to recommend.
+ * Whatever a read or the selection over it refused, as something for a person to fix — including a failure
+ * of neither class, which is the case that has to be loud rather than rethrown. An uncaught throw leaves
+ * exit 1, which this command defines as nothing to recommend, so the runner refusing a redirected git
+ * environment (ADR-0026) would report a quiet day. Unrecognised, it keeps its stack: nobody has classified
+ * it, so whoever reads it needs everything.
  */
 function readError(cause: unknown): CliResult {
-	if (cause instanceof GitHubAdapterError || cause instanceof SelectionError) {
+	if (cause instanceof GitHubAdapterError || cause instanceof SelectionError || cause instanceof RunnerRefusal) {
 		return { code: 2, stdout: "", stderr: `${cause.message}\n` };
 	}
-	throw cause;
+	return { code: 2, stdout: "", stderr: `${cause instanceof Error ? (cause.stack ?? cause.message) : String(cause)}\n` };
 }
 
 class CliError extends Error {}

@@ -2,8 +2,9 @@ import { describe, expect, test } from "bun:test";
 import type { ReadDegrade } from "./github-adapter";
 import { seedGraph } from "./graph-store";
 import { DEFAULT_LABEL_FILTER, compileLabelFilter } from "./label-filter";
-import { type Answer, DEGRADED_PREFIX, answerJson, renderAnswer, renderSelection, selectionJson } from "./selection-output";
+import { DEGRADED_PREFIX, type Answer, answerJson, renderAnswer, renderSelection, selectionJson } from "./selection-output";
 import { type Selection, select } from "./selector";
+import { sentinelLines } from "./test-support";
 import { type Ticket, ticketId } from "./ticket";
 import type { TicketRef } from "./ticket-ref";
 
@@ -199,10 +200,10 @@ describe("renderAnswer", () => {
 				{ kind: "contradicted-blocker", refs: [REF] },
 			]),
 		);
-		const lines = sentinels(text);
+		const lines = sentinelLines(text);
 		expect(lines).toHaveLength(4);
 		expect(lines[0]).toContain("could not resolve host");
-		expect(lines[1]).toContain("2 of 9 tickets");
+		expect(lines[1]).toContain("2 of 9 rows read");
 		expect(lines[2]).toContain("only a page of their blockers");
 		expect(lines[3]).toContain("disagreed about their state");
 		for (const line of lines.slice(2)) expect(line).toContain("gh:example/repo#4");
@@ -213,7 +214,7 @@ describe("renderAnswer", () => {
 			selection: selectionOf([{ key: "1", blockers: "unknown" }], true),
 			readDegraded: [{ kind: "unreadable-blocking", tickets: 1, of: 1 }],
 		};
-		expect(sentinels(renderAnswer(answer))).toHaveLength(3);
+		expect(sentinelLines(renderAnswer(answer))).toHaveLength(3);
 	});
 
 	test("renders exactly the selection when the read answered everything", () => {
@@ -233,7 +234,3 @@ describe("answerJson", () => {
 		expect(json.selection.pick?.ref).toBe("gh:example/repo#1");
 	});
 });
-
-function sentinels(text: string): string[] {
-	return text.split("\n").filter((line) => line.startsWith(DEGRADED_PREFIX));
-}
