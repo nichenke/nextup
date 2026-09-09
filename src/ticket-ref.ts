@@ -1,8 +1,24 @@
 import { type Runner, defaultRunner } from "./runner";
-import { resolveRepoFromOrigin } from "./git-remote";
+import { resolveOriginRemote } from "./git-remote";
 import { hasJiraAuth, isAuthenticatedHost } from "./host-auth";
 
 export type Tracker = "github" | "gitlab" | "jira";
+
+/**
+ * GitHub's own host. Lives here rather than in the adapter because a short form resolved from a git remote has
+ * to check it before any adapter is reached, and the adapter importing from here keeps that one-way.
+ */
+export const GITHUB_HOST = "github.com";
+
+/**
+ * Whether a git remote's host is GitHub's. The port is dropped before comparing, and GitHub's `ssh.` endpoint is
+ * accepted beside the web host: an SSH remote naming port 22 explicitly, and GitHub's published port-443
+ * workaround for a firewalled 22, are both ordinary remotes that comparing the authority whole refused.
+ */
+export function isGitHubHost(host: string): boolean {
+	const bare = host.replace(/:\d+$/, "");
+	return bare === GITHUB_HOST || bare === `ssh.${GITHUB_HOST}`;
+}
 
 export interface TicketRef {
 	tracker: Tracker;
@@ -154,7 +170,7 @@ export function resolveTicketRef(input: string, deps: ResolveDeps = {}): TicketR
 // GitHub is always exactly owner/repo; GitLab allows a nested namespace/subgroup, so two or
 // more. Either way every segment must be non-empty, rejecting shapes like "/repo", "owner/",
 // or "group//repo" that `repo.includes("/")` alone would have let through.
-function isValidRepoPath(tracker: "github" | "gitlab", repo: string): boolean {
+export function isValidRepoPath(tracker: "github" | "gitlab", repo: string): boolean {
 	const segments = repo.split("/");
 	if (segments.some((segment) => segment === "")) return false;
 	return tracker === "github" ? segments.length === 2 : segments.length >= 2;
@@ -171,13 +187,23 @@ function resolveRepoScopedShort(
 		if (!/^\d+$/.test(body)) {
 			throw new TicketRefError(`${scheme}:${body} is not a valid short form (expected a bare number or a repo#number form)`);
 		}
-		const repo = resolveRepoFromOrigin(runner);
-		if (!repo || !isValidRepoPath(tracker, repo)) {
+		const origin = resolveOriginRemote(runner);
+		if (!origin || !isValidRepoPath(tracker, origin.repo)) {
 			throw new TicketRefError(
 				`${scheme}:${body} has no explicit repository, and the working directory's git remote could not be resolved`,
 			);
 		}
-		return { tracker, repo, host: null, key: body };
+		// A short form carries no host, so the remote's is the only evidence of which system it names — and a
+		// resolved `owner/repo` is indistinguishable from the same path on any other host. Without this, `gh:1` in
+		// a GitHub Enterprise or GitLab checkout resolves to whatever sits at that path on github.com, and every
+		// reader downstream operates on a repository the user never named. GitLab is not checked the same way
+		// because a self-hosted instance can be any host, so its remote carries no comparable evidence.
+		if (tracker === "github" && !isGitHubHost(origin.host)) {
+			throw new TicketRefError(
+				`${scheme}:${body} resolves through a remote on ${origin.host}, which is not ${GITHUB_HOST} — name the repository explicitly if that is what you meant`,
+			);
+		}
+		return { tracker, repo: origin.repo, host: null, key: body };
 	}
 
 	const repo = body.slice(0, hashIndex);

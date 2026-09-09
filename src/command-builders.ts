@@ -159,6 +159,53 @@ export function worktreeAddCommand(repo: string, path: string, branch: string, c
 }
 
 /**
+ * The projection the GitHub read adapter parses. Fixed rather than a parameter, so that what a read asks for
+ * cannot drift per caller — a capture that needs a narrower projection builds it from this.
+ *
+ * `blockedBy` is the native dependency surface, and the only blocking channel — `issue_dependencies_summary`
+ * lags under write in both directions, which `docs/agents/issue-tracker.md` measures.
+ */
+export const GITHUB_TICKET_FIELDS: readonly string[] = [
+	"number",
+	"title",
+	"state",
+	"assignees",
+	"labels",
+	"url",
+	"blockedBy",
+];
+
+export interface GitHubIssueListInput {
+	readonly repo: string;
+	readonly rows: number;
+}
+
+/**
+ * One read of a GitHub ticket set. `--state all` because a closed ticket is its own authority on being
+ * closed, where the same ticket known only from another ticket's blocking edge is that ticket's copy of it.
+ *
+ * @throws CommandBuilderError when `rows` is not a positive whole number.
+ */
+export function githubIssueListCommand(input: GitHubIssueListInput): readonly string[] {
+	if (!Number.isSafeInteger(input.rows) || input.rows < 1) {
+		throw new CommandBuilderError(`${input.rows} is not a number of rows to ask for: it must be a whole number above zero`);
+	}
+	return [
+		"gh",
+		"issue",
+		"list",
+		"--repo",
+		input.repo,
+		"--state",
+		"all",
+		"--limit",
+		String(input.rows),
+		"--json",
+		GITHUB_TICKET_FIELDS.join(","),
+	];
+}
+
+/**
  * Argv as one line a POSIX shell parses back into the same words, for a human to read or paste. It is
  * never what the tool executes — the runner takes argv — so this cannot become the path by which a
  * quoting bug reaches a shell.

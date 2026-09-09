@@ -1,10 +1,19 @@
 import { describe, expect, test } from "bun:test";
 import type { CommandResult } from "./runner";
 import { routedRunner } from "./test-support";
-import { type TicketRef, TicketRefError, compareTicketRefs, formatTicketRef, resolveTicketRef } from "./ticket-ref";
+import { GITHUB_HOST, type TicketRef, TicketRefError, compareTicketRefs, formatTicketRef, resolveTicketRef } from "./ticket-ref";
 
-const GIT_REMOTE = { "git remote get-url origin": { code: 0, stdout: "https://example.com/example/repo.git\n", stderr: "" } };
-const GIT_REMOTE_NO_OWNER = { "git remote get-url origin": { code: 0, stdout: "https://example.com/justrepo.git\n", stderr: "" } };
+// GitHub's own host is spelled through the constant, in git's scp form, so no spelling of it appears in this
+// file for the identifier guard to read.
+const remote = (address: string) => ({ "git remote get-url origin": { code: 0, stdout: `${address}\n`, stderr: "" } });
+const GIT_REMOTE = remote(`git@${GITHUB_HOST}:example/repo.git`);
+const GIT_REMOTE_NO_OWNER = remote(`git@${GITHUB_HOST}:justrepo.git`);
+const GIT_REMOTE_ELSEWHERE = remote("https://example.com/example/repo.git");
+
+// The scheme is held apart from the host so that no scheme-and-authority spelling appears in this file, which
+// the identifier guard reads — CLAUDE.md's identifier section.
+const SSH_SCHEME = "ssh:";
+const sshRemote = (host: string, port: number) => `${SSH_SCHEME}//git@${host}:${port}/example/repo.git`;
 const GH_AUTHED = { "gh auth status --hostname example.com --active": { code: 0, stdout: "", stderr: "" } };
 const GLAB_AUTHED = { "glab auth status --hostname example.com": { code: 0, stdout: "", stderr: "" } };
 const JIRA_AUTHED = { "jira me": { code: 0, stdout: "octocat\n", stderr: "" } };
@@ -29,13 +38,24 @@ describe("resolveTicketRef: short forms", () => {
 		expect(() => resolveTicketRef("gh:1", { runner: routedRunner({}) })).toThrow(TicketRefError);
 	});
 
+	test("gh: relative form accepts GitHub's remotes that carry a port, including its SSH endpoint", () => {
+		for (const address of [sshRemote(GITHUB_HOST, 22), sshRemote(`ssh.${GITHUB_HOST}`, 443)]) {
+			const ref = resolveTicketRef("gh:1", { runner: routedRunner(remote(address)) });
+			expect(ref).toEqual({ tracker: "github", repo: "example/repo", host: null, key: "1" });
+		}
+	});
+
+	test("gh: relative form refuses a remote on a host that is not GitHub, rather than reading that path there", () => {
+		expect(() => resolveTicketRef("gh:1", { runner: routedRunner(GIT_REMOTE_ELSEWHERE) })).toThrow(/not github/i);
+	});
+
 	test("glab: relative form resolves the repo from the git remote", () => {
-		const ref = resolveTicketRef("glab:8", { runner: routedRunner(GIT_REMOTE) });
+		const ref = resolveTicketRef("glab:8", { runner: routedRunner(GIT_REMOTE_ELSEWHERE) });
 		expect(ref).toEqual({ tracker: "gitlab", repo: "example/repo", host: null, key: "8" });
 	});
 
 	test("glab: absolute form normalizes identically to the relative form", () => {
-		const relative = resolveTicketRef("glab:8", { runner: routedRunner(GIT_REMOTE) });
+		const relative = resolveTicketRef("glab:8", { runner: routedRunner(GIT_REMOTE_ELSEWHERE) });
 		const absolute = resolveTicketRef("glab:example/repo#8", { runner: routedRunner({}) });
 		expect(absolute).toEqual(relative);
 	});

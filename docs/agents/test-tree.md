@@ -42,6 +42,30 @@ gh issue list --repo nichenke/nextup-test-tree-github --state all --limit 200 \
 The tree holds more open issues than a low fetch limit returns, so truncation is reachable by setting the
 limit below its size rather than by adding issues.
 
+## Capturing from it
+
+```sh
+bun run capture:github
+```
+
+Credentialed and local, never CI. It writes one file per exchange under `fixtures/recordings/github/`,
+redacted, and refuses a tree that is not private before it reads anything. The tree is not a parameter, so
+there is no invocation of it that reads a real project repository.
+
+Run it after changing what the adapter asks for, and read the diff: a recording that changed without the
+query changing is the CLI's projection moving under us, which is what the stored version line is for.
+
+Two of the five captures are failures rather than tree reads — an unresolvable host for the wording an
+outage is recognised by, and a repository that does not exist for the wording of a request that is itself
+wrong. Each is refused if it stops failing, so a name that later becomes a real repository is never stored.
+
+Do not read those two as evidence that redaction covers a host anywhere it appears. It rewrote the host in
+`read-outage.json`'s argv, where a `/` follows it, and left the same host standing in the stderr beside it,
+where nothing does — `BARE_HOST` in `src/recording-identifiers.ts` needs that following separator. What makes
+the stored copy harmless is the name itself: it is under `.invalid`, which RFC 2606 reserves so that it can
+never resolve. A capture naming a real unreachable host would keep it, and redaction is not what would stop
+that. The repository path is not rewritten at all — redaction rewrites hosts.
+
 ## Rules
 
 - **Leave the repository private.** Provisioning checks and refuses otherwise, before its first write, so
