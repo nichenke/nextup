@@ -189,6 +189,13 @@ describe("the command line itself", () => {
 		expect(run(["--limit", "0"], deps(tempRepo())).code).toBe(2);
 		expect(run(["--limit", "2.5"], deps(tempRepo())).stderr).toContain("--limit");
 		expect(run(["--limit", "many"], deps(tempRepo())).stderr).toContain("--limit");
+		// The read asks for one row more than this, which is past the range the adapter accepts at all.
+		expect(run(["--limit", String(Number.MAX_SAFE_INTEGER)], deps(tempRepo())).stderr).toContain("--limit");
+	});
+
+	test("takes a limit as the digits it was given, not as whatever a number parse makes of them", () => {
+		expect(run(["--limit", "0x10"], deps(tempRepo())).stderr).toContain("--limit");
+		expect(run(["--limit", "1e3"], deps(tempRepo())).stderr).toContain("--limit");
 	});
 
 	test("refuses a pattern the grammar does not accept", () => {
