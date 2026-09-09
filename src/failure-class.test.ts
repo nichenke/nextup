@@ -25,6 +25,21 @@ describe("classifyFailure", () => {
 		expect(classifyFailure("HTTP 503: Service Unavailable")).toBe("outage");
 	});
 
+	test("reads a connection that failed after it was established as an outage", () => {
+		// The ported alternatives all name pre-connection failures, so each of these aborted a read that should
+		// have flagged an outage and carried on.
+		expect(classifyFailure('Post "…/graphql": read tcp: read: connection reset by peer')).toBe("outage");
+		expect(classifyFailure('Post "…/graphql": EOF')).toBe("outage");
+		expect(classifyFailure('Post "…": context deadline exceeded (Client.Timeout exceeded while awaiting headers)')).toBe(
+			"outage",
+		);
+	});
+
+	test("reads being told to slow down as an outage, and a refusal of access as a defect", () => {
+		expect(classifyFailure("HTTP 403: You have exceeded a secondary rate limit")).toBe("outage");
+		expect(classifyFailure("HTTP 403: Resource not accessible by integration")).toBe("defect");
+	});
+
 	test("reads a 4xx as a defect, so a request that is wrong is not retried as weather", () => {
 		expect(classifyFailure("HTTP 422: Validation Failed")).toBe("defect");
 	});

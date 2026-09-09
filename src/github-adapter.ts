@@ -77,7 +77,9 @@ export interface GitHubReadInput {
  * than a tracker one — `graph-store.ts` says why that refuses instead of taking the last write.
  */
 export function readGitHubTicketSet(input: GitHubReadInput): TicketSetRead {
-	if (!Number.isSafeInteger(input.limit) || input.limit < 1) {
+	// The over-fetched row is bounded here rather than left to the command builder: past the safe-integer range
+	// `limit + 1` is refused there instead, with the wrong error class for a caller reading this contract.
+	if (!Number.isSafeInteger(input.limit) || input.limit < 1 || !Number.isSafeInteger(input.limit + 1)) {
 		throw new GitHubAdapterError(`${input.limit} is not a number of tickets to read: it must be a whole number above zero`);
 	}
 	const repo = resolveRepo(input);
@@ -307,7 +309,12 @@ function readEdges(raw: unknown, where: string): readonly Edge[] | "unknown" {
 // this reads live is not a parseable URL by the time a test reads it — ADR-0024. `ticket-ref.ts`'s
 // GENERIC_ISSUES_URL parses the same path from a *pasted* URL and cannot be reused for that reason: it
 // requires the scheme and authority this address has lost, and resolves a tracker from the host besides.
-const ISSUE_ADDRESS = /([^/\s]+\/[^/\s]+)\/issues\/\d+$/;
+//
+// `pull` is accepted beside `issues` because GitHub numbers both in one space, so a pull request blocking an
+// issue is a ticket at that number like any other. A trailing slash, query or fragment is tolerated for the
+// reason `ticket-ref.ts` tolerates them on a pasted URL: they address a place within the page, not another
+// page — and refusing one aborts the whole read over a single edge.
+const ISSUE_ADDRESS = /([^/\s?#]+\/[^/\s?#]+)\/(?:issues|pull)\/\d+(?:[/?#]\S*)?$/;
 
 function addressRepo(address: string, where: string): string {
 	const repo = ISSUE_ADDRESS.exec(address)?.[1];

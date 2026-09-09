@@ -266,6 +266,21 @@ describe("a response the read cannot parse", () => {
 		expect(() => reading(issueRow({ blockedBy: { nodes, totalCount: 1 } }))).toThrow(/names no owner and repository/);
 	});
 
+	test("reads a blocker address carrying a trailing slash, a query, a fragment, or a pull request", () => {
+		// Refusing any of these aborts a whole read over one edge, and each still names the repository and number
+		// the ref is keyed by — a pull request among them, since GitHub numbers issues and pulls in one space.
+		for (const address of [
+			`${INLINE_REPO}/issues/2/`,
+			`${INLINE_REPO}/issues/2?before=x`,
+			`${INLINE_REPO}/issues/2#issuecomment-1`,
+			`${INLINE_REPO}/pull/2`,
+		]) {
+			const nodes = [{ number: 2, state: "OPEN", url: address }];
+			const read = reading(issueRow({ blockedBy: { nodes, totalCount: 1 } }));
+			expect(read.tickets[0]?.blockers).toEqual([{ tracker: "github", repo: INLINE_REPO, host: null, key: "2" }]);
+		}
+	});
+
 	test("refuses a blocker list paged shorter than the count beside it, rather than answering from part of it", () => {
 		// Neither answer is available from a page: a retained edge may be the confirmed block, and a missing one
 		// may be too, so reading it either way decides a ticket's blocking state from an incomplete list.
@@ -384,6 +399,10 @@ describe("the limit a read is given", () => {
 
 	test("is refused when it is not a whole number of tickets", () => {
 		expect(refused(1.5)).toThrow(/whole number/);
+	});
+
+	test("is refused where asking for one row more would leave the range, rather than failing as a bad command", () => {
+		expect(refused(Number.MAX_SAFE_INTEGER)).toThrow(GitHubAdapterError);
 	});
 
 	test("asks for exactly one row more than it was given", () => {
