@@ -1,10 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { spawnSync } from "bun";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { runGuardOn } from "./guard-harness";
 
-const script = join(import.meta.dir, "check-identifiers.sh");
+const guardDirs = (): number => readdirSync(tmpdir()).filter((name) => name.startsWith("nextup-guard-")).length;
 
 // Fixtures the guard must reject are assembled at runtime, because this file is itself tracked
 // and scanned. Splitting after a scheme's colon is no longer sufficient on its own, because the
@@ -40,20 +39,14 @@ const nestedHostInQuery =
 	"//internal.corp" +
 	".test/x";
 
-function runGuardOn(contents: string) {
-	const dir = mkdtempSync(join(tmpdir(), "nextup-guard-"));
-	writeFileSync(join(dir, "fixture.md"), contents);
-	for (const cmd of [
-		["git", "init", "-q"],
-		["git", "add", "fixture.md"],
-	]) {
-		const setup = spawnSync({ cmd, cwd: dir });
-		if (setup.exitCode !== 0) {
-			throw new Error(`fixture setup failed: ${cmd.join(" ")}`);
-		}
-	}
-	return spawnSync({ cmd: ["bash", script], cwd: dir });
-}
+describe("runGuardOn", () => {
+	test("leaves no temporary repository behind, on a pass or a failure", () => {
+		const before = guardDirs();
+		runGuardOn("See https://example.com/issues/1\n");
+		runGuardOn(`Ticket at ${unknownHttpsUrl}\n`);
+		expect(guardDirs()).toBe(before);
+	});
+});
 
 describe("check-identifiers", () => {
 	test("passes tokens that are on the allowlist", () => {

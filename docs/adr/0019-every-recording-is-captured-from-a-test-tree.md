@@ -1,5 +1,17 @@
 # Every recording is captured from a test tree we can recreate
 
+> Amended by [0024](./0024-a-recordings-hosts-become-a-dot-less-placeholder.md): the synthetic hosts are
+> **not** added to the identifier allowlist. That claim appears twice below — once in the capture rule
+> ("replaced with a small allowlisted synthetic set") and again in the last section — and neither instance
+> stands.
+>
+> Amended by [0023](./0023-the-test-tree-is-keyed-by-shape-not-by-issue-number.md) on what the GitHub tree
+> is, and on one clause here: the tree is **private**, so "a fact anyone can check by looking at the tree"
+> means anyone holding a token for it, not any reader. 0023 has why a publicly writable tree defeats the
+> consequence this ADR is built on.
+>
+> Everything else below stands.
+
 This rule governs **recordings** — captured exchanges with a tracker's CLI. It does not govern
 **scenario inputs**, which are sets of already-normalized tickets exercising the pure selector. The
 distinction is what each artifact claims: a recording asserts that a tracker produces a shape, so it has
