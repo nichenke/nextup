@@ -1,8 +1,14 @@
 import { type Runner, defaultRunner } from "./runner";
-import { resolveRepoFromOrigin } from "./git-remote";
+import { resolveOriginRemote } from "./git-remote";
 import { hasJiraAuth, isAuthenticatedHost } from "./host-auth";
 
 export type Tracker = "github" | "gitlab" | "jira";
+
+/**
+ * GitHub's own host. Lives here rather than in the adapter because a short form resolved from a git remote has
+ * to check it before any adapter is reached, and the adapter importing from here keeps that one-way.
+ */
+export const GITHUB_HOST = "github.com";
 
 export interface TicketRef {
 	tracker: Tracker;
@@ -171,13 +177,23 @@ function resolveRepoScopedShort(
 		if (!/^\d+$/.test(body)) {
 			throw new TicketRefError(`${scheme}:${body} is not a valid short form (expected a bare number or a repo#number form)`);
 		}
-		const repo = resolveRepoFromOrigin(runner);
-		if (!repo || !isValidRepoPath(tracker, repo)) {
+		const origin = resolveOriginRemote(runner);
+		if (!origin || !isValidRepoPath(tracker, origin.repo)) {
 			throw new TicketRefError(
 				`${scheme}:${body} has no explicit repository, and the working directory's git remote could not be resolved`,
 			);
 		}
-		return { tracker, repo, host: null, key: body };
+		// A short form carries no host, so the remote's is the only evidence of which system it names — and a
+		// resolved `owner/repo` is indistinguishable from the same path on any other host. Without this, `gh:1` in
+		// a GitHub Enterprise or GitLab checkout resolves to whatever sits at that path on github.com, and every
+		// reader downstream operates on a repository the user never named. GitLab is not checked the same way
+		// because a self-hosted instance can be any host, so its remote carries no comparable evidence.
+		if (tracker === "github" && origin.host !== GITHUB_HOST) {
+			throw new TicketRefError(
+				`${scheme}:${body} resolves through a remote on ${origin.host}, which is not ${GITHUB_HOST} — name the repository explicitly if that is what you meant`,
+			);
+		}
+		return { tracker, repo: origin.repo, host: null, key: body };
 	}
 
 	const repo = body.slice(0, hashIndex);

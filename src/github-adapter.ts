@@ -5,7 +5,7 @@ import { resolveOriginRemote } from "./git-remote";
 import { type GraphSeed, seedGraph } from "./graph-store";
 import type { Runner } from "./runner";
 import { type Claim, type Ticket, ticketId } from "./ticket";
-import { type TicketRef, formatTicketRef, isValidRepoPath } from "./ticket-ref";
+import { GITHUB_HOST, type TicketRef, isValidRepoPath } from "./ticket-ref";
 
 export class GitHubAdapterError extends Error {}
 
@@ -26,8 +26,10 @@ export type ReadDegrade =
 /**
  * One read of a ticket set: the tickets, the blocking graph over them, and what the read could not answer.
  *
- * `truncated` and `outages` are separate because they call for different responses — a truncated read wants
- * a narrower query, an outage wants a look at the tracker — and because a read can be both.
+ * `truncated` is separate from `degraded` because it calls for a different response — a narrower query rather
+ * than a look at the tracker — and because a read can be both. Neither implies the other: an outage reports
+ * both, while a read whose blocking nothing could confirm is degraded and complete. So a caller has to consult
+ * both, and `truncated === false` is not a claim that the answer is whole.
  */
 export interface TicketSetRead {
 	readonly tickets: readonly Ticket[];
@@ -36,15 +38,12 @@ export interface TicketSetRead {
 	 * short of still gates its dependent, on the openness its own edge carried.
 	 */
 	readonly graph: DependencyGraph;
-	/**
-	 * Whether the read stopped short of the whole ticket set. An outage sets it, because a read that returned
-	 * nothing has stopped short of everything — but nothing in the type enforces that pairing, so a second
-	 * adapter copying this shape has to keep it by hand.
-	 */
+	/** Whether the read stopped short of the whole ticket set. */
 	readonly truncated: boolean;
 	/**
-	 * Reads that failed open, each already reflected as `"unknown"` somewhere in `tickets` or in `graph`, or as
-	 * an empty set. Empty for a read that answered everything. A defect never reaches here — it throws.
+	 * Every way this read answered with less than it was asked, each already reflected as `"unknown"` in
+	 * `tickets` or in `graph`, or as an empty set. Empty for a read that answered everything. A defect never
+	 * reaches here — it throws.
 	 */
 	readonly degraded: readonly ReadDegrade[];
 }
@@ -54,7 +53,8 @@ export interface GitHubReadInput {
 	/**
 	 * How many tickets to consider. The read asks for one more, so a capped page is distinguishable from an
 	 * exactly-full one, and keeps that extra row: it is a ticket like any other, and dropping one already in
-	 * hand is a second truncation. A truncated read therefore returns `limit + 1` tickets.
+	 * hand is a second truncation. So this bounds what is asked for, not what comes back — a read that finds
+	 * more returns `limit + 1` tickets, and one that fails returns none.
 	 *
 	 * Required rather than defaulted: a default is a claim about somebody's backlog size.
 	 */
@@ -89,6 +89,7 @@ export function readGitHubTicketSet(input: GitHubReadInput): TicketSetRead {
 	const rows = readRows(result.stdout, repo);
 	const readings = rows.map((row, index) => readRow(row, `${repo} row ${index}`));
 	const tickets = readings.map((reading) => reading.ticket);
+	requireOneRepository(tickets, repo);
 	// Counted from the edges rather than from the tickets' `blockers`, which mirror them: the graph is seeded
 	// from the edges, so counting the mirror would let the two disagree with nothing to catch it.
 	const unreadable = readings.filter((reading) => reading.edges === "unknown").length;
@@ -110,13 +111,12 @@ export function readGitHubTicketSet(input: GitHubReadInput): TicketSetRead {
 function failedRead(repo: string, stderr: string): TicketSetRead {
 	const detail = stderr.trim();
 	if (classifyFailure(stderr) === "defect") {
-		throw new GitHubAdapterError(`reading ${repo} failed, and the request itself is what is wrong: ${detail}`);
+		// Not "the request is wrong": a missing or unauthenticated `gh` lands here too, and the fix is neither the
+		// query nor a retry.
+		throw new GitHubAdapterError(`reading ${repo} failed with something a retry will not fix: ${detail}`);
 	}
 	return { tickets: [], graph: seedGraph([]), truncated: true, degraded: [{ kind: "outage", detail }] };
 }
-
-/** The only host this adapter reads. A read carries no `--hostname`, so nothing else can be reached. */
-export const GITHUB_HOST = "github.com";
 
 /**
  * The repository to read: the one named, or the one the working directory's origin points at.
@@ -134,6 +134,20 @@ function resolveRepo(input: GitHubReadInput): string {
 	return repo;
 }
 
+/**
+ * Refuses a read whose rows do not all name one repository. `ticketId` requires that refs entering one graph
+ * agree on how much they know, and taking each ref's repository from its own row is what stopped enforcing
+ * that for free — every ref used to carry the one repository the caller asked about. The rows may name a
+ * different repository than was asked for, since a rename redirects and the tracker answers under the new
+ * name; what they may not do is disagree with each other.
+ */
+function requireOneRepository(tickets: readonly Ticket[], asked: string): void {
+	const named = new Set(tickets.map((ticket) => ticket.ref.repo));
+	if (named.size > 1) {
+		throw new GitHubAdapterError(`reading ${asked} answered for more than one repository: ${[...named].sort().join(", ")}`);
+	}
+}
+
 function requireGitHubOrigin(runner: Runner): string {
 	const origin = resolveOriginRemote(runner);
 	if (origin === null) {
@@ -147,13 +161,11 @@ function requireGitHubOrigin(runner: Runner): string {
 	return origin.repo;
 }
 
-/** One blocker an edge named, carrying the openness that edge reported for it. */
 interface Edge {
 	readonly ref: TicketRef;
 	readonly open: boolean;
 }
 
-/** One row's normalization, and its edges — `"unknown"` where the blocking field did not answer at all. */
 interface RowReading {
 	readonly ticket: Ticket;
 	readonly edges: readonly Edge[] | "unknown";
@@ -196,11 +208,8 @@ function graphFor(readings: readonly RowReading[]): GraphReading {
 			// one dependent's copy of it.
 			if (own.has(id)) continue;
 			const seen = outside.get(id);
-			// Two edges disagreeing is the tracker telling us two things, so neither is taken. Keeping either
-			// decides one dependent's blocking state from another's edge — and last-write-wins reported a ticket
-			// unblocked whose own edge said its blocker was open. Reading the pair as open instead would be safe
-			// in that direction and wrong in the other, withholding work whose blocker had in fact just closed;
-			// `unknown` is what CONTEXT.md reserves for the tracker not telling us one thing.
+			// Two edges disagreeing is the tracker telling us two things, so neither is taken: keeping either decides
+			// one dependent's blocking state from another dependent's edge. ADR-0025 has why not the open one.
 			outside.set(id, { ref: edge.ref, open: seen === undefined || seen.open === edge.open ? edge.open : "unknown" });
 		}
 	}

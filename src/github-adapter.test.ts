@@ -2,13 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { githubIssueListCommand } from "./command-builders";
 import { deriveEffectiveBlockedness } from "./effective-blockedness";
-import { GITHUB_HOST, GitHubAdapterError, type TicketSetRead, readGitHubTicketSet } from "./github-adapter";
+import { GitHubAdapterError, type TicketSetRead, readGitHubTicketSet } from "./github-adapter";
 import { readPriority } from "./priority";
 import { loadRecording, recordingsDir } from "./recording";
 import type { Runner } from "./runner";
 import { replayRunner, respondingRunner } from "./test-support";
 import { GITHUB_TEST_TREE } from "./test-tree";
 import { type Ticket, ticketId } from "./ticket";
+import { GITHUB_HOST } from "./ticket-ref";
 
 const REPO = GITHUB_TEST_TREE.repo;
 
@@ -289,6 +290,14 @@ describe("a response the read cannot parse", () => {
 	});
 });
 
+describe("rows that answer for more than one repository", () => {
+	test("are refused, since refs on one graph have to agree on how much they know", () => {
+		const read = () =>
+			reading(issueRow(), issueRow({ number: 2, title: "elsewhere", url: "other/repo/issues/2" }));
+		expect(read).toThrow(/more than one repository/);
+	});
+});
+
 describe("a repository spelled differently from how the tracker spells it", () => {
 	test("still matches a blocker the read returned, so its own row is what answers for it", () => {
 		// GitHub repository paths are case-insensitive, and a rename redirects, so the caller's spelling and the
@@ -312,9 +321,8 @@ describe("a repository spelled differently from how the tracker spells it", () =
 });
 
 describe("two edges disagreeing about one blocker outside the read", () => {
-	// GitHub can emit this — a multi-page read sees a blocker that closed between pages — but reaching it needs
-	// a race on a tree larger than ours. What is asserted is that disagreement is refused rather than resolved,
-	// which holds whatever emits it.
+	// What is asserted is that a disagreement is refused rather than resolved, which holds whoever produced it —
+	// so these rows claim nothing about what GitHub returns, and ADR-0019's provenance rule does not reach them.
 	function disagreeing(first: string, second: string): TicketSetRead {
 		const row = (n: number, blockerState: string) =>
 			issueRow({

@@ -57,8 +57,14 @@ query changing is the CLI's projection moving under us, which is what the stored
 
 Two of the five captures are failures rather than tree reads — an unresolvable host for the wording an
 outage is recognised by, and a repository that does not exist for the wording of a request that is itself
-wrong. Neither reads anyone's project. Redaction rewrites hosts, not repository paths, so the unresolvable
-host is replaced while the absent repository name is stored as it was asked for.
+wrong. Each is refused if it stops failing, so a name that later becomes a real repository is never stored.
+
+Do not read those two as evidence that redaction covers a host anywhere it appears. It rewrote the host in
+`read-outage.json`'s argv, where a `/` follows it, and left the same host standing in the stderr beside it,
+where nothing does — `BARE_HOST` in `src/recording-identifiers.ts` needs that following separator. What makes
+the stored copy harmless is the name itself: it is under `.invalid`, which RFC 2606 reserves so that it can
+never resolve. A capture naming a real unreachable host would keep it, and redaction is not what would stop
+that. The repository path is not rewritten at all — redaction rewrites hosts.
 
 ## Rules
 

@@ -27,6 +27,12 @@ interface Capture {
 	readonly name: string;
 	readonly description: string;
 	readonly argv: readonly string[];
+	/**
+	 * Whether this exchange is expected to succeed. Checked after the call and before the write, because
+	 * `requirePrivate` guards the tree and the two failure captures name repositories it never sees: if the
+	 * absent one is ever created, its read stops failing and this refuses instead of storing a stranger's issues.
+	 */
+	readonly succeeds: boolean;
 }
 
 const CAPTURES: readonly Capture[] = [
@@ -34,27 +40,32 @@ const CAPTURES: readonly Capture[] = [
 		name: "ticket-set",
 		description: "The whole tree in one read, asking for one row more than it holds, so nothing is truncated.",
 		argv: githubIssueListCommand({ repo: GITHUB_TEST_TREE.repo, rows: WHOLE_TREE_ROWS }),
+		succeeds: true,
 	},
 	{
 		name: "ticket-set-truncated",
 		description: "The same read capped below the tree's size, so the over-fetched row arrives and says so.",
 		argv: githubIssueListCommand({ repo: GITHUB_TEST_TREE.repo, rows: TRUNCATING_ROWS }),
+		succeeds: true,
 	},
 	{
 		name: "ticket-set-without-blockers",
 		description:
 			"The same read with the blocking field left out of the projection, so every row carries no blockedBy key at all — the shape a read of an unavailable dependency surface has to be told apart from an empty one.",
 		argv: withoutBlockedBy(githubIssueListCommand({ repo: GITHUB_TEST_TREE.repo, rows: WHOLE_TREE_ROWS })),
+		succeeds: true,
 	},
 	{
 		name: "read-outage",
 		description: "A host that cannot resolve, for the connectivity wording an outage has to be recognised by.",
 		argv: githubIssueListCommand({ repo: UNRESOLVABLE, rows: WHOLE_TREE_ROWS }),
+		succeeds: false,
 	},
 	{
 		name: "read-defect",
 		description: "A repository that does not exist, for the wording of a request that is itself wrong.",
 		argv: githubIssueListCommand({ repo: ABSENT_REPO, rows: WHOLE_TREE_ROWS }),
+		succeeds: false,
 	},
 ];
 
@@ -76,6 +87,11 @@ function cliVersion(): string {
 
 function capture(one: Capture, cli: string): Recording {
 	const result = defaultRunner([...one.argv]);
+	if (one.succeeds !== (result.code === 0)) {
+		throw new Error(
+			`${one.name} was expected to ${one.succeeds ? "succeed" : "fail"} and exited ${result.code}: ${result.stderr.trim() || "no stderr"}`,
+		);
+	}
 	return {
 		description: one.description,
 		cli,
