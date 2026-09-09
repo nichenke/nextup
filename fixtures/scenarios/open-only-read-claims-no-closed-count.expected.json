@@ -1,0 +1,49 @@
+{
+	"pick": {
+		"ref": "gh:example/repo#1",
+		"title": "Land the parser",
+		"url": null,
+		"labels": [
+			"P1"
+		],
+		"blocked": "unblocked",
+		"priority": 1,
+		"unreadPriority": [],
+		"unblocks": 1
+	},
+	"decision": {
+		"kind": "only-candidate"
+	},
+	"consulted": "unblocked",
+	"ranked": [
+		{
+			"ref": "gh:example/repo#1",
+			"title": "Land the parser",
+			"url": null,
+			"labels": [
+				"P1"
+			],
+			"blocked": "unblocked",
+			"priority": 1,
+			"unreadPriority": [],
+			"unblocks": 1
+		}
+	],
+	"counts": {
+		"tickets": 3,
+		"closed": "not-asked",
+		"claimed": 1,
+		"filtered": 0,
+		"candidates": 2,
+		"unblocked": 1,
+		"unknown": 0,
+		"blocked": 1
+	},
+	"degraded": [],
+	"filter": {
+		"include": [],
+		"exclude": [
+			"wayfinder:*"
+		]
+	}
+}

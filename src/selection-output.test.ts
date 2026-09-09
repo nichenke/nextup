@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import type { ReadDegrade } from "./github-adapter";
 import { seedGraph } from "./graph-store";
 import { DEFAULT_LABEL_FILTER, compileLabelFilter } from "./label-filter";
-import { DEGRADED_PREFIX, renderSelection, selectionJson } from "./selection-output";
+import { type Answer, DEGRADED_PREFIX, answerJson, renderAnswer, renderSelection, selectionJson } from "./selection-output";
 import { type Selection, select } from "./selector";
 import { type Ticket, ticketId } from "./ticket";
 import type { TicketRef } from "./ticket-ref";
@@ -19,7 +20,7 @@ function refOf(key: string): TicketRef {
 	return { tracker: "github", repo: "example/repo", host: null, key };
 }
 
-function selectionOf(specs: readonly Spec[], truncated = false): Selection {
+function selectionOf(specs: readonly Spec[], truncated = false, openOnly = false): Selection {
 	const tickets: Ticket[] = specs.map((spec) => ({
 		ref: refOf(spec.key),
 		title: spec.title ?? `Ticket ${spec.key}`,
@@ -37,7 +38,7 @@ function selectionOf(specs: readonly Spec[], truncated = false): Selection {
 			open: (spec.state ?? "open") === "open",
 		})),
 	);
-	return select({ tickets, graph, filter: compileLabelFilter(DEFAULT_LABEL_FILTER), truncated });
+	return select({ tickets, graph, filter: compileLabelFilter(DEFAULT_LABEL_FILTER), truncated, openOnly });
 }
 
 describe("selectionJson", () => {
@@ -170,4 +171,69 @@ describe("renderSelection", () => {
 	test("ends with a newline, so it composes with anything reading it a line at a time", () => {
 		expect(renderSelection(selectionOf([{ key: "1" }]))).toEndWith("\n");
 	});
+
+	test("counts the closed tickets of a set that was read with them", () => {
+		expect(renderSelection(selectionOf([{ key: "1" }, { key: "2", state: "closed" }]))).toContain("1 closed");
+	});
+
+	test("says the closed count was not asked for, rather than rendering a zero as a count", () => {
+		const text = renderSelection(selectionOf([{ key: "1" }], false, true));
+		expect(text).toContain("1 tickets: closed not asked, 0 claimed");
+		expect(text).not.toContain("0 closed");
+	});
 });
+
+describe("renderAnswer", () => {
+	const REF: TicketRef = { tracker: "github", repo: "example/repo", host: null, key: "4" };
+
+	function answerOf(readDegraded: readonly ReadDegrade[], specs: readonly Spec[] = [{ key: "1" }]): Answer {
+		return { selection: selectionOf(specs), readDegraded };
+	}
+
+	test("words every kind the read reports, under the same sentinel as the selector's own", () => {
+		const text = renderAnswer(
+			answerOf([
+				{ kind: "outage", detail: "could not resolve host" },
+				{ kind: "unreadable-blocking", tickets: 2, of: 9 },
+				{ kind: "partial-blocking", refs: [REF] },
+				{ kind: "contradicted-blocker", refs: [REF] },
+			]),
+		);
+		const lines = sentinels(text);
+		expect(lines).toHaveLength(4);
+		expect(lines[0]).toContain("could not resolve host");
+		expect(lines[1]).toContain("2 of 9 tickets");
+		expect(lines[2]).toContain("only a page of their blockers");
+		expect(lines[3]).toContain("disagreed about their state");
+		for (const line of lines.slice(2)) expect(line).toContain("gh:example/repo#4");
+	});
+
+	test("carries both lists when the selector and the read each have something to report", () => {
+		const answer: Answer = {
+			selection: selectionOf([{ key: "1", blockers: "unknown" }], true),
+			readDegraded: [{ kind: "unreadable-blocking", tickets: 1, of: 1 }],
+		};
+		expect(sentinels(renderAnswer(answer))).toHaveLength(3);
+	});
+
+	test("renders exactly the selection when the read answered everything", () => {
+		const selection = selectionOf([{ key: "1" }]);
+		expect(renderAnswer({ selection, readDegraded: [] })).toBe(renderSelection(selection));
+	});
+});
+
+describe("answerJson", () => {
+	test("carries each read degrade by kind, with its references in short form", () => {
+		const json = answerJson({
+			selection: selectionOf([{ key: "1" }]),
+			readDegraded: [{ kind: "partial-blocking", refs: [{ tracker: "github", repo: "example/repo", host: null, key: "4" }] }],
+		});
+		expect(JSON.parse(JSON.stringify(json))).toEqual(json);
+		expect(json.readDegraded).toEqual([{ kind: "partial-blocking", refs: ["gh:example/repo#4"] }]);
+		expect(json.selection.pick?.ref).toBe("gh:example/repo#1");
+	});
+});
+
+function sentinels(text: string): string[] {
+	return text.split("\n").filter((line) => line.startsWith(DEGRADED_PREFIX));
+}

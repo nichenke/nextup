@@ -19,7 +19,7 @@ export interface Scenario {
 export function loadScenario(path: string): Scenario {
 	const raw = parseJson(path);
 	const file = object(raw, path, "the scenario");
-	keys(file, ["description", "truncated", "filter", "tickets"], path, "the scenario");
+	keys(file, ["description", "truncated", "openOnly", "filter", "tickets"], path, "the scenario");
 
 	const tickets = array(file.tickets, path, "tickets").map((entry, index) =>
 		readTicket(entry, path, `tickets[${index}]`),
@@ -43,6 +43,10 @@ export function loadScenario(path: string): Scenario {
 			graph,
 			filter: compileLabelFilter(readFilter(file.filter, path)),
 			truncated: boolean(file.truncated, path, "truncated"),
+			// Absent reads as false, unlike `truncated`: a scenario's tickets are authored rather than fetched,
+			// so a set that says nothing about how it was read is the whole set, and a zero closed count over it
+			// is a count rather than a claim about a query. A scenario pinning the other rendering says so.
+			openOnly: file.openOnly === undefined ? false : boolean(file.openOnly, path, "openOnly"),
 		},
 	};
 }

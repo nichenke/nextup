@@ -11,7 +11,7 @@
 		"--repo",
 		"example/repo",
 		"--state",
-		"all",
+		"open",
 		"--limit",
 		"31",
 		"--json",

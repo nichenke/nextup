@@ -181,8 +181,11 @@ export interface GitHubIssueListInput {
 }
 
 /**
- * One read of a GitHub ticket set. `--state all` because a closed ticket is its own authority on being
- * closed, where the same ticket known only from another ticket's blocking edge is that ticket's copy of it.
+ * One read of a GitHub ticket set. `--state open` so that the row limit is spent entirely on the tickets a
+ * pick can come from: `gh` orders newest-first, so under `--state all` a briskly-closing repository fills the
+ * page with tickets nothing could recommend and truncates the open frontier away. A closed blocker's state
+ * still arrives on its dependent's edge, which is why nothing needs it as a row — ADR-0028 has the
+ * measurement, and what the counts may claim in exchange.
  *
  * @throws CommandBuilderError when `rows` is not a positive whole number.
  */
@@ -197,7 +200,7 @@ export function githubIssueListCommand(input: GitHubIssueListInput): readonly st
 		"--repo",
 		input.repo,
 		"--state",
-		"all",
+		"open",
 		"--limit",
 		String(input.rows),
 		"--json",

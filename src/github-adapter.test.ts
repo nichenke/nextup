@@ -13,7 +13,13 @@ import { GITHUB_HOST } from "./ticket-ref";
 
 const REPO = GITHUB_TEST_TREE.repo;
 
-const WHOLE_TREE = GITHUB_TEST_TREE.issues.length;
+/**
+ * The tree's open issues, which is every row a read returns: the read asks for open tickets only, so a
+ * closed shape is reachable here as a blocker on an edge and never as a ticket — ADR-0028.
+ */
+const OPEN_ISSUES = GITHUB_TEST_TREE.issues.filter((one) => !one.closed);
+
+const WHOLE_TREE = OPEN_ISSUES.length;
 
 /** The limit `ticket-set-truncated.json` was captured under, which `capture-github-recordings.ts` fixes. */
 const TRUNCATING = 3;
@@ -33,11 +39,16 @@ function recording(name: string) {
  * rebuilt tree renumbers — ADR-0023.
  */
 function shape(read: TicketSetRead, key: string): Ticket {
+	const title = titleOf(key);
+	const ticket = read.tickets.find((one) => one.title === title);
+	if (ticket === undefined) throw new Error(`the read carries no ticket titled ${title}`);
+	return ticket;
+}
+
+function titleOf(key: string): string {
 	const issue = GITHUB_TEST_TREE.issues.find((one) => one.key === key);
 	if (issue === undefined) throw new Error(`${key} is not a shape the test tree carries`);
-	const ticket = read.tickets.find((one) => one.title === issue.title);
-	if (ticket === undefined) throw new Error(`the read carries no ticket titled ${issue.title}`);
-	return ticket;
+	return issue.title;
 }
 
 function blockedness(read: TicketSetRead, key: string): string {
@@ -54,9 +65,7 @@ describe("readGitHubTicketSet, over the whole test tree", () => {
 		expect(read.tickets).toHaveLength(WHOLE_TREE);
 		expect(read.truncated).toBe(false);
 		expect(read.degraded).toEqual([]);
-		expect([...read.tickets].map((one) => one.title).sort()).toEqual(
-			[...GITHUB_TEST_TREE.issues].map((one) => one.title).sort(),
-		);
+		expect([...read.tickets].map((one) => one.title).sort()).toEqual([...OPEN_ISSUES].map((one) => one.title).sort());
 	});
 
 	test("emits one reference form for the whole set, carrying the repository and no host", () => {
@@ -68,10 +77,11 @@ describe("readGitHubTicketSet, over the whole test tree", () => {
 		}
 	});
 
-	test("reads the tracker's own open/closed state per ticket", () => {
+	test("hands back open tickets only, so a closed one is never a row to recommend", () => {
 		const read = wholeTree();
-		expect(shape(read, "closed-blocker").state).toBe("closed");
 		expect(shape(read, "open-blocker").state).toBe("open");
+		for (const ticket of read.tickets) expect(ticket.state).toBe("open");
+		expect(read.tickets.map((one) => one.title)).not.toContain(titleOf("closed-blocker"));
 	});
 
 	test("reads the claim from the assignee, and leaves an unassigned ticket unclaimed", () => {
@@ -106,7 +116,11 @@ describe("the blocking graph the read seeds", () => {
 
 	test("unblocks a ticket whose every blocker is closed, though its blocker total is above zero", () => {
 		const read = wholeTree();
-		expect(shape(read, "every-blocker-closed").blockers).toHaveLength(1);
+		const blockers = shape(read, "every-blocker-closed").blockers;
+		expect(blockers).toHaveLength(1);
+		// The blocker is closed, so an open-only read does not return it as a row: this derives from the
+		// closedness its own edge carried, which is what ADR-0028 rests on.
+		expect(read.tickets.map((one) => one.title)).not.toContain(titleOf("closed-blocker"));
 		expect(blockedness(read, "every-blocker-closed")).toBe("unblocked");
 	});
 

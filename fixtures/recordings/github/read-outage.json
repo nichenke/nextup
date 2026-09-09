@@ -8,9 +8,9 @@
 		"--repo",
 		"github-test-tree/nichenke/unreachable",
 		"--state",
-		"all",
+		"open",
 		"--limit",
-		"19",
+		"18",
 		"--json",
 		"number,title,state,assignees,labels,url,blockedBy"
 	],

@@ -1,5 +1,14 @@
-import { DEFAULT_LABEL_FILTER, LabelFilterError, type LabelFilterSpec, compileLabelFilter } from "./label-filter";
+import { GitHubAdapterError, readGitHubTicketSet } from "./github-adapter";
+import {
+	DEFAULT_LABEL_FILTER,
+	type LabelFilter,
+	LabelFilterError,
+	type LabelFilterSpec,
+	compileLabelFilter,
+} from "./label-filter";
 import type { Runner } from "./runner";
+import { type Answer, answerJson, renderAnswer } from "./selection-output";
+import { SelectionError, select } from "./selector";
 
 /**
  * Prints `question` itself and reports the answer, because `run` returns its output rather than
@@ -24,17 +33,30 @@ export interface CliResult {
 	readonly stderr: string;
 }
 
+/**
+ * How many open tickets one run considers when nothing says otherwise. The adapter refuses to default this
+ * — a default is a claim about somebody's backlog — and the claim made here is that a repository with more
+ * than this many *open* tickets wants a narrower query rather than a longer read. `gh` pages at a hundred
+ * and stops when the tracker runs out, so the second page costs nothing on a repository holding fewer, and
+ * a read that hits this reports itself truncated rather than answering as though it were whole. ADR-0028.
+ */
+export const DEFAULT_LIMIT = 200;
+
 const USAGE = `nextup — picks the ticket to start next, claims it, and says how to start work on it
 
-No tracker adapter is wired yet: only --help and -h succeed, and every other invocation exits 2.
+Nothing writes yet: a run reads the GitHub repository the working directory's origin points at, reports
+the pick, and claims nothing. --yes and --print-command are accepted and change nothing until the claim
+and launch steps land.
 
-usage: nextup [--include <label>]... [--exclude <label>]... [--yes] [--json] [--print-command]
+usage: nextup [--include <label>]... [--exclude <label>]... [--limit <n>] [--yes] [--json]
+              [--print-command]
 
   --include <label>  consider only tickets carrying one of these labels; repeatable
   --exclude <label>  never consider a ticket carrying one of these labels; repeatable
+  --limit <n>        how many open tickets to consider; ${DEFAULT_LIMIT} by default
   --yes              claim the pick without asking first
   --print-command    print the launch command and claim nothing
-  --json             emit the selection as JSON rather than the human rendering
+  --json             emit the answer as JSON rather than the human rendering
   --help, -h         print this
 
 A label may end in "*" to match a prefix. --exclude 'wayfinder:*' always applies and --exclude adds
@@ -47,10 +69,13 @@ The pick is shown and confirmed before it is claimed. --yes answers in advance, 
 unattended run needs; with neither a terminal nor --yes the run is refused rather than answered on
 your behalf. --print-command claims nothing and never asks.
 
-Exit status: 0 a ticket claimed, or a command printed, 1 nothing started — nothing to recommend, or
-the pick declined, 2 something needing a person — no configured ticket-set source, a bad invocation, a
-ticket set that will not read or take a claim, or a claim left behind, 3 a pick another run may find
-free.
+Only open tickets are read, so the limit is spent on tickets a pick can come from. A read that hits the
+limit says so on a "degraded: " line: narrow it with --include rather than raising it, since a longer
+read costs more and still answers from whatever the tracker returned first.
+
+Exit status, of what is wired: 0 a pick reported, 1 nothing to recommend, 2 something needing a person
+— a repository that cannot be resolved, a read that is itself wrong, or a bad invocation. A tracker that
+could not be reached is reported as a degraded answer with nothing to recommend, which is 1.
 `;
 
 export function run(argv: readonly string[], deps: CliDeps): CliResult {
@@ -62,13 +87,47 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 	}
 	if (options.help) return { code: 0, stdout: USAGE, stderr: "" };
 
+	let filter: LabelFilter;
 	try {
-		compileLabelFilter(options.filter);
+		filter = compileLabelFilter(options.filter);
 	} catch (cause) {
 		return usageError(cause);
 	}
 
-	return { code: 2, stdout: "", stderr: "no ticket-set source is configured\n" };
+	let answer: Answer;
+	try {
+		const read = readGitHubTicketSet({ runner: deps.runner, limit: options.limit });
+		const selection = select({
+			tickets: read.tickets,
+			graph: read.graph,
+			truncated: read.truncated,
+			openOnly: read.openOnly,
+			filter,
+		});
+		answer = { selection, readDegraded: read.degraded };
+	} catch (cause) {
+		return readError(cause);
+	}
+
+	// An outage is nothing to recommend rather than something needing a person: the adapter flags it and
+	// continues, so the answer carries a "degraded: " line and the status is the status of that answer.
+	return {
+		code: answer.selection.pick === null ? 1 : 0,
+		stdout: options.json ? `${JSON.stringify(answerJson(answer), null, "\t")}\n` : renderAnswer(answer),
+		stderr: "",
+	};
+}
+
+/**
+ * Whatever a read or the selection over it refused, as something for a person to fix. Both classes name a
+ * defect — a repository that will not resolve, a response that cannot be read, a set contradicting what it
+ * was read for — and every other throw is a bug here rather than in the tracker, so it is left to surface.
+ */
+function readError(cause: unknown): CliResult {
+	if (cause instanceof GitHubAdapterError || cause instanceof SelectionError) {
+		return { code: 2, stdout: "", stderr: `${cause.message}\n` };
+	}
+	throw cause;
 }
 
 class CliError extends Error {}
@@ -78,6 +137,7 @@ interface Options {
 	readonly json: boolean;
 	readonly yes: boolean;
 	readonly printCommand: boolean;
+	readonly limit: number;
 	readonly filter: LabelFilterSpec;
 }
 
@@ -86,6 +146,7 @@ function parse(argv: readonly string[]): Options {
 	let json = false;
 	let yes = false;
 	let printCommand = false;
+	let limit = DEFAULT_LIMIT;
 	const include: string[] = [];
 	const exclude: string[] = [];
 
@@ -105,6 +166,9 @@ function parse(argv: readonly string[]): Options {
 			case "--print-command":
 				printCommand = true;
 				break;
+			case "--limit":
+				limit = tickets(value(argv, ++i, flag), flag);
+				break;
 			case "--include":
 				include.push(value(argv, ++i, flag));
 				break;
@@ -118,7 +182,19 @@ function parse(argv: readonly string[]): Options {
 
 	// The default exclusion is a floor, not a starting point a filter flag replaces: `--include backend`
 	// would otherwise hand out a wayfinder ticket labelled `backend`.
-	return { help, json, yes, printCommand, filter: { include, exclude: [...DEFAULT_LABEL_FILTER.exclude, ...exclude] } };
+	return { help, json, yes, printCommand, limit, filter: { include, exclude: [...DEFAULT_LABEL_FILTER.exclude, ...exclude] } };
+}
+
+/**
+ * A count of tickets to read. Refused here rather than by the adapter, so that a mistyped flag reads as a
+ * bad invocation with the usage beside it rather than as a tracker read that would not run.
+ */
+function tickets(given: string, flag: string): number {
+	const limit = Number(given);
+	if (!Number.isSafeInteger(limit) || limit < 1) {
+		throw new CliError(`${flag} takes a whole number of tickets above zero, and ${given} is not one`);
+	}
+	return limit;
 }
 
 function value(argv: readonly string[], index: number, flag: string): string {

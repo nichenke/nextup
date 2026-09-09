@@ -49,6 +49,12 @@ export interface TicketSetRead {
 	/** Whether the read stopped short of the whole ticket set. */
 	readonly truncated: boolean;
 	/**
+	 * Whether this read asked for open tickets only. Reported rather than left for a caller to know, because
+	 * a caller restating it is a second place for the answer to be wrong: it is what `SelectionInput.openOnly`
+	 * needs stated, and only the query knows it.
+	 */
+	readonly openOnly: boolean;
+	/**
 	 * Every way this read answered with less than it was asked, each already reflected as `"unknown"` in
 	 * `tickets` or in `graph`, or as an empty set. Empty for a read that answered everything. A defect never
 	 * reaches here — it throws.
@@ -117,7 +123,7 @@ export function readGitHubTicketSet(input: GitHubReadInput): TicketSetRead {
 	if (partial.length > 0) degraded.push({ kind: "partial-blocking", refs: partial });
 	if (contradicted.length > 0) degraded.push({ kind: "contradicted-blocker", refs: contradicted });
 
-	return { tickets, graph, truncated, degraded };
+	return { tickets, graph, truncated, openOnly: true, degraded };
 }
 
 /**
@@ -133,7 +139,7 @@ function failedRead(repo: string, stderr: string): TicketSetRead {
 		// query nor a retry.
 		throw new GitHubAdapterError(`reading ${repo} failed with something a retry will not fix: ${detail}`);
 	}
-	return { tickets: [], graph: seedGraph([]), truncated: true, degraded: [{ kind: "outage", detail }] };
+	return { tickets: [], graph: seedGraph([]), truncated: true, openOnly: true, degraded: [{ kind: "outage", detail }] };
 }
 
 /**

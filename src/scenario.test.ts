@@ -19,7 +19,11 @@ const RENDERED = ".expected.txt";
 const UPDATING = process.env.UPDATE_SCENARIOS === "1" && process.env.CI === undefined;
 
 /** The scenarios whose human rendering is pinned as well as their JSON. */
-const RENDERED_SCENARIOS = ["lone-pick-beside-blocked-candidates", "unknown-consulted-when-nothing-confirmed"];
+const RENDERED_SCENARIOS = [
+	"lone-pick-beside-blocked-candidates",
+	"open-only-read-claims-no-closed-count",
+	"unknown-consulted-when-nothing-confirmed",
+];
 
 describe("the golden-file scenario suite", () => {
 	const names = namesEndingIn(INPUT);
