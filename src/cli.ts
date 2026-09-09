@@ -65,10 +65,11 @@ The pick is shown and confirmed before it is claimed. --yes answers in advance, 
 unattended run needs; with neither a terminal nor --yes the run is refused rather than answered on
 your behalf. --print-command claims nothing and never asks.
 
-Only open tickets are read, so the limit is spent on tickets a pick can come from. A read that hits the
-limit says so on a "degraded: " line: narrow it with --include rather than raising it, since a longer
-read costs more and still answers from whatever the tracker returned first. A tracker that could not be
-reached reports that line too, beside its own — there the answer is to retry, not to narrow anything.
+Only open tickets are read, so the limit is spent on tickets a pick can come from. The window is the most
+recently created of them, so a repository with more open tickets than the limit never considers its oldest
+ones — a read that hits the limit says so on a "degraded: " line, and the answer is --include to name work
+outside the window, or a --limit past your open count. A tracker that could not be reached reports that
+same line beside its own; there the answer is to retry rather than to narrow anything.
 
 Exit status, of what is wired: 0 a pick reported, 1 nothing to recommend, 2 something needing a person
 — a repository that cannot be resolved, a read that is itself wrong, or a bad invocation. A tracker that

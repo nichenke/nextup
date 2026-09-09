@@ -28,7 +28,8 @@ bun bin/nextup.ts --help            # every flag
 ```
 
 Only open tickets are read, and the counts line says `closed not asked` rather than reporting a zero as a
-count.
+count. The window is the most recently created open tickets, so a backlog larger than `--limit` never
+considers its oldest — the truncation sentinel is what says so.
 [ADR-0028](./docs/adr/0028-the-read-asks-for-open-tickets-and-the-closed-count-says-so.md) has the
 measurement that makes that safe for blocking, and what the default limit claims.
 

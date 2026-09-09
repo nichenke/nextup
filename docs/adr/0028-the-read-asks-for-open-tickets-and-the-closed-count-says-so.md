@@ -21,6 +21,23 @@ high issue throughput. There the newest rows are mostly closed, the open frontie
 answer is correct and useless: a pick from the handful of open tickets that fit, while the ones that did not
 fit are the reason to run the tool.
 
+### Who loses under this scheme
+
+Naming this side too, because the argument above only names who loses under `--state all`. A repository with
+more open tickets than the limit gets a window of the newest-created ones, so its *oldest* open tickets are
+never candidates — and no number of runs changes that, since the window is deterministic. A `P0` filed a
+year ago and never worked is invisible while 199 newer tickets exist.
+
+That cuts against the ladder, whose last rung breaks ties by ascending reference: it prefers the oldest
+ticket of an otherwise equal pair, and the read drops exactly those first.
+
+It is still the right window, and the alternatives were checked rather than assumed. `gh issue list` has no
+sort flag; ordering is reachable only through `--search`, whose sorts are `created`, `updated`, `comments`
+and `reactions` — none of which is the ladder. Taking `sort:created-asc` would invert the bias to hide all
+recent work, which is worse for a tool answering "what next". So the window stays newest-first and the cost
+is stated instead: the truncation sentinel says the answer may be missing a better candidate, and the
+remedy is `--include` to name the work you cannot see, or a `--limit` past your open count.
+
 Reading open-only spends the whole limit on the population a pick can come from. Nothing else about the
 answer changes, and blocking in particular does not, because a blocker's state arrives on its dependent's
 edge. Measured against the tree, an open-only read returns `#9:CLOSED` on the edge of both tickets that
