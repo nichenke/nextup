@@ -10,6 +10,16 @@ export type Tracker = "github" | "gitlab" | "jira";
  */
 export const GITHUB_HOST = "github.com";
 
+/**
+ * Whether a git remote's host is GitHub's. The port is dropped before comparing, and GitHub's `ssh.` endpoint is
+ * accepted beside the web host: an SSH remote naming port 22 explicitly, and GitHub's published port-443
+ * workaround for a firewalled 22, are both ordinary remotes that comparing the authority whole refused.
+ */
+export function isGitHubHost(host: string): boolean {
+	const bare = host.replace(/:\d+$/, "");
+	return bare === GITHUB_HOST || bare === `ssh.${GITHUB_HOST}`;
+}
+
 export interface TicketRef {
 	tracker: Tracker;
 	/** `owner/repo` (github) or `namespace/project` (gitlab); null for jira. */
@@ -188,7 +198,7 @@ function resolveRepoScopedShort(
 		// a GitHub Enterprise or GitLab checkout resolves to whatever sits at that path on github.com, and every
 		// reader downstream operates on a repository the user never named. GitLab is not checked the same way
 		// because a self-hosted instance can be any host, so its remote carries no comparable evidence.
-		if (tracker === "github" && origin.host !== GITHUB_HOST) {
+		if (tracker === "github" && !isGitHubHost(origin.host)) {
 			throw new TicketRefError(
 				`${scheme}:${body} resolves through a remote on ${origin.host}, which is not ${GITHUB_HOST} — name the repository explicitly if that is what you meant`,
 			);

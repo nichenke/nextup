@@ -5,14 +5,18 @@ import { resolveOriginRemote } from "./git-remote";
 import { type GraphSeed, seedGraph } from "./graph-store";
 import type { Runner } from "./runner";
 import { type Claim, type Ticket, ticketId } from "./ticket";
-import { GITHUB_HOST, type TicketRef, isValidRepoPath } from "./ticket-ref";
+import { GITHUB_HOST, type TicketRef, isGitHubHost, isValidRepoPath } from "./ticket-ref";
 
 export class GitHubAdapterError extends Error {}
 
 /**
- * A way one read answered with less than it was asked. Kinds rather than sentences, matching how `Degrade` and
- * `DEGRADE_REASON` already divide this repo: a caller decides on the kind, and only the render boundary writes
- * prose. A test asserting the wording instead pins text `selection-output.ts` declares free to change.
+ * A way one read answered with less than it was asked. Kinds rather than sentences, following how `Degrade` and
+ * `DEGRADE_REASON` divide the same job: a caller decides on the kind, and only a render boundary writes prose.
+ * A test asserting wording instead pins text `selection-output.ts` declares free to change.
+ *
+ * No render boundary reads these yet — `DEGRADE_REASON` is keyed on the selector's own union — so a caller
+ * wiring this adapter to the command has to add the sibling mapping. Nothing outside this module consumes a
+ * `TicketSetRead` today.
  *
  * `outage` is the only one named for a failure of the call. The other two are the tracker answering, with less
  * than one answer in it — which is why neither is filed under a word `failure-class.ts` reserves for
@@ -21,6 +25,8 @@ export class GitHubAdapterError extends Error {}
 export type ReadDegrade =
 	| { readonly kind: "outage"; readonly detail: string }
 	| { readonly kind: "unreadable-blocking"; readonly tickets: number; readonly of: number }
+	/** Tickets held out of the answer because only a page of their blockers arrived — never recommended. */
+	| { readonly kind: "partial-blocking"; readonly refs: readonly TicketRef[] }
 	| { readonly kind: "contradicted-blocker"; readonly refs: readonly TicketRef[] };
 
 /**
@@ -85,23 +91,28 @@ export function readGitHubTicketSet(input: GitHubReadInput): TicketSetRead {
 	if (result.code !== 0) return failedRead(repo, result.stderr);
 
 	const rows = readRows(result.stdout, repo);
-	// Truncation is decided on the raw read, then the probe row is dropped: `limit` is how many tickets to
-	// consider, so a row fetched only to detect a cap must not become the recommendation. Nothing is lost by
-	// dropping it — each edge carries its own blocker's state, so a retained ticket blocked by the dropped row
-	// still reads blocked.
-	const truncated = rows.length > input.limit;
-	const readings = rows
-		.slice(0, input.limit)
-		.map((row, index) => readRow(row, `${repo} row ${index}`));
-	const tickets = readings.map((reading) => reading.ticket);
-	requireOneRepository(tickets, repo);
-	// Counted from the edges rather than from the tickets' `blockers`, which mirror them: the graph is seeded
-	// from the edges, so counting the mirror would let the two disagree with nothing to catch it.
-	const unreadable = readings.filter((reading) => reading.edges === "unknown").length;
+	const readings = rows.map((row, index) => readRow(row, `${repo} row ${index}`));
+	requireOneRepository(readings, repo);
+
+	// Every row seeds the graph, including the probe row and any ticket held back below: a row is its own
+	// authority on being open, and dropping one from the graph leaves a dependent's edge — a copy, which can be
+	// stale — to answer for it instead. Seeding all of them and narrowing only what may be recommended is what
+	// keeps the row-over-edge precedence from depending on where the page happened to end.
 	const { graph, contradicted } = graphFor(readings);
 
+	// Truncation is decided on the raw read; `limit` then bounds what comes back, because a row fetched only to
+	// detect a cap must not become the recommendation.
+	const truncated = rows.length > input.limit;
+	const considered = readings.slice(0, input.limit);
+	const partial = considered.filter((reading) => reading.edges === "partial").map((reading) => reading.ticket.ref);
+	const tickets = considered.filter((reading) => reading.edges !== "partial").map((reading) => reading.ticket);
+	// Counted from the edges rather than from the tickets' `blockers`, which mirror them: the graph is seeded
+	// from the edges, so counting the mirror would let the two disagree with nothing to catch it.
+	const unreadable = considered.filter((reading) => reading.edges === "unknown").length;
+
 	const degraded: ReadDegrade[] = [];
-	if (unreadable > 0) degraded.push({ kind: "unreadable-blocking", tickets: unreadable, of: tickets.length });
+	if (unreadable > 0) degraded.push({ kind: "unreadable-blocking", tickets: unreadable, of: considered.length });
+	if (partial.length > 0) degraded.push({ kind: "partial-blocking", refs: partial });
 	if (contradicted.length > 0) degraded.push({ kind: "contradicted-blocker", refs: contradicted });
 
 	return { tickets, graph, truncated, degraded };
@@ -146,8 +157,8 @@ function resolveRepo(input: GitHubReadInput): string {
  * different repository than was asked for, since a rename redirects and the tracker answers under the new
  * name; what they may not do is disagree with each other.
  */
-function requireOneRepository(tickets: readonly Ticket[], asked: string): void {
-	const named = new Set(tickets.map((ticket) => ticket.ref.repo));
+function requireOneRepository(readings: readonly RowReading[], asked: string): void {
+	const named = new Set(readings.map((reading) => reading.ticket.ref.repo));
 	if (named.size > 1) {
 		throw new GitHubAdapterError(`reading ${asked} answered for more than one repository: ${[...named].sort().join(", ")}`);
 	}
@@ -158,7 +169,7 @@ function requireGitHubOrigin(runner: Runner): string {
 	if (origin === null) {
 		throw new GitHubAdapterError("no repository was named, and the working directory's git remote could not be resolved");
 	}
-	if (origin.host !== GITHUB_HOST) {
+	if (!isGitHubHost(origin.host)) {
 		throw new GitHubAdapterError(
 			`the origin remote points at ${origin.host}, and this adapter reads ${GITHUB_HOST} only — reading ${origin.repo} here would answer about a different repository of the same name`,
 		);
@@ -171,9 +182,15 @@ interface Edge {
 	readonly open: boolean;
 }
 
+/**
+ * What one row's blocking field said: its edges, or why they are not a list. `"unknown"` is a field that did not
+ * answer, `"partial"` a field that answered with a page of a longer list — see `readEdges` for why they differ.
+ */
+type EdgeReading = readonly Edge[] | "unknown" | "partial";
+
 interface RowReading {
 	readonly ticket: Ticket;
-	readonly edges: readonly Edge[] | "unknown";
+	readonly edges: EdgeReading;
 }
 
 interface GraphReading {
@@ -205,7 +222,7 @@ function graphFor(readings: readonly RowReading[]): GraphReading {
 
 	const outside = new Map<IssueId, { readonly ref: TicketRef; readonly open: boolean | "unknown" }>();
 	for (const { edges } of readings) {
-		if (edges === "unknown") continue;
+		if (typeof edges === "string") continue;
 		for (const edge of edges) {
 			const id = ticketId(edge.ref);
 			// A blocker the read returned answers for its own openness, and an edge disagreeing with it is
@@ -249,9 +266,6 @@ function readRow(row: Record<string, unknown>, where: string): RowReading {
 	const address = url(row.url, `${where} url`);
 	const ref: TicketRef = {
 		tracker: "github",
-		// From this row's own address rather than from what the caller asked for: a blocker's repository can only
-		// be read from its edge's address, and unless both come from the same place an in-read blocker can look
-		// outside the read and take its openness from a stale edge. ADR-0025 has what made that silent.
 		repo: addressRepo(address, `${where} url`),
 		host: null,
 		key: String(number(row.number, `${where} number`)),
@@ -263,7 +277,7 @@ function readRow(row: Record<string, unknown>, where: string): RowReading {
 			title: text(row.title, `${where} title`),
 			state: state(row.state, `${where} state`),
 			claim: readClaim(row.assignees, where),
-			blockers: edges === "unknown" ? "unknown" : edges.map((edge) => edge.ref),
+			blockers: typeof edges === "string" ? "unknown" : edges.map((edge) => edge.ref),
 			url: address,
 			labels: readLabels(row.labels, where),
 		},
@@ -279,7 +293,7 @@ function readRow(row: Record<string, unknown>, where: string): RowReading {
  * @throws GitHubAdapterError when the field is present in a shape this cannot read — that is our query being
  * wrong rather than the tracker being unavailable.
  */
-function readEdges(raw: unknown, where: string): readonly Edge[] | "unknown" {
+function readEdges(raw: unknown, where: string): EdgeReading {
 	if (raw === undefined || raw === null) return "unknown";
 	if (typeof raw !== "object" || Array.isArray(raw)) throw new GitHubAdapterError(`${where} blockedBy is not a blocking field`);
 
@@ -287,15 +301,12 @@ function readEdges(raw: unknown, where: string): readonly Edge[] | "unknown" {
 	const nodes = field.nodes;
 	const total = number(field.totalCount, `${where} blockedBy.totalCount`);
 	if (!Array.isArray(nodes)) throw new GitHubAdapterError(`${where} blockedBy.nodes is not a list of blockers`);
-	// A node list shorter than the count beside it is a page of the edges rather than all of them. Refused
-	// rather than degraded, because neither answer is available: the retained edges may hold a confirmed open
-	// blocker, so `"unknown"` would demote a confirmed block — and the missing ones may hold one too, so the
-	// retained list alone would read unblocked. ADR-0025 has why refusing is right and what would lift it.
-	if (nodes.length !== total) {
-		throw new GitHubAdapterError(
-			`${where} blockedBy returned ${nodes.length} of ${total} blockers, which is a page of them rather than all — reading a partial blocking list is refused`,
-		);
-	}
+	// A node list shorter than the count beside it is a page of the edges rather than all of them, and neither
+	// reading of it is available: the retained edges may hold a confirmed open blocker, so `"unknown"` would
+	// demote a confirmed block, and the missing ones may hold one too, so the retained list alone reads
+	// unblocked. So this ticket is not judged at all — `"partial"` holds it out of the answer, which is a
+	// narrower refusal than failing the read and losing every other ticket with it. ADR-0025 has both.
+	if (nodes.length !== total) return "partial";
 
 	const edges: Edge[] = [];
 	for (const [index, node] of nodes.entries()) {
@@ -325,13 +336,22 @@ function readEdges(raw: unknown, where: string): readonly Edge[] | "unknown" {
 // requires the scheme and authority this address has lost, and resolves a tracker from the host besides.
 //
 // `pull` is accepted beside `issues` because GitHub numbers both in one space, so a pull request blocking an
-// issue is a ticket at that number like any other. A trailing slash, query or fragment is tolerated for the
-// reason `ticket-ref.ts` tolerates them on a pasted URL: they address a place within the page, not another
-// page — and refusing one aborts the whole read over a single edge.
-const ISSUE_ADDRESS = /([^/\s?#]+\/[^/\s?#]+)\/(?:issues|pull)\/\d+(?:[/?#]\S*)?$/;
+// issue is a ticket at that number like any other.
+const ISSUE_ADDRESS = /([^/\s?#]+\/[^/\s?#]+)\/(?:issues|pull)\/\d+$/;
 
+// A query, fragment or trailing slash addresses a place within the page rather than another page, so it is
+// removed before matching rather than tolerated inside the pattern. Tolerating it there made `exec` take the
+// leftmost pair, so an address holding two issue numbers resolved to the repository before the first.
+const ADDRESS_TAIL = /[?#].*$|\/+$/;
+
+/**
+ * The owner and repository an issue address names, which is where every ref's repository comes from — a row's
+ * as much as a blocker's. Both have to be read the same way: a blocker's repository can only come from its
+ * address, so taking a row's from the repository the caller asked about instead let one issue occupy two graph
+ * nodes. ADR-0025 has what made that silent.
+ */
 function addressRepo(address: string, where: string): string {
-	const repo = ISSUE_ADDRESS.exec(address)?.[1];
+	const repo = ISSUE_ADDRESS.exec(address.replace(ADDRESS_TAIL, ""))?.[1];
 	if (repo === undefined) throw new GitHubAdapterError(`${where} names no owner and repository: ${address}`);
 	return repo;
 }

@@ -66,15 +66,26 @@ Reading the pair as open instead is safe in that direction and wrong in the othe
 blocker had in fact just closed — and **Unknown** is the term already reserved for the tracker not telling
 us one thing.
 
-A blocker list paged shorter than the `totalCount` beside it is **refused**, not degraded. Unknown was the
-first answer and it is wrong: the edges that did arrive may hold a confirmed open blocker, and reading the
-row as Unknown demotes a confirmed block to a state the selector will recommend from — inverting, one layer
-below where it is implemented, the precedence `effective-blockedness.ts` exists to enforce. Reading the
-retained list as complete is worse in the other direction, since a missing edge may be the open one. With
-neither answer available, the read refuses and names the counts, and the fuller fix — paging the edges
-through `gh api graphql` — is left until something reaches it. Reaching it needs more blockers on one issue
-than the CLI returns at once, which the test tree cannot hold, and [0019](./0019-every-recording-is-captured-from-a-test-tree.md)
-takes that inability as information rather than as licence to hand-write the shape.
+A ticket whose blocker list arrives as a page — fewer nodes than the `totalCount` beside them — is **held out
+of the answer**, and reported. Neither reading of that page is available: the edges that did arrive may hold a
+confirmed open blocker, so Unknown demotes a confirmed block to a state the selector recommends from —
+inverting, one layer below where it is implemented, the precedence `effective-blockedness.ts` enforces — while
+the retained list read as complete is wrong in the other direction, since a missing edge may be the open one.
+
+Refusing the whole read was the first answer to that and went too far: one over-linked issue made every other
+ticket in the repository unreachable, with no limit or filter that got the caller any answer. The narrower
+refusal is to judge that one ticket not at all. It still seeds the graph — its own row remains the authority on
+whether it is open, so tickets blocked by it are unaffected — but it is never a candidate, and
+`partial-blocking` names it. Paging the edges through `gh api graphql` is still the fuller fix, left until
+something reaches this. Reaching it needs more blockers on one issue than the CLI returns at once, which the
+test tree cannot hold, and [0019](./0019-every-recording-is-captured-from-a-test-tree.md) takes that inability
+as information rather than as licence to hand-write the shape.
+
+Every row seeds the graph, including the row fetched only to detect truncation. `limit` bounds what may be
+recommended, not what the graph knows: dropping a row from the graph leaves a dependent's edge — a copy, which
+can be stale — answering for it, so where the page happened to end decided a ticket's blocking state. A first
+version of the probe-row fix did exactly that, and a ticket whose blocker was open read unblocked at one limit
+and blocked at the next.
 
 A ticket's repository is read from its own row's address, never from what the caller asked for, because a
 blocker's repository can only come from its edge's address and the two must agree. They did not: GitHub

@@ -267,6 +267,12 @@ describe("a response the read cannot parse", () => {
 		expect(() => reading(issueRow({ blockedBy: { nodes, totalCount: 1 } }))).toThrow(/names no owner and repository/);
 	});
 
+	test("takes the repository before the last issue number, not the first", () => {
+		const nodes = [{ number: 2, state: "OPEN", url: `outer/repo/issues/1/${INLINE_REPO}/issues/2` }];
+		const read = reading(issueRow({ blockedBy: { nodes, totalCount: 1 } }));
+		expect(read.tickets[0]?.blockers).toEqual([{ tracker: "github", repo: INLINE_REPO, host: null, key: "2" }]);
+	});
+
 	test("reads a blocker address carrying a trailing slash, a query, a fragment, or a pull request", () => {
 		// Refusing any of these aborts a whole read over one edge, and each still names the repository and number
 		// the ref is keyed by — a pull request among them, since GitHub numbers issues and pulls in one space.
@@ -282,11 +288,32 @@ describe("a response the read cannot parse", () => {
 		}
 	});
 
-	test("refuses a blocker list paged shorter than the count beside it, rather than answering from part of it", () => {
+	test("holds back a ticket whose blocker list is a page, rather than losing the whole read to it", () => {
 		// Neither answer is available from a page: a retained edge may be the confirmed block, and a missing one
-		// may be too, so reading it either way decides a ticket's blocking state from an incomplete list.
+		// may be too. So this ticket is not judged — while every other ticket in the read still is.
 		const blockedBy = { nodes: [blockerNode(2, "OPEN")], totalCount: 3 };
-		expect(() => reading(issueRow({ blockedBy }))).toThrow(/1 of 3 blockers/);
+		const read = reading(issueRow({ blockedBy }), issueRow({ number: 5, title: "readable", url: `${INLINE_REPO}/issues/5` }));
+		expect(read.tickets.map((one) => one.ref.key)).toEqual(["5"]);
+		expect(read.degraded).toEqual([
+			{ kind: "partial-blocking", refs: [{ tracker: "github", repo: INLINE_REPO, host: null, key: "1" }] },
+		]);
+	});
+});
+
+describe("the row fetched only to detect truncation", () => {
+	test("still answers for its own openness, so a stale edge cannot decide in its place", () => {
+		// #1's edge claims its blocker #2 is closed; #2's own row says it is open. Dropping #2 from the graph with
+		// the probe row would leave that stale edge deciding, and #1 would read unblocked at a limit of 1.
+		const rows = [
+			issueRow({ blockedBy: { nodes: [blockerNode(2, "CLOSED")], totalCount: 1 } }),
+			issueRow({ number: 2, title: "the blocker", url: `${INLINE_REPO}/issues/2` }),
+		];
+		const stdout = JSON.stringify(rows);
+		for (const limit of [2, 1]) {
+			const read = readGitHubTicketSet({ repo: INLINE_REPO, limit, runner: () => ({ code: 0, stdout, stderr: "" }) });
+			expect(read.tickets).toHaveLength(limit);
+			expect(blockednessOfFirst(read)).toBe("blocked");
+		}
 	});
 });
 

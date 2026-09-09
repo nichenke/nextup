@@ -9,6 +9,10 @@ export type FailureClass = "outage" | "defect";
 // `error connecting to` and `check your internet connection`, in
 // `fixtures/recordings/github/read-outage.json`.
 //
+// `eof` is matched only where a transport error puts it — after a colon, as gh prints it, or in Go's
+// `unexpected EOF` — never as a bare word: a repository or field named `eof` appears in a GraphQL message about
+// a request that is wrong, and reading that as an outage degrades silently where it has to fail loud.
+//
 // The rest of the additions cover a connection that fails *after* it is established, which every ported
 // alternative misses: they name pre-connection failures — resolution, dialling, the handshake — so a socket
 // reset, a truncated response, or a deadline struck mid-request classified as a defect and aborted the read
@@ -16,7 +20,7 @@ export type FailureClass = "outage" | "defect";
 // slow down is not a request that is wrong, and the wording is narrow enough that a permanent 403 — no
 // access, resource not accessible — still falls through to defect.
 const OUTAGE =
-	/dial tcp|no such host|could not resolve host|connection refused|i\/o timeout|operation timed out|network is unreachable|tls handshake timeout|HTTP 5[0-9][0-9]|error connecting to|check your internet connection|connection reset|broken pipe|\beof\b|context deadline exceeded|client\.timeout|rate limit/i;
+	/dial tcp|no such host|could not resolve host|connection refused|i\/o timeout|operation timed out|network is unreachable|tls handshake timeout|HTTP 5[0-9][0-9]|error connecting to|check your internet connection|connection reset|broken pipe|unexpected eof|:\s*eof\b|context deadline exceeded|client\.timeout|rate limit/i;
 
 /** Falls through to defect: an unclassifiable failure read as an outage makes every future defect a silent degrade. */
 export function classifyFailure(stderr: string): FailureClass {

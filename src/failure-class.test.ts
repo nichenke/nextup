@@ -40,6 +40,15 @@ describe("classifyFailure", () => {
 		expect(classifyFailure("HTTP 403: Resource not accessible by integration")).toBe("defect");
 	});
 
+	test("reads a repository or field merely named eof as a defect, not as a truncated response", () => {
+		// The transport wording is `…: EOF`; a bare word boundary matched a GraphQL message about a request that
+		// is wrong, and degrading one of those silently is what the fall-through direction exists to prevent.
+		expect(classifyFailure("GraphQL: Could not resolve to a Repository with the name 'acme/eof-parser'. (repository)")).toBe(
+			"defect",
+		);
+		expect(classifyFailure("GraphQL: Field 'eof' doesn't exist on type 'Issue'")).toBe("defect");
+	});
+
 	test("reads a 4xx as a defect, so a request that is wrong is not retried as weather", () => {
 		expect(classifyFailure("HTTP 422: Validation Failed")).toBe("defect");
 	});
