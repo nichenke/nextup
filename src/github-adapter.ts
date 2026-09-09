@@ -5,7 +5,7 @@ import { resolveRepoFromOrigin } from "./git-remote";
 import { type GraphSeed, seedGraph } from "./graph-store";
 import type { Runner } from "./runner";
 import { type Claim, type Ticket, ticketId } from "./ticket";
-import { type TicketRef, isValidRepoPath } from "./ticket-ref";
+import { type TicketRef, formatTicketRef, isValidRepoPath } from "./ticket-ref";
 
 export class GitHubAdapterError extends Error {}
 
@@ -22,11 +22,15 @@ export interface TicketSetRead {
 	 * short of still gates its dependent, on the openness its own edge carried.
 	 */
 	readonly graph: DependencyGraph;
-	/** Whether the read stopped short of the whole ticket set. */
+	/**
+	 * Whether the read stopped short of the whole ticket set. An outage sets it, because a read that returned
+	 * nothing has stopped short of everything — but nothing in the type enforces that pairing, so a second
+	 * adapter copying this shape has to keep it by hand.
+	 */
 	readonly truncated: boolean;
 	/**
-	 * Reads that failed open, each already reflected as `"unknown"` somewhere in `tickets` or as an empty
-	 * set. Empty for a read that answered everything it was asked. A defect never reaches here — it throws.
+	 * Reads that failed open, each already reflected as `"unknown"` somewhere in `tickets` or in `graph`, or
+	 * as an empty set. Empty for a read that answered everything. A defect never reaches here — it throws.
 	 */
 	readonly outages: readonly string[];
 }
@@ -35,7 +39,10 @@ export interface GitHubReadInput {
 	readonly runner: Runner;
 	/**
 	 * How many tickets to consider. The read asks for one more, so a capped page is distinguishable from an
-	 * exactly-full one. Required rather than defaulted: a default is a claim about somebody's backlog size.
+	 * exactly-full one, and keeps that extra row: it is a ticket like any other, and dropping one already in
+	 * hand is a second truncation. A truncated read therefore returns `limit + 1` tickets.
+	 *
+	 * Required rather than defaulted: a default is a claim about somebody's backlog size.
 	 */
 	readonly limit: number;
 	/** The `owner/repo` to read, or absent to resolve it from the working directory's git remote. */
@@ -49,8 +56,11 @@ export interface GitHubReadInput {
  * prose declaration is not a blocking channel, which ADR-0025 records against the checklist that asked for
  * one and ADR-0020 argues from.
  *
- * @throws GitHubAdapterError on a defect — a request that is itself wrong, a repository that is not
- * `owner/repo`, or a response whose shape the adapter cannot read. An outage is flagged and continued past.
+ * @throws GitHubAdapterError on a defect — a limit that is not a positive whole number, a repository that is
+ * not `owner/repo` or that no remote resolves to, a request the tracker rejects, or a response whose shape
+ * cannot be read. An outage is flagged and continued past instead.
+ * @throws Error from `seedGraph` when the read holds one issue twice, which is an identity failure rather
+ * than a tracker one — `graph-store.ts` says why that refuses instead of taking the last write.
  */
 export function readGitHubTicketSet(input: GitHubReadInput): TicketSetRead {
 	if (!Number.isSafeInteger(input.limit) || input.limit < 1) {
@@ -64,17 +74,19 @@ export function readGitHubTicketSet(input: GitHubReadInput): TicketSetRead {
 	const readings = rows.map((row, index) => readRow(row, repo, `${repo} row ${index}`));
 	const tickets = readings.map((reading) => reading.ticket);
 	const unreadable = tickets.filter((ticket) => ticket.blockers === "unknown").length;
+	const { graph, contradicted } = graphFor(readings);
 
-	return {
-		tickets,
-		graph: seedGraph(seedsFor(readings)),
-		// Decided on the raw read, before anything is filtered out of it.
-		truncated: rows.length > input.limit,
-		outages:
-			unreadable === 0
-				? []
-				: [`${repo} answered with no readable blocking field for ${unreadable} of ${rows.length} tickets`],
-	};
+	const outages: string[] = [];
+	if (unreadable > 0) {
+		outages.push(`${repo} answered with no readable blocking field for ${unreadable} of ${rows.length} tickets`);
+	}
+	if (contradicted.length > 0) {
+		outages.push(
+			`${repo} reported one blocker as both open and closed within one read: ${contradicted.map(formatTicketRef).join(", ")}`,
+		);
+	}
+
+	return { tickets, graph, truncated: rows.length > input.limit, outages };
 }
 
 /**
@@ -102,18 +114,30 @@ function resolveRepo(input: GitHubReadInput): string {
 	return repo;
 }
 
-/** One row's normalization, and the openness its own edges reported for the blockers they name. */
+/** One blocker an edge named, carrying the openness that edge reported for it. */
+interface Edge {
+	readonly ref: TicketRef;
+	readonly open: boolean;
+}
+
+/** One row's normalization, and its edges — `"unknown"` where the blocking field did not answer at all. */
 interface RowReading {
 	readonly ticket: Ticket;
-	readonly edgeOpenness: ReadonlyMap<IssueId, boolean>;
+	readonly edges: readonly Edge[] | "unknown";
+}
+
+interface GraphReading {
+	readonly graph: DependencyGraph;
+	/** Blockers outside the read whose edges disagreed about openness, each seeded unknown instead. */
+	readonly contradicted: readonly TicketRef[];
 }
 
 /**
- * A seed per ticket, plus one per blocker the read itself did not return. Without the second group a blocker
- * outside the read has no openness at all, so the traversal degrades its dependent to `"unknown"` — and the
- * edge already carried the answer.
+ * The graph: a seed per ticket, plus one per blocker the read itself did not return. Without that second
+ * group a blocker outside the read has no openness at all, so the traversal degrades its dependent to
+ * `"unknown"` — and the edge already carried the answer.
  */
-function seedsFor(readings: readonly RowReading[]): readonly GraphSeed[] {
+function graphFor(readings: readonly RowReading[]): GraphReading {
 	const seeds: GraphSeed[] = [];
 	const own = new Set<IssueId>();
 	for (const { ticket } of readings) {
@@ -121,28 +145,41 @@ function seedsFor(readings: readonly RowReading[]): readonly GraphSeed[] {
 		own.add(id);
 		seeds.push({
 			id,
-			// Containment is not a blocking channel (ADR-0017), so nothing reads a parent; `null` is what the
-			// port takes for that, and is not a claim that these tickets were checked and found to be roots.
+			// Containment is not a blocking channel (ADR-0017), so no parentage is read and every ticket is
+			// seeded as a confirmed root — which is what makes the traversal's ancestor walk stop at one hop.
 			parent: null,
 			blockers: ticket.blockers === "unknown" ? "unknown" : ticket.blockers.map(ticketId),
 			open: ticket.state === "open",
 		});
 	}
 
-	const outside = new Map<IssueId, boolean>();
-	for (const { edgeOpenness } of readings) {
-		for (const [id, open] of edgeOpenness) {
-			// One read is one snapshot, so two edges naming the same blocker agree; deduplicating is what keeps
-			// `seedGraph` from refusing the set for holding an id twice.
-			if (!own.has(id)) outside.set(id, open);
+	const outside = new Map<IssueId, { readonly ref: TicketRef; readonly open: boolean | "unknown" }>();
+	for (const { edges } of readings) {
+		if (edges === "unknown") continue;
+		for (const edge of edges) {
+			const id = ticketId(edge.ref);
+			// A blocker the read returned answers for its own openness, and an edge disagreeing with it is
+			// discarded rather than reconciled: the row is the tracker's own per-ticket state, where the edge is
+			// one dependent's copy of it.
+			if (own.has(id)) continue;
+			const seen = outside.get(id);
+			// Two edges disagreeing is the tracker telling us two things, so neither is taken. Keeping either
+			// decides one dependent's blocking state from another's edge — and last-write-wins reported a ticket
+			// unblocked whose own edge said its blocker was open. Reading the pair as open instead would be safe
+			// in that direction and wrong in the other, withholding work whose blocker had in fact just closed;
+			// `unknown` is what CONTEXT.md reserves for the tracker not telling us one thing.
+			outside.set(id, { ref: edge.ref, open: seen === undefined || seen.open === edge.open ? edge.open : "unknown" });
 		}
 	}
-	for (const [id, open] of outside) {
+
+	const contradicted: TicketRef[] = [];
+	for (const [id, blocker] of outside) {
+		if (blocker.open === "unknown") contradicted.push(blocker.ref);
 		// Its own blockers were never read, and saying so is the point: a closed one is pruned before they are
 		// consulted, and an open one blocks on its own.
-		seeds.push({ id, parent: null, blockers: "unknown", open });
+		seeds.push({ id, parent: null, blockers: "unknown", open: blocker.open });
 	}
-	return seeds;
+	return { graph: seedGraph(seeds), contradicted };
 }
 
 function readRows(stdout: string, repo: string): readonly Record<string, unknown>[] {
@@ -170,47 +207,35 @@ function readRow(row: Record<string, unknown>, repo: string, where: string): Row
 			title: text(row.title, `${where} title`),
 			state: state(row.state, `${where} state`),
 			claim: readClaim(row.assignees, where),
-			blockers: edges.blockers,
+			blockers: edges === "unknown" ? "unknown" : edges.map((edge) => edge.ref),
 			url: url(row.url, `${where} url`),
 			labels: readLabels(row.labels, where),
 		},
-		edgeOpenness: edges.openness,
+		edges,
 	};
 }
 
-interface EdgeReading {
-	readonly blockers: readonly TicketRef[] | "unknown";
-	readonly openness: ReadonlyMap<IssueId, boolean>;
-}
-
 /**
- * The blocking edges one row carries, or `"unknown"`.
- *
- * `"unknown"` comes from the field being absent rather than from it being empty, which is the distinction
- * `docs/agents/issue-tracker.md` warns this surface does not draw for us: `{nodes:[],totalCount:0}` is what
- * an issue with no blockers returns and there is no separate value for a dependency surface that could not
- * answer, so reading a zero as unknown would make every unblocked ticket unknown, and reading an absent
- * field as zero is the collapse `CONTEXT.md` forbids.
+ * The blocking edges one row carries: an absent field reads `"unknown"`, an empty one reads no blockers, and
+ * a node list shorter than its own count reads `"unknown"` too. ADR-0025 has why each, and why the empty case
+ * is not the unknown one.
  *
  * @throws GitHubAdapterError when the field is present in a shape this cannot read — that is our query being
  * wrong rather than the tracker being unavailable.
  */
-function readEdges(raw: unknown, where: string): EdgeReading {
-	if (raw === undefined || raw === null) return { blockers: "unknown", openness: new Map() };
+function readEdges(raw: unknown, where: string): readonly Edge[] | "unknown" {
+	if (raw === undefined || raw === null) return "unknown";
 	if (typeof raw !== "object" || Array.isArray(raw)) throw new GitHubAdapterError(`${where} blockedBy is not a blocking field`);
 
 	const field = raw as Record<string, unknown>;
 	const nodes = field.nodes;
 	const total = number(field.totalCount, `${where} blockedBy.totalCount`);
 	if (!Array.isArray(nodes)) throw new GitHubAdapterError(`${where} blockedBy.nodes is not a list of blockers`);
-	// A node list shorter than the count it reports is a page of the edges rather than all of them, which
-	// reads as a shorter list of blockers and so as unblocked. The tree cannot reach this — it would take more
-	// blockers on one issue than the CLI returns per issue — and ADR-0019 takes that inability as information
-	// about the shape rather than licence to hand-write one, so this is a guard with no recording behind it.
-	if (nodes.length !== total) return { blockers: "unknown", openness: new Map() };
+	// A node list shorter than the count beside it is a page of the edges rather than all of them, and a
+	// shorter list of blockers is what reads as unblocked. No recording reaches this — ADR-0025.
+	if (nodes.length !== total) return "unknown";
 
-	const blockers: TicketRef[] = [];
-	const openness = new Map<IssueId, boolean>();
+	const edges: Edge[] = [];
 	for (const [index, node] of nodes.entries()) {
 		if (typeof node !== "object" || node === null || Array.isArray(node)) {
 			throw new GitHubAdapterError(`${where} blockedBy.nodes[${index}] is not a blocker`);
@@ -225,10 +250,9 @@ function readEdges(raw: unknown, where: string): EdgeReading {
 			host: null,
 			key: String(number(blocker.number, `${where} blockedBy.nodes[${index}] number`)),
 		};
-		blockers.push(ref);
-		openness.set(ticketId(ref), state(blocker.state, `${where} blockedBy.nodes[${index}] state`) === "open");
+		edges.push({ ref, open: state(blocker.state, `${where} blockedBy.nodes[${index}] state`) === "open" });
 	}
-	return { blockers, openness };
+	return edges;
 }
 
 // The owner and repository from an issue address, taken as the two segments before "/issues/<number>" rather
@@ -270,7 +294,7 @@ function text(raw: unknown, where: string): string {
 	return raw;
 }
 
-/** A ticket with no web address is a tracker without a web UI, which GitHub is not — so an empty one is not it. */
+/** `Ticket.url` is null only for a tracker with no web UI, so from GitHub an empty address is a bad response. */
 function url(raw: unknown, where: string): string {
 	const address = text(raw, where);
 	if (address === "") throw new GitHubAdapterError(`${where} is empty`);

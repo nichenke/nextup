@@ -57,6 +57,15 @@ A blocker the read stopped short of still blocks, because each edge carries its 
 is the one place a ticket's openness is taken from something other than its own row, and it is confined
 to blockers outside the read — a row that arrived is always its own authority.
 
+Where two edges disagree about such a blocker, neither reading is taken and its openness is seeded
+Unknown, which the read also reports. A read spanning more issues than the CLI returns at once is several
+pages, so a blocker that closes mid-read can legitimately arrive open in one row's edges and closed in
+another's. Keeping either would decide one ticket's blocking state from a different ticket's edge: the
+first version kept the last, and reported a ticket unblocked whose own edge said its blocker was open.
+Reading the pair as open instead is safe in that direction and wrong in the other, withholding work whose
+blocker had in fact just closed — and **Unknown** is the term already reserved for the tracker not telling
+us one thing.
+
 One guard ships with no recording behind it: a node list shorter than the `totalCount` beside it is read
 as Unknown, because it is a page of the edges rather than all of them. Reaching it needs more blockers on
 one issue than the CLI returns at once, which the test tree cannot hold, and [0019](./0019-every-recording-is-captured-from-a-test-tree.md)

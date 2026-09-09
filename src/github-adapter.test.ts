@@ -11,10 +11,9 @@ import { type Ticket, ticketId } from "./ticket";
 
 const REPO = GITHUB_TEST_TREE.repo;
 
-/** The read's limit for a whole-tree recording: one below what it asked for, so nothing was truncated. */
 const WHOLE_TREE = GITHUB_TEST_TREE.issues.length;
 
-/** The limit the truncating recording was captured under; `capture-github-recordings.ts` asked for one more. */
+/** The limit `ticket-set-truncated.json` was captured under, which `capture-github-recordings.ts` fixes. */
 const TRUNCATING = 3;
 
 const REMOTE = "https://example.com/example/repo.git";
@@ -192,9 +191,8 @@ describe("a read that failed", () => {
 });
 
 describe("a response the read cannot parse", () => {
-	// Built here rather than stored under `fixtures/recordings`, and deliberately: each of these asserts that a
-	// response no tracker emits is refused, which is the opposite of the claim ADR-0019 governs. A shape written
-	// by hand and asserted to be *what GitHub returns* is the thing that rule forbids.
+	// Built here rather than captured: these assert refusals of shapes no tracker emits, which is not the claim
+	// ADR-0019 governs.
 	function answering(stdout: string): TicketSetRead {
 		return readGitHubTicketSet({ repo: REPO, limit: 1, runner: () => ({ code: 0, stdout, stderr: "" }) });
 	}
@@ -245,6 +243,55 @@ describe("a response the read cannot parse", () => {
 	test("refuses a blocker whose address names no owner and repository", () => {
 		const nodes = [{ number: 2, state: "OPEN", url: "issues/2" }];
 		expect(() => answering(row({ blockedBy: { nodes, totalCount: 1 } }))).toThrow(/names no owner and repository/);
+	});
+});
+
+describe("two edges disagreeing about one blocker outside the read", () => {
+	// Built here for a different reason than the block above: GitHub can emit this — a multi-page read sees a
+	// blocker that closed between pages — but reaching it needs a race on a tree larger than ours. What is
+	// asserted is that disagreement is refused rather than resolved, which holds whatever emits it.
+	function reading(first: string, second: string): TicketSetRead {
+		const row = (n: number, blockerState: string) => ({
+			number: n,
+			title: `ticket ${n}`,
+			state: "OPEN",
+			assignees: [],
+			labels: [],
+			url: `example/repo/issues/${n}`,
+			blockedBy: { nodes: [{ number: 99, state: blockerState, url: "example/repo/issues/99" }], totalCount: 1 },
+		});
+		const stdout = JSON.stringify([row(1, first), row(2, second)]);
+		return readGitHubTicketSet({ repo: "example/repo", limit: 5, runner: () => ({ code: 0, stdout, stderr: "" }) });
+	}
+
+	function blockednessOfFirst(read: TicketSetRead): string {
+		return deriveEffectiveBlockedness(ticketId(read.tickets[0]!.ref), read.graph);
+	}
+
+	test("takes neither reading, whichever order they arrive in", () => {
+		expect(blockednessOfFirst(reading("OPEN", "CLOSED"))).toBe("unknown");
+		expect(blockednessOfFirst(reading("CLOSED", "OPEN"))).toBe("unknown");
+	});
+
+	test("says so, rather than degrading a ticket silently", () => {
+		const read = reading("OPEN", "CLOSED");
+		expect(read.outages).toHaveLength(1);
+		expect(read.outages[0]).toMatch(/both open and closed/);
+	});
+
+	test("leaves a blocker the read itself returned answering for its own state", () => {
+		// The same disagreement about a blocker that is *in* the read: its own row says open, one dependent's
+		// edge says closed, and the row wins — so this stays confidently blocked rather than degrading.
+		const rows = [
+			{ number: 1, title: "blocked", state: "OPEN", assignees: [], labels: [], url: "example/repo/issues/1",
+				blockedBy: { nodes: [{ number: 2, state: "CLOSED", url: "example/repo/issues/2" }], totalCount: 1 } },
+			{ number: 2, title: "the blocker", state: "OPEN", assignees: [], labels: [], url: "example/repo/issues/2",
+				blockedBy: { nodes: [], totalCount: 0 } },
+		];
+		const stdout = JSON.stringify(rows);
+		const read = readGitHubTicketSet({ repo: "example/repo", limit: 5, runner: () => ({ code: 0, stdout, stderr: "" }) });
+		expect(blockednessOfFirst(read)).toBe("blocked");
+		expect(read.outages).toEqual([]);
 	});
 });
 

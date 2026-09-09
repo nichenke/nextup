@@ -56,7 +56,8 @@ const FIELDS: readonly string[] = ["description", "cli", "argv", "code", "stdout
  * call. The argv match is the point rather than a convenience: it makes a test of what a read *parses*
  * also a test of what it *asks*, so a field quietly dropped from the query fails here.
  *
- * @throws RecordingError when two recordings share an argv, or when a call matches none.
+ * @throws RecordingError when two recordings share an argv. The returned runner throws the same when a call
+ * matches no recording.
  */
 export function replayRunner(recordings: readonly Recording[]): Runner {
 	const byArgv = new Map<string, CommandResult>();

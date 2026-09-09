@@ -1,11 +1,7 @@
 #!/usr/bin/env bun
 /**
- * Captures the GitHub replay corpus from the test tree and from nowhere else — ADR-0019. The tree is not a
- * parameter for that reason: there is no invocation of this script that reads a real project repository.
- *
- * Local and manual, never CI: it needs a credentialed `gh`. Run it after changing what the adapter asks for,
- * and read the diff — a changed recording is the CLI's projection changing under us, which is the thing the
- * stored version line exists to attribute.
+ * Captures the GitHub replay corpus. Local and manual, never CI: it needs a credentialed `gh`. ADR-0019 is the
+ * provenance rule and `docs/agents/test-tree.md` is how and when to run this.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -22,9 +18,8 @@ const WHOLE_TREE_ROWS = GITHUB_TEST_TREE.issues.length + 1;
 /** Under the tree's size, so the over-fetched row arrives and the read reports itself truncated. */
 const TRUNCATING_ROWS = 4;
 
-// A repository that does not exist, which is why asking about it is not a read of anyone's project. The
-// dotted host is assembled rather than written: the identifier guard reads its own source, and CLAUDE.md's
-// guard section says to split such a spelling.
+// Neither exists, which is why asking about them reads nobody's project. The host is joined from parts to
+// pass the identifier guard, per CLAUDE.md.
 const UNRESOLVABLE = `${["nextup-outage", "invalid"].join(".")}/nichenke/unreachable`;
 const ABSENT_REPO = "nichenke/nextup-nope-does-not-exist";
 

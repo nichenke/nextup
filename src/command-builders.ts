@@ -159,8 +159,8 @@ export function worktreeAddCommand(repo: string, path: string, branch: string, c
 }
 
 /**
- * The projection the GitHub read adapter parses. Fixed rather than a parameter: every field here is one
- * the adapter reads, and a caller free to drop one would produce a row the adapter cannot normalize.
+ * The projection the GitHub read adapter parses. Fixed rather than a parameter, so that what a read asks for
+ * cannot drift per caller — a capture that needs a narrower projection builds it from this.
  *
  * `blockedBy` is the native dependency surface, and the only blocking channel — `issue_dependencies_summary`
  * lags under write in both directions, which `docs/agents/issue-tracker.md` measures.
@@ -177,13 +177,12 @@ export const GITHUB_TICKET_FIELDS: readonly string[] = [
 
 export interface GitHubIssueListInput {
 	readonly repo: string;
-	/** Rows to ask for, which the adapter sets one above its own limit so a capped page is detectable. */
 	readonly rows: number;
 }
 
 /**
- * One read of a GitHub ticket set. `--state all` because a closed ticket still blocks — the blocking graph
- * spans every ticket, and a blocker missing from the read has unknown openness rather than a closed one.
+ * One read of a GitHub ticket set. `--state all` because a closed ticket is its own authority on being
+ * closed, where the same ticket known only from another ticket's blocking edge is that ticket's copy of it.
  *
  * @throws CommandBuilderError when `rows` is not a positive whole number.
  */

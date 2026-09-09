@@ -57,7 +57,8 @@ query changing is the CLI's projection moving under us, which is what the stored
 
 Two of the five captures are failures rather than tree reads — an unresolvable host for the wording an
 outage is recognised by, and a repository that does not exist for the wording of a request that is itself
-wrong. Neither reads anyone's project, and both name a host or repository the redaction step rewrites.
+wrong. Neither reads anyone's project. Redaction rewrites hosts, not repository paths, so the unresolvable
+host is replaced while the absent repository name is stored as it was asked for.
 
 ## Rules
 
