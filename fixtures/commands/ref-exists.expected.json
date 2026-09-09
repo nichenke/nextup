@@ -1,0 +1,16 @@
+{
+	"description": "Whether one fully-qualified ref is there, asked of a local branch and of the target origin/HEAD names.",
+	"input": {
+		"repo": "/repo",
+		"ref": "refs/heads/feature/reader-8"
+	},
+	"argv": [
+		"git",
+		"-C",
+		"/repo",
+		"show-ref",
+		"--verify",
+		"--quiet",
+		"refs/heads/feature/reader-8"
+	]
+}

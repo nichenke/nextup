@@ -134,6 +134,8 @@ interface GitState {
 	readonly originName?: string;
 	/** `null` where `origin/HEAD` is not set, which is what a repo with no remote reports. */
 	readonly defaultBranch?: string | null;
+	/** `origin/HEAD` names a branch whose ref is not there, which `symbolic-ref` reports without complaint. */
+	readonly danglingDefault?: boolean;
 	/** Overrides the git directory, for the layouts `refuseUnlessOrdinaryLayout` turns away. */
 	readonly commonDir?: string;
 	/** What git says a worktree is — root, repository, branch — for the cases where it disagrees with us. */
@@ -164,8 +166,15 @@ function stubGit(state: GitState): { runner: Runner; issued: string[][] } {
 				: { code: 0, stdout: `refs/remotes/origin/${target}\n`, stderr: "" };
 		}
 		if (words.includes("show-ref")) {
-			const ref = argv[argv.length - 1]!.slice("refs/heads/".length);
-			return { code: (state.branches ?? []).includes(ref) ? 0 : 1, stdout: "", stderr: "" };
+			const ref = argv[argv.length - 1]!;
+			if (ref.startsWith("refs/remotes/origin/")) {
+				// The ref `origin/HEAD` names exists when a default branch is set; `defaultBranch: null` models a
+				// repository that never fetched one, and `danglingDefault` one whose symref outlived its target.
+				const target = state.defaultBranch === undefined ? "main" : state.defaultBranch;
+				const known = target !== null && !state.danglingDefault && ref === `refs/remotes/origin/${target}`;
+				return { code: known ? 0 : 1, stdout: "", stderr: "" };
+			}
+			return { code: (state.branches ?? []).includes(ref.slice("refs/heads/".length)) ? 0 : 1, stdout: "", stderr: "" };
 		}
 		if (words.includes("for-each-ref")) {
 			const branch = argv[argv.length - 1]!.slice("refs/remotes/*/".length);
@@ -393,6 +402,17 @@ describe("ensure", () => {
 
 		const warnings = ensure({ runner: local, repo, ticket: READER }).warnings;
 		expect(warnings).toEqual([`${repo} named refs/heads/main as its default branch, which is not a branch on origin`]);
+	});
+
+	test("says so when origin/HEAD names a ref that is not there, even one spelled like the primary's branch", () => {
+		const repo = realRepo();
+		expect(defaultRunner(["git", "-C", repo, "update-ref", "-d", "refs/remotes/origin/main"]).code).toBe(0);
+
+		// `symbolic-ref` succeeds on a dangling symref, so the name alone matched the primary's branch and the
+		// comparison found nothing to warn about — hiding that the default branch was never actually known.
+		const warnings = ensure({ runner: defaultRunner, repo, ticket: READER }).warnings;
+		expect(warnings).toHaveLength(1);
+		expect(warnings[0]).toContain("could not be read");
 	});
 
 	test("compares against whatever origin/HEAD names, not against a branch called main", () => {
@@ -761,6 +781,7 @@ function realRepo(): string {
 	git("init", "--quiet", "--initial-branch", "main");
 	git("-c", "user.email=nobody@invalid", "-c", "user.name=nobody", "commit", "--quiet", "--allow-empty", "-m", "init");
 	git("remote", "add", "origin", root);
+	git("update-ref", "refs/remotes/origin/main", "HEAD");
 	git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
 	return realpathSync(root);
 }

@@ -2,7 +2,7 @@ import { existsSync, lstatSync, readdirSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import {
 	type Argv,
-	branchExistsCommand,
+	refExistsCommand,
 	defaultBranchCommand,
 	gitCommonDirCommand,
 	remoteBranchesCommand,
@@ -497,7 +497,7 @@ function refusingOnError<T>(path: string, verb: string, work: () => T): T {
  * own unclassified fatal instead of as this typed refusal.
  */
 function branchExists(runner: Runner, repo: string, branch: string): boolean {
-	const result = runner([...branchExistsCommand(repo, branch)]);
+	const result = runner([...refExistsCommand(repo, `refs/heads/${branch}`)]);
 	if (result.code === 0) return true;
 	if (result.code === 1) return false;
 	throw new WorktreeError(`${repo} could not be asked whether ${branch} exists: ${gitFailure(result.stderr, result.code)}`, "git");
@@ -595,6 +595,14 @@ function driftWarnings(runner: Runner, primary: string, head: Head): readonly st
 	}
 
 	const target = said.slice(REMOTE_HEAD.length);
+	// `symbolic-ref` reports a dangling symref without complaint, so the name it gives is not evidence the
+	// ref exists. Unchecked, a dangling `origin/HEAD` whose target happened to be spelled like the primary's
+	// branch compared equal and warned about nothing — the one case this warning exists to report.
+	if (runner([...refExistsCommand(primary, said)]).code !== 0) {
+		return [
+			`which branch is the default could not be read from ${primary}: ${said} is named by origin/HEAD but is not there; set it with "git remote set-head origin --auto"`,
+		];
+	}
 	if (target === head.name) return [];
 	return [`the primary checkout ${primary} is on ${head.name}, not on ${target}`];
 }

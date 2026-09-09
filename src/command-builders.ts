@@ -73,11 +73,15 @@ export function worktreeListCommand(repo: string): readonly string[] {
 }
 
 /**
- * Whether the repository already has this branch. Answered by `show-ref` rather than by scanning the
- * worktree listing, which sees only branches that are checked out somewhere.
+ * Whether one fully-qualified ref is there. Answered by `show-ref` rather than by scanning the worktree
+ * listing, which sees only branches that are checked out somewhere.
+ *
+ * Takes the whole ref rather than a branch name, because two callers need different namespaces: a local
+ * branch under `refs/heads/`, and the target `origin/HEAD` points at, which `symbolic-ref` will report
+ * happily even when the ref itself does not exist.
  */
-export function branchExistsCommand(repo: string, branch: string): readonly string[] {
-	return ["git", "-C", repo, "show-ref", "--verify", "--quiet", `refs/heads/${branch}`];
+export function refExistsCommand(repo: string, ref: string): readonly string[] {
+	return ["git", "-C", repo, "show-ref", "--verify", "--quiet", ref];
 }
 
 /**

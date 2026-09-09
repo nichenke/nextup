@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import {
 	DEFAULT_SLASH_COMMAND,
 	authStatusCommand,
-	branchExistsCommand,
+	refExistsCommand,
 	defaultBranchCommand,
 	formatCommand,
 	gitCommonDirCommand,
@@ -87,10 +87,10 @@ const CASES: readonly Case[] = [
 		build: () => worktreeListCommand("/repo"),
 	},
 	{
-		name: "branch-exists",
-		description: "Whether the branch is already in the repository, which decides between creating and checking out.",
-		input: { repo: "/repo", branch: BRANCH },
-		build: () => branchExistsCommand("/repo", BRANCH),
+		name: "ref-exists",
+		description: "Whether one fully-qualified ref is there, asked of a local branch and of the target origin/HEAD names.",
+		input: { repo: "/repo", ref: `refs/heads/${BRANCH}` },
+		build: () => refExistsCommand("/repo", `refs/heads/${BRANCH}`),
 	},
 	{
 		name: "remote-branches",
