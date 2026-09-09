@@ -141,19 +141,19 @@ describe("a truncated read", () => {
 		});
 	}
 
-	test("reports itself truncated when the over-fetched row arrives", () => {
+	test("reports itself truncated when the over-fetched row arrives, and hands back only the limit", () => {
 		const read = truncated();
 		expect(read.truncated).toBe(true);
-		expect(read.tickets).toHaveLength(TRUNCATING + 1);
+		expect(read.tickets).toHaveLength(TRUNCATING);
 	});
 
 	test("still blocks on a blocker the read stopped short of, from the state its own edge carried", () => {
 		const read = truncated();
-		const blockers = shape(read, "cycle-second").blockers;
+		const blockers = shape(read, "cycle-third").blockers;
 		if (blockers === "unknown") throw new Error("the truncated read was expected to carry this ticket's blocker");
 		expect(blockers).toHaveLength(1);
 		expect(read.tickets.some((one) => one.ref.key === blockers[0]?.key)).toBe(false);
-		expect(blockedness(read, "cycle-second")).toBe("blocked");
+		expect(blockedness(read, "cycle-third")).toBe("blocked");
 	});
 });
 

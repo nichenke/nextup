@@ -51,10 +51,8 @@ export interface TicketSetRead {
 export interface GitHubReadInput {
 	readonly runner: Runner;
 	/**
-	 * How many tickets to consider. The read asks for one more, so a capped page is distinguishable from an
-	 * exactly-full one, and keeps that extra row: it is a ticket like any other, and dropping one already in
-	 * hand is a second truncation. So this bounds what is asked for, not what comes back — a read that finds
-	 * more returns `limit + 1` tickets, and one that fails returns none.
+	 * How many tickets to consider, and a bound on how many come back. The read asks for one more so that a
+	 * capped page is distinguishable from an exactly-full one, and drops that row again before anyone sees it.
 	 *
 	 * Required rather than defaulted: a default is a claim about somebody's backlog size.
 	 */
@@ -87,7 +85,14 @@ export function readGitHubTicketSet(input: GitHubReadInput): TicketSetRead {
 	if (result.code !== 0) return failedRead(repo, result.stderr);
 
 	const rows = readRows(result.stdout, repo);
-	const readings = rows.map((row, index) => readRow(row, `${repo} row ${index}`));
+	// Truncation is decided on the raw read, then the probe row is dropped: `limit` is how many tickets to
+	// consider, so a row fetched only to detect a cap must not become the recommendation. Nothing is lost by
+	// dropping it — each edge carries its own blocker's state, so a retained ticket blocked by the dropped row
+	// still reads blocked.
+	const truncated = rows.length > input.limit;
+	const readings = rows
+		.slice(0, input.limit)
+		.map((row, index) => readRow(row, `${repo} row ${index}`));
 	const tickets = readings.map((reading) => reading.ticket);
 	requireOneRepository(tickets, repo);
 	// Counted from the edges rather than from the tickets' `blockers`, which mirror them: the graph is seeded
@@ -96,10 +101,10 @@ export function readGitHubTicketSet(input: GitHubReadInput): TicketSetRead {
 	const { graph, contradicted } = graphFor(readings);
 
 	const degraded: ReadDegrade[] = [];
-	if (unreadable > 0) degraded.push({ kind: "unreadable-blocking", tickets: unreadable, of: rows.length });
+	if (unreadable > 0) degraded.push({ kind: "unreadable-blocking", tickets: unreadable, of: tickets.length });
 	if (contradicted.length > 0) degraded.push({ kind: "contradicted-blocker", refs: contradicted });
 
-	return { tickets, graph, truncated: rows.length > input.limit, degraded };
+	return { tickets, graph, truncated, degraded };
 }
 
 /**
