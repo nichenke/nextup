@@ -25,9 +25,8 @@ export interface SelectionInput {
 	readonly truncated: boolean;
 	/**
 	 * Whether the read that produced `tickets` asked for open tickets only. Required for `truncated`'s
-	 * reason: under such a read no ticket is closed whatever the tracker holds, so a `closed` count
-	 * reported as a number would say none are — which is why `SelectionCounts.closed` says "not-asked"
-	 * instead. ADR-0028 has why the read asks that way.
+	 * reason, so that an adapter has to state it; `SelectionCounts.closed` is what it decides, and
+	 * ADR-0028 is why the read asks that way.
 	 */
 	readonly openOnly: boolean;
 }
@@ -205,11 +204,6 @@ function identify(tickets: readonly Ticket[]): Map<Ticket, IssueId> {
 	return ids;
 }
 
-/**
- * Refuses a closed ticket in a set whose read never asked for one. Taking it instead would report
- * `closed` as "not-asked" beside tickets that are closed, which is a worse answer than either reading:
- * the count would deny what the set in front of it holds.
- */
 function requireNoClosedTicketUnderOpenOnly(input: SelectionInput): void {
 	if (!input.openOnly) return;
 	const closed = input.tickets.find((ticket) => ticket.state === "closed");

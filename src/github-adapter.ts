@@ -14,9 +14,8 @@ export class GitHubAdapterError extends Error {}
  * `DEGRADE_REASON` divide the same job: a caller decides on the kind, and only a render boundary writes prose.
  * A test asserting wording instead pins text `selection-output.ts` declares free to change.
  *
- * No render boundary reads these yet — `DEGRADE_REASON` is keyed on the selector's own union — so a caller
- * wiring this adapter to the command has to add the sibling mapping. Nothing outside this module consumes a
- * `TicketSetRead` today.
+ * `readDegradeReason` in `selection-output.ts` is the boundary that words them, beside `DEGRADE_REASON` for
+ * the selector's own union.
  *
  * `outage` is the only one named for a failure of the call. The other two are the tracker answering, with less
  * than one answer in it — which is why neither is filed under a word `failure-class.ts` reserves for
@@ -49,9 +48,8 @@ export interface TicketSetRead {
 	/** Whether the read stopped short of the whole ticket set. */
 	readonly truncated: boolean;
 	/**
-	 * Whether this read asked for open tickets only. Reported rather than left for a caller to know, because
-	 * a caller restating it is a second place for the answer to be wrong: it is what `SelectionInput.openOnly`
-	 * needs stated, and only the query knows it.
+	 * Whether this read asked for open tickets only, which `SelectionInput.openOnly` requires stated and
+	 * only the query knows.
 	 */
 	readonly openOnly: boolean;
 	/**
@@ -83,10 +81,9 @@ export interface GitHubReadInput {
  * one and ADR-0020 argues from.
  *
  * @throws GitHubAdapterError on a defect — a limit that is not a positive whole number, a repository that is
- * not `owner/repo` or that no remote resolves to, a request the tracker rejects, or a response whose shape
- * cannot be read. An outage is flagged and continued past instead.
- * @throws Error from `seedGraph` when the read holds one issue twice, which is an identity failure rather
- * than a tracker one — `graph-store.ts` says why that refuses instead of taking the last write.
+ * not `owner/repo` or that no remote resolves to, a request the tracker rejects, a response whose shape
+ * cannot be read, or one holding a graph that cannot be built over it. An outage is flagged and continued
+ * past instead.
  */
 export function readGitHubTicketSet(input: GitHubReadInput): TicketSetRead {
 	// The over-fetched row is bounded here rather than left to the command builder: past the safe-integer range
@@ -106,7 +103,7 @@ export function readGitHubTicketSet(input: GitHubReadInput): TicketSetRead {
 	// authority on being open, and dropping one from the graph leaves a dependent's edge — a copy, which can be
 	// stale — to answer for it instead. Seeding all of them and narrowing only what may be recommended is what
 	// keeps the row-over-edge precedence from depending on where the page happened to end.
-	const { graph, contradicted } = graphFor(readings);
+	const { graph, contradicted } = buildGraph(readings, repo);
 
 	// Truncation is decided on the raw read; `limit` then bounds what comes back, because a row fetched only to
 	// detect a cap must not become the recommendation.
@@ -124,6 +121,22 @@ export function readGitHubTicketSet(input: GitHubReadInput): TicketSetRead {
 	if (contradicted.length > 0) degraded.push({ kind: "contradicted-blocker", refs: contradicted });
 
 	return { tickets, graph, truncated, openOnly: true, degraded };
+}
+
+/**
+ * The graph, with whatever `seedGraph` refuses reported as this adapter's own failure. `graph-store.ts`
+ * throws a plain `Error` for a read holding one issue twice, and left as one it reaches a caller with no
+ * class to recognise it by: `cli.ts` classifies on these two error types, so the throw escapes as an
+ * uncaught crash — exit 1, which that command defines as nothing to recommend rather than as a defect.
+ */
+function buildGraph(readings: readonly RowReading[], repo: string): GraphReading {
+	try {
+		return graphFor(readings);
+	} catch (cause) {
+		throw new GitHubAdapterError(
+			`reading ${repo} returned rows no blocking graph could be built over: ${cause instanceof Error ? cause.message : String(cause)}`,
+		);
+	}
 }
 
 /**

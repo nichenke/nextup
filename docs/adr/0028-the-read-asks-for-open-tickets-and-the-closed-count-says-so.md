@@ -9,16 +9,28 @@ representation is part of the price of the filter rather than a separate questio
 
 ## Why the filter changes
 
-`gh issue list` orders newest-first, so under `--state all` the row limit is spent on whatever the
-repository touched most recently — including tickets nothing could ever recommend. On a repository that
-closes issues briskly the page fills with closed ones and the open frontier truncates away. The read says
-so, which is honest, but the answer it gives is correct and useless: a pick from the handful of open
-tickets that fit, while the ones that did not fit are the reason to run the tool.
+`gh issue list` orders by creation date descending. Measured rather than assumed: a read of this
+repository's own issues comes back in strict `createdAt` order while `updatedAt` jumps around inside it. So
+under `--state all` the row limit is spent on what was *created* most recently, including tickets nothing
+could ever recommend.
+
+Worth stating narrowly, because the obvious wider claim is false. Closing an old ticket does not move it
+onto the newest page, so a repository working through a long backlog loses nothing under `--state all`. What
+loses is a repository that *creates and closes* quickly — short-lived tickets, bot-filed ones, anything with
+high issue throughput. There the newest rows are mostly closed, the open frontier truncates away, and the
+answer is correct and useless: a pick from the handful of open tickets that fit, while the ones that did not
+fit are the reason to run the tool.
 
 Reading open-only spends the whole limit on the population a pick can come from. Nothing else about the
 answer changes, and blocking in particular does not, because a blocker's state arrives on its dependent's
 edge. Measured against the tree, an open-only read returns `#9:CLOSED` on the edge of both tickets that
-depend on it, and the graph seeds that blocker from the edge exactly as it seeded it from the row.
+depend on it.
+
+The *seed* is not identical, and the difference is worth being exact about: from a row, `graphFor` seeds a
+blocker's own blockers, and from an edge it seeds them `"unknown"`. What is unchanged is the blockedness
+derived from it, and only because a closed blocker is pruned before its own blockers are ever consulted. An
+*open* blocker outside the read is a different case — there the `"unknown"` is load-bearing, and
+`graphFor`'s own comment says so.
 
 ## What is given up, precisely
 

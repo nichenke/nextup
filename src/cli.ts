@@ -33,13 +33,7 @@ export interface CliResult {
 	readonly stderr: string;
 }
 
-/**
- * How many open tickets one run considers when nothing says otherwise. The adapter refuses to default this
- * — a default is a claim about somebody's backlog — and the claim made here is that a repository with more
- * than this many *open* tickets wants a narrower query rather than a longer read. `gh` pages at a hundred
- * and stops when the tracker runs out, so the second page costs nothing on a repository holding fewer, and
- * a read that hits this reports itself truncated rather than answering as though it were whole. ADR-0028.
- */
+/** How many open tickets one run considers when nothing says otherwise; ADR-0028 has what that claims. */
 export const DEFAULT_LIMIT = 200;
 
 const USAGE = `nextup — picks the ticket to start next, claims it, and says how to start work on it
@@ -109,8 +103,8 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 		return readError(cause);
 	}
 
-	// An outage is nothing to recommend rather than something needing a person: the adapter flags it and
-	// continues, so the answer carries a "degraded: " line and the status is the status of that answer.
+	// An outage arrives as a degrade rather than as a throw, so whether anything was picked is the whole
+	// exit-status question: a tracker that could not be reached reports 1, not 2.
 	return {
 		code: answer.selection.pick === null ? 1 : 0,
 		stdout: options.json ? `${JSON.stringify(answerJson(answer), null, "\t")}\n` : renderAnswer(answer),
@@ -119,9 +113,9 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 }
 
 /**
- * Whatever a read or the selection over it refused, as something for a person to fix. Both classes name a
- * defect — a repository that will not resolve, a response that cannot be read, a set contradicting what it
- * was read for — and every other throw is a bug here rather than in the tracker, so it is left to surface.
+ * Whatever a read or the selection over it refused, as something for a person to fix. Anything else is left
+ * to surface as a crash, which is why the read converts even a failure raised beneath it into one of these
+ * two classes: an unclassifiable throw exits 1, and this command defines 1 as nothing to recommend.
  */
 function readError(cause: unknown): CliResult {
 	if (cause instanceof GitHubAdapterError || cause instanceof SelectionError) {

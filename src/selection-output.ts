@@ -53,9 +53,8 @@ function candidateJson(candidate: Candidate): CandidateJson {
 }
 
 /**
- * One run's whole answer: what the selector concluded, and what the read itself could not answer. The two
- * degrade lists stay apart because they are keyed on different unions and carry different detail —
- * `Degrade` is a conclusion about the ticket set, `ReadDegrade` a fact about the call that fetched it.
+ * One run's whole answer. The two degrade lists stay apart because `Degrade` is a conclusion about the
+ * ticket set and `ReadDegrade` a fact about the call that fetched it.
  */
 export interface Answer {
 	readonly selection: Selection;
@@ -82,7 +81,6 @@ function readDegradeJson(degrade: ReadDegrade): ReadDegradeJson {
 	return "refs" in degrade ? { ...degrade, refs: degrade.refs.map(formatTicketRef) } : degrade;
 }
 
-/** The selection, then what the read could not answer, every reason under the one sentinel prefix. */
 export function renderAnswer(answer: Answer): string {
 	const read = answer.readDegraded.map((degrade) => `${DEGRADED_PREFIX}${readDegradeReason(degrade)}\n`);
 	return `${renderSelection(answer.selection)}${read.join("")}`;
@@ -95,11 +93,7 @@ const DEGRADE_REASON: Record<Degrade["kind"], string> = {
 
 /**
  * `DEGRADE_REASON`'s sibling for the kinds the read reports, which `github-adapter.ts` leaves as kinds for
- * exactly this boundary to word. A function per kind rather than a constant string, because each one has
- * something of its own to say — how many tickets, or which ones.
- *
- * A reference list rather than a count for the two that name tickets: both hold a ticket back from the
- * answer, and "two were held back" gives a reader nothing to go and look at.
+ * exactly this boundary to word.
  */
 function readDegradeReason(degrade: ReadDegrade): string {
 	switch (degrade.kind) {

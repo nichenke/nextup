@@ -12,10 +12,7 @@ import { defaultRunner } from "../src/runner";
 import { GITHUB_TEST_TREE } from "../src/test-tree";
 import { requirePrivate } from "../src/test-tree-provision";
 
-/**
- * One more than the tree's open issues, so every row a read returns arrives and the over-fetched row does
- * not. Counted over the open subset because that is what the read asks for — ADR-0028.
- */
+/** One more than the tree's open issues, so every row a read returns arrives and the extra one does not. */
 const WHOLE_TREE_ROWS = GITHUB_TEST_TREE.issues.filter((one) => !one.closed).length + 1;
 
 /** Under the tree's size, so the over-fetched row arrives and the read reports itself truncated. */

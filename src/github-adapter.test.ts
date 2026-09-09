@@ -118,8 +118,7 @@ describe("the blocking graph the read seeds", () => {
 		const read = wholeTree();
 		const blockers = shape(read, "every-blocker-closed").blockers;
 		expect(blockers).toHaveLength(1);
-		// The blocker is closed, so an open-only read does not return it as a row: this derives from the
-		// closedness its own edge carried, which is what ADR-0028 rests on.
+		// Derived from the closedness the edge carried, which is what ADR-0028 rests on.
 		expect(read.tickets.map((one) => one.title)).not.toContain(titleOf("closed-blocker"));
 		expect(blockedness(read, "every-blocker-closed")).toBe("unblocked");
 	});
@@ -251,6 +250,13 @@ describe("a response the read cannot parse", () => {
 
 	test("refuses a success carrying something other than a list of issues", () => {
 		expect(() => answering(`{"issues": []}`)).toThrow(/list of issues/);
+	});
+
+	// As this adapter's own failure rather than as the plain `Error` `seedGraph` raises: a caller classifying on
+	// the error type has nothing to recognise that one by, and `cli.ts` lets what it cannot classify escape.
+	test("refuses a response holding one issue twice", () => {
+		expect(() => reading(issueRow(), issueRow())).toThrow(GitHubAdapterError);
+		expect(() => reading(issueRow(), issueRow())).toThrow(/no blocking graph could be built over/);
 	});
 
 	test("refuses a row whose state is missing or is neither open nor closed", () => {

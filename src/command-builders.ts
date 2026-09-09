@@ -181,11 +181,9 @@ export interface GitHubIssueListInput {
 }
 
 /**
- * One read of a GitHub ticket set. `--state open` so that the row limit is spent entirely on the tickets a
- * pick can come from: `gh` orders newest-first, so under `--state all` a briskly-closing repository fills the
- * page with tickets nothing could recommend and truncates the open frontier away. A closed blocker's state
- * still arrives on its dependent's edge, which is why nothing needs it as a row — ADR-0028 has the
- * measurement, and what the counts may claim in exchange.
+ * One read of a GitHub ticket set. `--state open` rather than every state: a closed blocker's own state
+ * arrives on its dependent's edge, so nothing needs it as a row. ADR-0028 has why that is worth the row
+ * limit it buys back, and what the counts may claim in exchange.
  *
  * @throws CommandBuilderError when `rows` is not a positive whole number.
  */

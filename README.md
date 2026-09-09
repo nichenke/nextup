@@ -27,8 +27,8 @@ bun bin/nextup.ts --print-command   # the same answer, claiming nothing and aski
 bun bin/nextup.ts --help            # every flag
 ```
 
-Only open tickets are read, so the row limit is spent on tickets a pick can come from and the counts line
-says `closed not asked` rather than reporting a zero as a count.
+Only open tickets are read, and the counts line says `closed not asked` rather than reporting a zero as a
+count.
 [ADR-0028](./docs/adr/0028-the-read-asks-for-open-tickets-and-the-closed-count-says-so.md) has the
 measurement that makes that safe for blocking, and what the default limit claims.
 

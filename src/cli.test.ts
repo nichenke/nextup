@@ -67,7 +67,7 @@ function tempRepo(): string {
 }
 
 describe("run, over a ticket set read from GitHub", () => {
-	/** The recorded read's own limit: the tree's open issues, which is every row it returns. */
+	/** Has to match the limit the recording was captured under, or `replayRunner` answers nothing. */
 	const TREE = GITHUB_TEST_TREE.issues.filter((one) => !one.closed).length;
 
 	/**
@@ -136,6 +136,16 @@ describe("run, over a ticket set read from GitHub", () => {
 		expect(result.code).toBe(2);
 		expect(result.stdout).toBe("");
 		expect(result.stderr).toContain("a retry will not fix");
+	});
+
+	// The exit code is the point: an uncaught throw would leave 1, which this command defines as nothing to
+	// recommend, so a tracker sending one issue twice would read to a script as a quiet day.
+	test("refuses a response holding one issue twice as something needing a person", () => {
+		const row = { number: 1, title: "A ticket", state: "OPEN", assignees: [], labels: [], url: "example/repo/issues/1", blockedBy: { nodes: [], totalCount: 0 } };
+		const twice: Runner = () => ({ code: 0, stdout: JSON.stringify([row, row]), stderr: "" });
+		const result = run([], deps(tempRepo(), inTestTree(twice)));
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("no blocking graph could be built over");
 	});
 
 	test("refuses a working directory whose origin is not on GitHub", () => {

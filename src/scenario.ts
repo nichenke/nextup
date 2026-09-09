@@ -45,7 +45,7 @@ export function loadScenario(path: string): Scenario {
 			truncated: boolean(file.truncated, path, "truncated"),
 			// Absent reads as false, unlike `truncated`: a scenario's tickets are authored rather than fetched,
 			// so a set that says nothing about how it was read is the whole set, and a zero closed count over it
-			// is a count rather than a claim about a query. A scenario pinning the other rendering says so.
+			// is a count rather than a claim about a query.
 			openOnly: file.openOnly === undefined ? false : boolean(file.openOnly, path, "openOnly"),
 		},
 	};
