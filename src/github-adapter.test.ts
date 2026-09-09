@@ -339,7 +339,7 @@ describe("a repository spelled differently from how the tracker spells it", () =
 
 describe("a blocker list that arrived as a page", () => {
 	// GitHub emits this — an issue with more blockers than the CLI returns at once — and the tree cannot hold one,
-	// so there is no recording behind it and ADR-0026 says so rather than hand-writing one. What is asserted here
+	// so there is no recording behind it and ADR-0027 says so rather than hand-writing one. What is asserted here
 	// is our own policy on an incomplete list, which holds whoever produced it; the input stays inline and is
 	// never stored under `fixtures/recordings`, which is what ADR-0019 governs.
 	test("holds its ticket back, rather than judging it or losing the whole read", () => {

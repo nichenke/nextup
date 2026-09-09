@@ -73,7 +73,7 @@ export interface GitHubReadInput {
  * Reads a GitHub ticket set through the `gh` CLI, normalized to `Ticket`s and a blocking graph.
  *
  * Blocking comes only from the native dependency edges `blockedBy` carries. Nothing here parses a body: a
- * prose declaration is not a blocking channel, which ADR-0026 records against the checklist that asked for
+ * prose declaration is not a blocking channel, which ADR-0027 records against the checklist that asked for
  * one and ADR-0020 argues from.
  *
  * @throws GitHubAdapterError on a defect — a limit that is not a positive whole number, a repository that is
@@ -232,7 +232,7 @@ function graphFor(readings: readonly RowReading[]): GraphReading {
 			if (own.has(id)) continue;
 			const seen = outside.get(id);
 			// Two edges disagreeing is the tracker telling us two things, so neither is taken: keeping either decides
-			// one dependent's blocking state from another dependent's edge. ADR-0026 has why not the open one.
+			// one dependent's blocking state from another dependent's edge. ADR-0027 has why not the open one.
 			outside.set(id, { ref: edge.ref, open: seen === undefined || seen.open === edge.open ? edge.open : "unknown" });
 		}
 	}
@@ -288,7 +288,7 @@ function readRow(row: Record<string, unknown>, where: string): RowReading {
 
 /**
  * The blocking edges one row carries: an absent field reads `"unknown"`, an empty one reads no blockers, and
- * a node list shorter than its own count reads `"unknown"` too. ADR-0026 has why each, and why the empty case
+ * a node list shorter than its own count reads `"unknown"` too. ADR-0027 has why each, and why the empty case
  * is not the unknown one.
  *
  * @throws GitHubAdapterError when the field is present in a shape this cannot read — that is our query being
@@ -306,7 +306,7 @@ function readEdges(raw: unknown, where: string): EdgeReading {
 	// reading of it is available: the retained edges may hold a confirmed open blocker, so `"unknown"` would
 	// demote a confirmed block, and the missing ones may hold one too, so the retained list alone reads
 	// unblocked. So this ticket is not judged at all — `"partial"` holds it out of the answer, which is a
-	// narrower refusal than failing the read and losing every other ticket with it. ADR-0026 has both.
+	// narrower refusal than failing the read and losing every other ticket with it. ADR-0027 has both.
 	if (nodes.length !== total) return "partial";
 
 	const edges: Edge[] = [];
@@ -349,7 +349,7 @@ const ADDRESS_TAIL = /[?#].*$|\/+$/;
  * The owner and repository an issue address names, which is where every ref's repository comes from — a row's
  * as much as a blocker's. Both have to be read the same way: a blocker's repository can only come from its
  * address, so taking a row's from the repository the caller asked about instead let one issue occupy two graph
- * nodes. ADR-0026 has what made that silent.
+ * nodes. ADR-0027 has what made that silent.
  */
 function addressRepo(address: string, where: string): string {
 	const repo = ISSUE_ADDRESS.exec(address.replace(ADDRESS_TAIL, ""))?.[1];
