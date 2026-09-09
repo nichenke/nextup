@@ -7,6 +7,7 @@ import {
 	branchExistsCommand,
 	defaultBranchCommand,
 	formatCommand,
+	gitCommonDirCommand,
 	jiraIdentityCommand,
 	originRemoteCommand,
 	remoteBranchExistsCommand,
@@ -95,6 +96,12 @@ const CASES: readonly Case[] = [
 		description: "Whether origin has the branch, asked when the repository does not, so pushed work is checked out rather than overwritten.",
 		input: { repo: "/repo", branch: BRANCH },
 		build: () => remoteBranchExistsCommand("/repo", BRANCH),
+	},
+	{
+		name: "git-common-dir",
+		description: "Where the repository keeps its administration, so a layout this does not work in can be refused.",
+		input: { repo: "/repo" },
+		build: () => gitCommonDirCommand("/repo"),
 	},
 	{
 		name: "default-branch",

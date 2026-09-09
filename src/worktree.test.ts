@@ -130,6 +130,15 @@ interface GitState {
 	readonly remoteBranches?: readonly string[];
 	/** `null` where `origin/HEAD` is not set, which is what a repo with no remote reports. */
 	readonly defaultBranch?: string | null;
+	/** Overrides the git directory, for the layouts `refuseUnlessOrdinaryLayout` turns away. */
+	readonly commonDir?: string;
+}
+
+/** Where an ordinary repository keeps its administration: `<primary>/.git`, or the primary when bare. */
+function ordinaryCommonDir(state: GitState): string {
+	const record = state.worktrees[0] ?? [];
+	const primary = (record.find((one) => one.startsWith("worktree ")) ?? "worktree ").slice("worktree ".length);
+	return record.includes("bare") ? primary : join(primary, ".git");
 }
 
 /** A git that answers from `state`, and records every argv it was asked for. */
@@ -153,6 +162,9 @@ function stubGit(state: GitState): { runner: Runner; issued: string[][] } {
 			const remote = ref.startsWith("refs/remotes/origin/") ? ref.slice("refs/remotes/origin/".length) : null;
 			const known = local === null ? (state.remoteBranches ?? []) : (state.branches ?? []);
 			return { code: known.includes(local ?? remote ?? "") ? 0 : 1, stdout: "", stderr: "" };
+		}
+		if (words.includes("rev-parse")) {
+			return { code: 0, stdout: `${state.commonDir ?? ordinaryCommonDir(state)}\n`, stderr: "" };
 		}
 		if (words.includes("worktree add")) return { code: 0, stdout: "", stderr: "" };
 		throw new Error(`the worktree step asked git something unexpected: ${words}`);
@@ -475,6 +487,30 @@ describe("ensure", () => {
 		}
 	});
 
+	test("refuses a repository whose git directory is somewhere other than the primary's own .git", () => {
+		const { repo, state } = primaryOn();
+		const git = stubGit({ ...state, commonDir: join(tempDir("nextup-elsewhere-"), "elsewhere") });
+
+		expect(kindOf(() => ensure({ runner: git.runner, repo, ticket: READER }))).toBe("unsupported-repository");
+	});
+
+	test("refuses before touching the filesystem, since the root it would compute is the git directory", () => {
+		const { repo, state } = primaryOn();
+		const git = stubGit({ ...state, commonDir: join(tempDir("nextup-elsewhere-"), "elsewhere") });
+
+		expect(() => ensure({ runner: git.runner, repo, ticket: READER })).toThrow();
+		expect(git.issued.some((argv) => argv.includes("add"))).toBe(false);
+	});
+
+	test("reports a repository that cannot say where its git directory is as a git failure", () => {
+		const { repo, state } = primaryOn();
+		const git = stubGit(state);
+		const failing: Runner = (argv) =>
+			argv.includes("rev-parse") ? { code: 128, stdout: "", stderr: "fatal: not a git repository" } : git.runner(argv);
+
+		expect(kindOf(() => ensure({ runner: failing, repo, ticket: READER }))).toBe("git");
+	});
+
 	test("refuses a root naming the primary checkout, where worktrees would sit unignored beside its own files", () => {
 		const { repo, state } = primaryOn();
 		const git = stubGit(state);
@@ -781,6 +817,22 @@ describe("ensure against real git", () => {
 		expect(defaultRunner(["git", "-C", repo, "worktree", "list", "--porcelain"]).stdout).not.toContain("prunable");
 		expect(kindOf(() => ensure({ runner: defaultRunner, repo, ticket: READER }))).toBe("stale-directory");
 		expect(() => ensure({ runner: defaultRunner, repo, ticket: READER })).toThrow(/unlock it/);
+	});
+
+	test("turns away a real --separate-git-dir repository rather than planting worktrees in its git directory", () => {
+		const outer = tempDir("nextup-separate-");
+		const gitDir = join(outer, "elsewhere");
+		expect(defaultRunner(["git", "init", "--quiet", "--initial-branch", "main", "--separate-git-dir", gitDir, join(outer, "wt")]).code).toBe(0);
+		const work = join(outer, "wt");
+		expect(
+			defaultRunner(["git", "-C", work, "-c", "user.email=n@invalid", "-c", "user.name=n", "commit", "--quiet", "--allow-empty", "-m", "init"]).code,
+		).toBe(0);
+
+		// `git worktree list` reports the git directory as the primary worktree here, not `wt`, so `primary`
+		// becomes that directory and even the default root would resolve inside it — with no `.git` component
+		// for the lexical guard to catch.
+		expect(defaultRunner(["git", "-C", work, "worktree", "list", "--porcelain"]).stdout).toContain(gitDir);
+		expect(kindOf(() => ensure({ runner: defaultRunner, repo: work, ticket: READER }))).toBe("unsupported-repository");
 	});
 
 	test("does not tell a bare repository it is on a detached HEAD, which it has no checkout to be", () => {

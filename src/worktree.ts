@@ -4,6 +4,7 @@ import {
 	type Argv,
 	branchExistsCommand,
 	defaultBranchCommand,
+	gitCommonDirCommand,
 	remoteBranchExistsCommand,
 	worktreeAddCommand,
 	worktreeListCommand,
@@ -22,11 +23,12 @@ import type { Ticket } from "./ticket";
  * takes a differing root or a checkout somebody made by hand — two sessions racing one ticket at one root
  * compute the same path, so they collide inside `git worktree add` instead. `"unnameable-ticket"` says the ticket
  * cannot name a branch at all — an absent key, or one no branch name can spell — so
- * no waiting fixes it. `"git"` is a git question this could not get a usable answer to,
- * which includes a command that succeeded and said nothing.
+ * no waiting fixes it. `"unsupported-repository"` is a repository laid out in a way this does not work
+ * in at all, which no root or ticket changes. `"git"` is a git question this could not get a usable
+ * answer to, which includes a command that succeeded and said nothing.
  */
 export class WorktreeError extends Error {
-	readonly kind: "stale-directory" | "branch-elsewhere" | "unnameable-ticket" | "git";
+	readonly kind: "stale-directory" | "branch-elsewhere" | "unnameable-ticket" | "unsupported-repository" | "git";
 
 	constructor(message: string, kind: WorktreeError["kind"]) {
 		super(message);
@@ -201,6 +203,7 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 		throw new WorktreeError(`${input.repo} reports no worktrees, so it is not a git checkout`, "git");
 	}
 	const primary = main.path;
+	refuseUnlessOrdinaryLayout(input.runner, primary, main.head);
 
 	const path = join(resolveContainer(primary, input.root), leafOf(branch));
 
@@ -267,6 +270,41 @@ function refuseUnlessAttachable(registration: Registration, path: string, branch
 }
 
 /**
+ * @throws WorktreeError `"unsupported-repository"` unless the repository keeps its administration where
+ * this tool assumes — `<primary>/.git`, or the primary itself when bare.
+ *
+ * Refused rather than accommodated, deliberately. Under `--separate-git-dir` (or an inherited `GIT_DIR`)
+ * `git worktree list` reports the *git directory* as the primary worktree rather than the working tree,
+ * so `primary` becomes that directory and even the default root resolves to `<git-dir>/.worktrees` —
+ * worktrees inside the administration, which `resolveContainer`'s `.git` check cannot see because such a
+ * path has no `.git` component. Supporting the layout would mean reading the working tree from
+ * `rev-parse --show-toplevel` and carrying two notions of "primary" everywhere; nothing here uses the
+ * layout, so it is turned away at the door instead.
+ *
+ * Bareness is read from the porcelain listing rather than asked again, and it is load-bearing: a bare
+ * repository and a separate git directory both report a common directory equal to `primary`, and only
+ * bareness tells them apart.
+ *
+ * @throws WorktreeError `"git"` where the repository could not say.
+ */
+function refuseUnlessOrdinaryLayout(runner: Runner, primary: string, head: Head): void {
+	const result = runner([...gitCommonDirCommand(primary)]);
+	if (result.code !== 0) {
+		throw new WorktreeError(
+			`${primary} could not be asked where it keeps its git directory: ${gitFailure(result.stderr, result.code)}`,
+			"git",
+		);
+	}
+	const common = result.stdout.trim();
+	if (common === join(primary, ".git")) return;
+	if (common === primary && head.kind === "bare") return;
+	throw new WorktreeError(
+		`${primary} keeps its git directory at ${common}, which this does not work in`,
+		"unsupported-repository",
+	);
+}
+
+/**
  * The directory worktrees go in, with every rule about a root applied.
  *
  * `resolve` takes an absolute root as given and a relative one against the primary checkout, and
@@ -282,8 +320,8 @@ function refuseUnlessAttachable(registration: Registration, path: string, branch
  *   inside the checkout is taken as given, tracked directory or not.
  * - **Inside `.git`**, which puts git's own administration (`HEAD`, `index`, `index.lock`, `commondir`)
  *   into the session's working tree as untracked files, where `git clean -fd` deletes them and `git add
- *   -A` commits them. Matched on the path component rather than by asking git for its directory, so a
- *   `--separate-git-dir` or `GIT_DIR` elsewhere is not covered.
+ *   -A` commits them. A lexical match is enough here because `refuseUnlessOrdinaryLayout` has already
+ *   turned away every repository whose git directory is not `<primary>/.git`.
  * - **Reached through a symlink**, per `refuseIfReachedThroughLink`.
  */
 function resolveContainer(primary: string, root: string | null | undefined): string {

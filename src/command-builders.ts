@@ -90,6 +90,19 @@ export function remoteBranchExistsCommand(repo: string, branch: string): readonl
 }
 
 /**
+ * Where the repository keeps its administration, absolutely, and shared across every worktree.
+ *
+ * Asked so that a repository whose git directory is not `<checkout>/.git` can be refused rather than
+ * worked in. `--path-format=absolute` because the default is relative to the current directory, which is
+ * not the directory being asked about; `--git-common-dir` rather than `--git-dir` because a linked
+ * worktree's own `--git-dir` is its private subdirectory, and the shared one is what identifies the
+ * repository.
+ */
+export function gitCommonDirCommand(repo: string): readonly string[] {
+	return ["git", "-C", repo, "rev-parse", "--path-format=absolute", "--git-common-dir"];
+}
+
+/**
  * Which branch the repository treats as its default.
  *
  * The full ref, because `--short` shortens only as far as stays unambiguous: with a local branch named
