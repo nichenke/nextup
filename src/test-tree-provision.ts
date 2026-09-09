@@ -177,7 +177,8 @@ function reconcileState(
 }
 
 /**
- * Refuses to touch a tree that is not private, before the first write.
+ * Refuses to touch a tree that is not private, before the first write. Exported because capture reads under
+ * the same control: a public tree can hold an issue a stranger opened, and capture would store it.
  *
  * ADR-0023 calls the repository's visibility a security control rather than a preference: public means anyone
  * can pre-create an issue under a known spec title, which provisioning would then adopt, or comment on one,
@@ -186,7 +187,7 @@ function reconcileState(
  *
  * @throws TestTreeError when the repository is anything but private, or when its visibility cannot be read.
  */
-function requirePrivate(spec: TestTreeSpec, runner: Runner): void {
+export function requirePrivate(spec: TestTreeSpec, runner: Runner): void {
 	const visibility = run(runner, ["gh", "repo", "view", spec.repo, "--json", "visibility", "--jq", ".visibility"])
 		.trim()
 		.toUpperCase();

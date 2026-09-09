@@ -12,11 +12,12 @@ treated as unblocked.
 
 ## Status
 
-The selector, the ranking ladder, and the worktree step are built and tested. No tracker adapter is
-built yet, so there is nothing for a run to read a ticket set from, claim, or start a session on: of
-the invocations below, only `--help` and `-h` do anything today, and every other one exits 2. The
-worktree step has no live caller for the same reason — it is reached by its own tests and nothing else.
-What follows describes the command surface those flags will drive.
+The selector, the ranking ladder, and the worktree step are built and tested, and GitHub can be read: the
+adapter normalizes a ticket set and its blocking edges, driven in CI by recordings captured from a test
+tree. Nothing wires that read to the command yet, and no adapter writes, so a run still has nothing to
+claim or start a session on: of the invocations below, only `--help` and `-h` do anything today, and every
+other one exits 2. The worktree step has no live caller for the same reason — it is reached by its own
+tests and nothing else. What follows describes the command surface those flags will drive.
 
 ```sh
 bun bin/nextup.ts                   # show the pick, ask, and claim it if you agree
@@ -139,6 +140,9 @@ bunx tsc --noEmit
 `bun test` is transpile-only, so the typecheck is a separate gate rather than something the test run
 covers. All of these run in CI, and CI needs no credentials — the whole tool is driven through one
 injected process runner, so tests never touch a network or an external binary.
+
+What a tracker read is asserted against comes from `fixtures/recordings/`, captured by a credentialed
+local run that is never part of the above: `docs/agents/test-tree.md` has the command and the rules.
 
 The guard runs first, before any install, and CI keeps that order. It needs no dependencies, and
 ordering it after `bun install` once meant a failing install stopped it from running at all — on a

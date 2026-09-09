@@ -154,7 +154,7 @@ export function resolveTicketRef(input: string, deps: ResolveDeps = {}): TicketR
 // GitHub is always exactly owner/repo; GitLab allows a nested namespace/subgroup, so two or
 // more. Either way every segment must be non-empty, rejecting shapes like "/repo", "owner/",
 // or "group//repo" that `repo.includes("/")` alone would have let through.
-function isValidRepoPath(tracker: "github" | "gitlab", repo: string): boolean {
+export function isValidRepoPath(tracker: "github" | "gitlab", repo: string): boolean {
 	const segments = repo.split("/");
 	if (segments.some((segment) => segment === "")) return false;
 	return tracker === "github" ? segments.length === 2 : segments.length >= 2;

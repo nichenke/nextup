@@ -1,0 +1,20 @@
+{
+	"description": "One read of a GitHub ticket set, asking for one row more than the adapter's limit.",
+	"input": {
+		"repo": "example/repo",
+		"rows": 31
+	},
+	"argv": [
+		"gh",
+		"issue",
+		"list",
+		"--repo",
+		"example/repo",
+		"--state",
+		"all",
+		"--limit",
+		"31",
+		"--json",
+		"number,title,state,assignees,labels,url,blockedBy"
+	]
+}

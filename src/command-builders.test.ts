@@ -8,6 +8,7 @@ import {
 	defaultBranchCommand,
 	formatCommand,
 	gitCommonDirCommand,
+	githubIssueListCommand,
 	jiraIdentityCommand,
 	originRemoteCommand,
 	remoteBranchesCommand,
@@ -128,6 +129,12 @@ const CASES: readonly Case[] = [
 		input: { repo: "/repo", path: WORKTREE_PATH, branch: BRANCH, create: false },
 		build: () => worktreeAddCommand("/repo", WORKTREE_PATH, BRANCH, false),
 	},
+	{
+		name: "github-issue-list",
+		description: "One read of a GitHub ticket set, asking for one row more than the adapter's limit.",
+		input: { repo: "example/repo", rows: 31 },
+		build: () => githubIssueListCommand({ repo: "example/repo", rows: 31 }),
+	},
 ];
 
 describe("the command-builder golden files", () => {
@@ -171,6 +178,17 @@ describe("authStatusCommand", () => {
 	test("narrows the GitHub question to the active account, and asks GitLab plainly", () => {
 		expect(authStatusCommand("github", "example.test")).toContain("--active");
 		expect(authStatusCommand("gitlab", "example.test")).not.toContain("--active");
+	});
+});
+
+describe("githubIssueListCommand", () => {
+	test("reads every state, so a closed blocker is in the answer", () => {
+		expect(githubIssueListCommand({ repo: "example/repo", rows: 2 })).toContain("all");
+	});
+
+	test("refuses a row count no read could use, rather than letting the CLI reject it", () => {
+		expect(() => githubIssueListCommand({ repo: "example/repo", rows: 0 })).toThrow(/above zero/);
+		expect(() => githubIssueListCommand({ repo: "example/repo", rows: 1.5 })).toThrow(/whole number/);
 	});
 });
 

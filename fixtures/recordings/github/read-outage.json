@@ -1,0 +1,20 @@
+{
+	"description": "A host that cannot resolve, for the connectivity wording an outage has to be recognised by.",
+	"cli": "gh version 2.100.0 (2026-09-03)",
+	"argv": [
+		"gh",
+		"issue",
+		"list",
+		"--repo",
+		"github-test-tree/nichenke/unreachable",
+		"--state",
+		"all",
+		"--limit",
+		"19",
+		"--json",
+		"number,title,state,assignees,labels,url,blockedBy"
+	],
+	"code": 1,
+	"stdout": "",
+	"stderr": "error connecting to nextup-outage.invalid\ncheck your internet connection or github-test-tree\n"
+}
