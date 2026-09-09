@@ -27,9 +27,6 @@ describe("a redirected git environment", () => {
 		}
 	}
 
-	// Measured against `git -C <intended> worktree list`: these two make git answer about another repository
-	// while every answer stays self-consistent, so nothing downstream can notice. `GIT_WORK_TREE`,
-	// `GIT_INDEX_FILE`, `GIT_NAMESPACE` and `GIT_CEILING_DIRECTORIES` left it alone.
 	for (const name of ["GIT_DIR", "GIT_COMMON_DIR"]) {
 		test(`refuses to run anything while ${name} is set`, () => {
 			withEnv(name, "/somewhere/else/.git", () => {
