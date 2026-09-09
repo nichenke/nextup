@@ -73,7 +73,9 @@ export function readGitHubTicketSet(input: GitHubReadInput): TicketSetRead {
 	const rows = readRows(result.stdout, repo);
 	const readings = rows.map((row, index) => readRow(row, repo, `${repo} row ${index}`));
 	const tickets = readings.map((reading) => reading.ticket);
-	const unreadable = tickets.filter((ticket) => ticket.blockers === "unknown").length;
+	// Counted from the edges rather than from the tickets' `blockers`, which mirror them: the graph is seeded
+	// from the edges, so counting the mirror would let the two disagree with nothing to catch it.
+	const unreadable = readings.filter((reading) => reading.edges === "unknown").length;
 	const { graph, contradicted } = graphFor(readings);
 
 	const outages: string[] = [];
@@ -237,8 +239,9 @@ function readEdges(raw: unknown, where: string): readonly Edge[] | "unknown" {
 
 	const edges: Edge[] = [];
 	for (const [index, node] of nodes.entries()) {
+		const at = `${where} blockedBy.nodes[${index}]`;
 		if (typeof node !== "object" || node === null || Array.isArray(node)) {
-			throw new GitHubAdapterError(`${where} blockedBy.nodes[${index}] is not a blocker`);
+			throw new GitHubAdapterError(`${at} is not a blocker`);
 		}
 		const blocker = node as Record<string, unknown>;
 		const ref: TicketRef = {
@@ -246,11 +249,11 @@ function readEdges(raw: unknown, where: string): readonly Edge[] | "unknown" {
 			// The blocker's own repository, read from its address rather than assumed to be the one being read:
 			// a dependency may name an issue in another repository, and keying it under this one would land two
 			// different tickets on one graph node.
-			repo: blockerRepo(blocker.url, `${where} blockedBy.nodes[${index}]`),
+			repo: blockerRepo(blocker.url, at),
 			host: null,
-			key: String(number(blocker.number, `${where} blockedBy.nodes[${index}] number`)),
+			key: String(number(blocker.number, `${at} number`)),
 		};
-		edges.push({ ref, open: state(blocker.state, `${where} blockedBy.nodes[${index}] state`) === "open" });
+		edges.push({ ref, open: state(blocker.state, `${at} state`) === "open" });
 	}
 	return edges;
 }

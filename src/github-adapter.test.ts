@@ -191,27 +191,42 @@ describe("a read that failed", () => {
 	});
 });
 
+// The rows the two blocks below hand the read are built here rather than captured, and every one of them goes
+// through `issueRow`, so what a row of this shape carries is stated once — a field the read starts requiring
+// is one edit rather than three.
+const INLINE_REPO = "example/repo";
+
+function issueRow(fields: Record<string, unknown> = {}): Record<string, unknown> {
+	return {
+		number: 1,
+		title: "A ticket",
+		state: "OPEN",
+		assignees: [],
+		labels: [],
+		url: `${INLINE_REPO}/issues/1`,
+		blockedBy: { nodes: [], totalCount: 0 },
+		...fields,
+	};
+}
+
+function blockerNode(number: number, state: string): Record<string, unknown> {
+	return { number, state, url: `${INLINE_REPO}/issues/${number}` };
+}
+
+function answering(stdout: string): TicketSetRead {
+	return readGitHubTicketSet({ repo: INLINE_REPO, limit: 5, runner: () => ({ code: 0, stdout, stderr: "" }) });
+}
+
+function reading(...rows: readonly Record<string, unknown>[]): TicketSetRead {
+	return answering(JSON.stringify(rows));
+}
+
+function blockednessOfFirst(read: TicketSetRead): string {
+	return deriveEffectiveBlockedness(ticketId(read.tickets[0]!.ref), read.graph);
+}
+
 describe("a response the read cannot parse", () => {
-	// Built here rather than captured: these assert refusals of shapes no tracker emits, which is not the claim
-	// ADR-0019 governs.
-	function answering(stdout: string): TicketSetRead {
-		return readGitHubTicketSet({ repo: REPO, limit: 1, runner: () => ({ code: 0, stdout, stderr: "" }) });
-	}
-
-	const row = (fields: Record<string, unknown>) =>
-		JSON.stringify([
-			{
-				number: 1,
-				title: "A ticket",
-				state: "OPEN",
-				assignees: [],
-				labels: [],
-				url: "example/repo/issues/1",
-				blockedBy: { nodes: [], totalCount: 0 },
-				...fields,
-			},
-		]);
-
+	// These assert refusals of shapes no tracker emits, which is not the claim ADR-0019 governs.
 	test("refuses a success carrying no JSON", () => {
 		expect(() => answering("not json")).toThrow(/returned no JSON/);
 	});
@@ -221,61 +236,56 @@ describe("a response the read cannot parse", () => {
 	});
 
 	test("refuses a row whose state is missing or is neither open nor closed", () => {
-		expect(() => answering(row({ state: undefined }))).toThrow(/state is not a string/);
-		expect(() => answering(row({ state: "MERGED" }))).toThrow(/neither open nor closed/);
+		expect(() => reading(issueRow({ state: undefined }))).toThrow(/state is not a string/);
+		expect(() => reading(issueRow({ state: "MERGED" }))).toThrow(/neither open nor closed/);
 	});
 
 	test("refuses a row whose number, title or address it cannot read", () => {
-		expect(() => answering(row({ number: "1" }))).toThrow(/number is not a whole number/);
-		expect(() => answering(row({ title: null }))).toThrow(/title is not a string/);
-		expect(() => answering(row({ url: "" }))).toThrow(/url is empty/);
+		expect(() => reading(issueRow({ number: "1" }))).toThrow(/number is not a whole number/);
+		expect(() => reading(issueRow({ title: null }))).toThrow(/title is not a string/);
+		expect(() => reading(issueRow({ url: "" }))).toThrow(/url is empty/);
 	});
 
 	test("refuses a row whose assignees or labels are not lists, rather than reading them as absent", () => {
-		expect(() => answering(row({ assignees: undefined }))).toThrow(/claim cannot be read/);
-		expect(() => answering(row({ labels: "P0" }))).toThrow(/labels is not a list/);
+		expect(() => reading(issueRow({ assignees: undefined }))).toThrow(/claim cannot be read/);
+		expect(() => reading(issueRow({ labels: "P0" }))).toThrow(/labels is not a list/);
 	});
 
 	test("refuses a blocking field present in a shape it cannot read", () => {
-		expect(() => answering(row({ blockedBy: { nodes: "one", totalCount: 1 } }))).toThrow(/not a list of blockers/);
-		expect(() => answering(row({ blockedBy: { nodes: [], totalCount: null } }))).toThrow(/totalCount is not a whole number/);
+		expect(() => reading(issueRow({ blockedBy: { nodes: "one", totalCount: 1 } }))).toThrow(/not a list of blockers/);
+		expect(() => reading(issueRow({ blockedBy: { nodes: [], totalCount: null } }))).toThrow(
+			/totalCount is not a whole number/,
+		);
 	});
 
 	test("refuses a blocker whose address names no owner and repository", () => {
 		const nodes = [{ number: 2, state: "OPEN", url: "issues/2" }];
-		expect(() => answering(row({ blockedBy: { nodes, totalCount: 1 } }))).toThrow(/names no owner and repository/);
+		expect(() => reading(issueRow({ blockedBy: { nodes, totalCount: 1 } }))).toThrow(/names no owner and repository/);
 	});
 });
 
 describe("two edges disagreeing about one blocker outside the read", () => {
-	// Built here for a different reason than the block above: GitHub can emit this — a multi-page read sees a
-	// blocker that closed between pages — but reaching it needs a race on a tree larger than ours. What is
-	// asserted is that disagreement is refused rather than resolved, which holds whatever emits it.
-	function reading(first: string, second: string): TicketSetRead {
-		const row = (n: number, blockerState: string) => ({
-			number: n,
-			title: `ticket ${n}`,
-			state: "OPEN",
-			assignees: [],
-			labels: [],
-			url: `example/repo/issues/${n}`,
-			blockedBy: { nodes: [{ number: 99, state: blockerState, url: "example/repo/issues/99" }], totalCount: 1 },
-		});
-		const stdout = JSON.stringify([row(1, first), row(2, second)]);
-		return readGitHubTicketSet({ repo: "example/repo", limit: 5, runner: () => ({ code: 0, stdout, stderr: "" }) });
-	}
-
-	function blockednessOfFirst(read: TicketSetRead): string {
-		return deriveEffectiveBlockedness(ticketId(read.tickets[0]!.ref), read.graph);
+	// GitHub can emit this — a multi-page read sees a blocker that closed between pages — but reaching it needs
+	// a race on a tree larger than ours. What is asserted is that disagreement is refused rather than resolved,
+	// which holds whatever emits it.
+	function disagreeing(first: string, second: string): TicketSetRead {
+		const row = (n: number, blockerState: string) =>
+			issueRow({
+				number: n,
+				title: `ticket ${n}`,
+				url: `${INLINE_REPO}/issues/${n}`,
+				blockedBy: { nodes: [blockerNode(99, blockerState)], totalCount: 1 },
+			});
+		return reading(row(1, first), row(2, second));
 	}
 
 	test("takes neither reading, whichever order they arrive in", () => {
-		expect(blockednessOfFirst(reading("OPEN", "CLOSED"))).toBe("unknown");
-		expect(blockednessOfFirst(reading("CLOSED", "OPEN"))).toBe("unknown");
+		expect(blockednessOfFirst(disagreeing("OPEN", "CLOSED"))).toBe("unknown");
+		expect(blockednessOfFirst(disagreeing("CLOSED", "OPEN"))).toBe("unknown");
 	});
 
 	test("says so, rather than degrading a ticket silently", () => {
-		const read = reading("OPEN", "CLOSED");
+		const read = disagreeing("OPEN", "CLOSED");
 		expect(read.outages).toHaveLength(1);
 		expect(read.outages[0]).toMatch(/both open and closed/);
 	});
@@ -283,14 +293,10 @@ describe("two edges disagreeing about one blocker outside the read", () => {
 	test("leaves a blocker the read itself returned answering for its own state", () => {
 		// The same disagreement about a blocker that is *in* the read: its own row says open, one dependent's
 		// edge says closed, and the row wins — so this stays confidently blocked rather than degrading.
-		const rows = [
-			{ number: 1, title: "blocked", state: "OPEN", assignees: [], labels: [], url: "example/repo/issues/1",
-				blockedBy: { nodes: [{ number: 2, state: "CLOSED", url: "example/repo/issues/2" }], totalCount: 1 } },
-			{ number: 2, title: "the blocker", state: "OPEN", assignees: [], labels: [], url: "example/repo/issues/2",
-				blockedBy: { nodes: [], totalCount: 0 } },
-		];
-		const stdout = JSON.stringify(rows);
-		const read = readGitHubTicketSet({ repo: "example/repo", limit: 5, runner: () => ({ code: 0, stdout, stderr: "" }) });
+		const read = reading(
+			issueRow({ blockedBy: { nodes: [blockerNode(2, "CLOSED")], totalCount: 1 } }),
+			issueRow({ number: 2, title: "the blocker", url: `${INLINE_REPO}/issues/2` }),
+		);
 		expect(blockednessOfFirst(read)).toBe("blocked");
 		expect(read.outages).toEqual([]);
 	});
