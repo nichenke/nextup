@@ -4,8 +4,9 @@ import { githubIssueListCommand } from "./command-builders";
 import { deriveEffectiveBlockedness } from "./effective-blockedness";
 import { GitHubAdapterError, type TicketSetRead, readGitHubTicketSet } from "./github-adapter";
 import { readPriority } from "./priority";
-import { loadRecording, recordingsDir, replayRunner, respondingRunner } from "./recording";
+import { loadRecording, recordingsDir } from "./recording";
 import type { Runner } from "./runner";
+import { replayRunner, respondingRunner } from "./test-support";
 import { GITHUB_TEST_TREE } from "./test-tree";
 import { type Ticket, ticketId } from "./ticket";
 

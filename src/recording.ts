@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { CommandResult, Runner } from "./runner";
 import type { Tracker } from "./ticket-ref";
 
 export class RecordingError extends Error {}
@@ -50,38 +49,6 @@ export function loadRecording(path: string): Recording {
 }
 
 const FIELDS: readonly string[] = ["description", "cli", "argv", "code", "stdout", "stderr"];
-
-/**
- * A runner answering each call from the recording captured for exactly that argv, and refusing any other
- * call. The argv match is the point rather than a convenience: it makes a test of what a read *parses*
- * also a test of what it *asks*, so a field quietly dropped from the query fails here.
- *
- * @throws RecordingError when two recordings share an argv. The returned runner throws the same when a call
- * matches no recording.
- */
-export function replayRunner(recordings: readonly Recording[]): Runner {
-	const byArgv = new Map<string, CommandResult>();
-	for (const recording of recordings) {
-		const key = JSON.stringify(recording.argv);
-		if (byArgv.has(key)) throw new RecordingError(`two recordings answer ${key}, so which one replies is undefined`);
-		byArgv.set(key, { code: recording.code, stdout: recording.stdout, stderr: recording.stderr });
-	}
-	return (argv) => {
-		const result = byArgv.get(JSON.stringify(argv));
-		if (result === undefined) throw new RecordingError(`no recording answers ${JSON.stringify(argv)}`);
-		return result;
-	};
-}
-
-/**
- * A runner answering every call with one recording's response, for the failure shapes whose own argv names
- * something the code under test never asks for — an unreachable host, or a projection deliberately missing
- * a field. `replayRunner` is the default; reach for this only when the captured argv cannot be the one the
- * caller emits, since it asserts nothing about what was asked.
- */
-export function respondingRunner(recording: Recording): Runner {
-	return () => ({ code: recording.code, stdout: recording.stdout, stderr: recording.stderr });
-}
 
 function text(raw: unknown, path: string, where: string): string {
 	if (typeof raw !== "string") throw new RecordingError(`${path}: ${where} must be a string`);

@@ -2,7 +2,8 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { RecordingError, loadRecording, recordingsDir, replayRunner, respondingRunner } from "./recording";
+import { RecordingError, loadRecording, recordingsDir } from "./recording";
+import { replayRunner, respondingRunner } from "./test-support";
 
 const scratch = mkdtempSync(join(tmpdir(), "nextup-recording-"));
 

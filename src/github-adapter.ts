@@ -257,7 +257,9 @@ function readEdges(raw: unknown, where: string): readonly Edge[] | "unknown" {
 
 // The owner and repository from an issue address, taken as the two segments before "/issues/<number>" rather
 // than by parsing a URL: a stored recording has had its host and scheme replaced by a placeholder, so what
-// this reads live is not a parseable URL by the time a test reads it — ADR-0024.
+// this reads live is not a parseable URL by the time a test reads it — ADR-0024. `ticket-ref.ts`'s
+// GENERIC_ISSUES_URL parses the same path from a *pasted* URL and cannot be reused for that reason: it
+// requires the scheme and authority this address has lost, and resolves a tracker from the host besides.
 const ISSUE_ADDRESS = /([^/\s]+\/[^/\s]+)\/issues\/\d+$/;
 
 function blockerRepo(raw: unknown, where: string): string {
