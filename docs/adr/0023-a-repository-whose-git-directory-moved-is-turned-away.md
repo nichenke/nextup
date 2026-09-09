@@ -25,14 +25,31 @@ Bareness is load-bearing and easy to get wrong. A bare repository and a separate
 a common directory equal to `primary`; only bareness separates them, and it is read from the porcelain
 listing already in hand rather than asked for again.
 
+The same refusal catches a shape far more ordinary than `--separate-git-dir`: **a git submodule**. A
+submodule's `.git` is a file too, and `git worktree list` names `<super>/.git/modules/<child>` as its
+primary worktree, so without this guard the default root would be
+`<super>/.git/modules/<child>/.worktrees` — worktrees inside the superproject's administration. Reproduced,
+and the refusal fires. That means the guard is not only insurance against a configuration nobody here uses;
+it is what stops a plausible checkout from planting worktrees somewhere no reader would predict.
+
 An inherited `GIT_DIR` is a different shape and is **not** what this guards. It cannot reach git through
 this tool at all: `defaultRunner` passes no environment to the subprocess, so a `GIT_DIR` in the parent's
-environment is not visible to any git it runs.
+environment is not visible to any git it runs. Even where it did reach git, only a `GIT_DIR` pointing away
+from `<worktree>/.git` behaves like the layouts above; one pointing at the ordinary place passes.
 
 ## Consequences
 
 Bare repositories stay supported, which matters because bare-plus-worktrees is a layout people choose
 deliberately, and ADR-0013 resolves the root against the primary for reasons that hold there too.
+
+That exemption is inconsistent with the reason given above, and knowingly so. For a bare primary the
+default root resolves to `<bare.git>/.worktrees` — inside the administration, which is what this decision
+refuses everywhere else, and invisible to the `.git`-component check because the component is `bare.git`.
+The harm named above does not reach it: a bare repository's administrative files sit *above* the worktree
+rather than inside it, so a session's `git clean -fd` cannot touch them. So the behaviour is safe and the
+rationale is not universal. Siting a bare repository's worktrees outside its git directory would mean
+changing where the root resolves for one class of repository, which is ADR-0013's rule rather than this
+one's.
 
 The refusal is a fifth `WorktreeError` kind, `"unsupported-repository"`, rather than a reading of an
 existing one. No path is stale and no root or ticket changes the answer, so neither `stale-directory` nor

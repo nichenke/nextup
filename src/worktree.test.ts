@@ -844,6 +844,24 @@ describe("ensure against real git", () => {
 		expect(kindOf(() => ensure({ runner: defaultRunner, repo: work, ticket: READER }))).toBe("unsupported-repository");
 	});
 
+	test("turns away a submodule, whose git directory lives under the superproject", () => {
+		const outer = tempDir("nextup-submodule-");
+		const identity = ["-c", "user.email=n@invalid", "-c", "user.name=n"];
+		for (const name of ["child", "super"]) {
+			expect(defaultRunner(["git", "init", "--quiet", "--initial-branch", "main", join(outer, name)]).code).toBe(0);
+			expect(defaultRunner(["git", "-C", join(outer, name), ...identity, "commit", "--quiet", "--allow-empty", "-m", "init"]).code).toBe(0);
+		}
+		const superproject = join(outer, "super");
+		const add = ["git", "-C", superproject, "-c", "protocol.file.allow=always", ...identity];
+		expect(defaultRunner([...add, "submodule", "add", "--quiet", join(outer, "child"), "child"]).code).toBe(0);
+
+		// Ordinary, unlike `--separate-git-dir`: a submodule's `.git` is a file too, so `worktree list` names
+		// `<super>/.git/modules/child` as the primary and the default root would resolve inside it.
+		expect(kindOf(() => ensure({ runner: defaultRunner, repo: join(superproject, "child"), ticket: READER }))).toBe(
+			"unsupported-repository",
+		);
+	});
+
 	test("does not tell a bare repository it is on a detached HEAD, which it has no checkout to be", () => {
 		const bare = join(tempDir("nextup-bare-"), "bare.git");
 		expect(defaultRunner(["git", "init", "--quiet", "--bare", "--initial-branch", "main", bare]).code).toBe(0);
