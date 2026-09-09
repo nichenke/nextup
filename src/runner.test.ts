@@ -1,5 +1,9 @@
-import { describe, expect, test } from "bun:test";
-import { defaultRunner } from "./runner";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { spawnSync } from "bun";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { defaultRunner, gitEnvironment } from "./runner";
 
 describe("defaultRunner", () => {
 	test("runs a real command and captures its output", () => {
@@ -15,57 +19,208 @@ describe("defaultRunner", () => {
 	});
 });
 
-describe("a redirected git environment", () => {
-	/**
-	 * Runs `work` with every variable the guard reads set exactly as `overrides` says, and restored after.
-	 *
-	 * Both are cleared unless overridden, rather than only the one under test: these cases are about the
-	 * ambient environment, so reading it is what they must not do. Left as it came, a `GIT_DIR` exported in
-	 * the shell made the cases that expect success throw, and the suite failed for a reason no assertion
-	 * named — met by a reviewer whose environment had one set.
-	 */
-	function withGitEnvironment(overrides: Readonly<Record<string, string>>, work: () => void): void {
-		const names = ["GIT_DIR", "GIT_COMMON_DIR"];
-		const before = new Map(names.map((name) => [name, process.env[name]]));
-		for (const name of names) {
-			const value = overrides[name];
-			if (value === undefined) delete process.env[name];
-			else process.env[name] = value;
-		}
-		try {
-			work();
-		} finally {
-			for (const [name, value] of before) {
-				if (value === undefined) delete process.env[name];
-				else process.env[name] = value;
-			}
-		}
-	}
-
-	for (const name of ["GIT_DIR", "GIT_COMMON_DIR"]) {
-		test(`refuses to run anything while ${name} is set`, () => {
-			withGitEnvironment({ [name]: "/somewhere/else/.git" }, () => {
-				expect(() => defaultRunner(["git", "--version"])).toThrow(new RegExp(name));
-			});
-		});
-	}
-
-	test("says what to do about it, not only that it happened", () => {
-		withGitEnvironment({ GIT_DIR: "/somewhere/else/.git" }, () => {
-			expect(() => defaultRunner(["git", "--version"])).toThrow(/unset/);
-		});
+describe("gitEnvironment", () => {
+	test("removes every GIT_-prefixed name, including one nobody has measured", () => {
+		const { env } = gitEnvironment({ PATH: "/bin", GIT_DIR: "/elsewhere/.git", GIT_SOMETHING_NEW: "1" });
+		expect(env).toEqual({ PATH: "/bin" });
 	});
 
-	test("ignores a variable it measured as harmless, rather than refusing every GIT_ name", () => {
-		withGitEnvironment({ GIT_WORK_TREE: "/somewhere/else" }, () => {
-			expect(defaultRunner(["git", "--version"]).code).toBe(0);
-		});
+	test("keeps everything else, so a tracker CLI sharing this seam still authenticates", () => {
+		const { env } = gitEnvironment({ PATH: "/bin", HOME: "/home/someone", GH_TOKEN: "t", GITLAB_TOKEN: "u" });
+		expect(env).toEqual({ PATH: "/bin", HOME: "/home/someone", GH_TOKEN: "t", GITLAB_TOKEN: "u" });
 	});
 
-	test("treats an empty value as unset, which is what an unexported shell variable leaves behind", () => {
-		withGitEnvironment({ GIT_DIR: "" }, () => {
-			expect(defaultRunner(["git", "--version"]).code).toBe(0);
-		});
+	test("removes an empty value too, which git reads as a repository named the empty string", () => {
+		const { env, reportable } = gitEnvironment({ GIT_DIR: "" });
+		expect(env).toEqual({});
+		expect(reportable).toEqual(["GIT_DIR"]);
+	});
+
+	test("reports what it removed, sorted, so one message reads the same run to run", () => {
+		const { reportable } = gitEnvironment({ GIT_WORK_TREE: "/a", GIT_DIR: "/b", PATH: "/bin" });
+		expect(reportable).toEqual(["GIT_DIR", "GIT_WORK_TREE"]);
+	});
+
+	test("stays quiet about the names measured as changing no answer", () => {
+		const { env, reportable } = gitEnvironment({ GIT_EDITOR: "true", GIT_PAGER: "cat" });
+		expect(reportable).toEqual([]);
+		expect(env).toEqual({});
+	});
+
+	test("drops an unset name rather than passing it on as the string 'undefined'", () => {
+		const { env } = gitEnvironment({ PATH: "/bin", TERM: undefined });
+		expect(env).toEqual({ PATH: "/bin" });
+	});
+
+	// The prefix is `GIT_` and not `GIT`, so the tokens a tracker CLI authenticates with survive. Both edges
+	// of that boundary, because widening it by one character is the plausible edit.
+	test("keeps a name that begins with GIT but not with the prefix", () => {
+		const { env, reportable } = gitEnvironment({ GITHUB_TOKEN: "t", GITLAB_TOKEN: "u", GIT_DIR: "/b" });
+		expect(env).toEqual({ GITHUB_TOKEN: "t", GITLAB_TOKEN: "u" });
+		expect(reportable).toEqual(["GIT_DIR"]);
+	});
+
+	test("removes the prefix itself, which is the shortest name it matches", () => {
+		expect(gitEnvironment({ GIT_: "x" }).reportable).toEqual(["GIT_"]);
 	});
 });
 
+const perTestRoots: string[] = [];
+
+afterEach(() => {
+	for (const root of perTestRoots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+/**
+ * Two repositories, each with its own path as `origin`, so an origin read says which one answered. A path
+ * rather than a URL because the identifier guard reads this file; `CLAUDE.md` has that.
+ *
+ * `track` decides whether `afterEach` removes it, so a case needing a repository of its own can have one
+ * without taking the shared fixture down with it.
+ */
+function twoRepositories(track: boolean): { root: string; intended: string; other: string } {
+	const created = mkdtempSync(join(tmpdir(), "nextup-redirect-"));
+	if (track) perTestRoots.push(created);
+	// Real, because git resolves symlinks in the paths it reports and macOS hands `mkdtemp` a symlinked one.
+	const root = realpathSync(created);
+	for (const name of ["intended", "other"]) {
+		const path = join(root, name);
+		expect(defaultRunner(["git", "init", "--quiet", "--initial-branch", "main", path]).code).toBe(0);
+		expect(defaultRunner(["git", "-C", path, "remote", "add", "origin", path]).code).toBe(0);
+	}
+	return { root, intended: join(root, "intended"), other: join(root, "other") };
+}
+
+// One fixture for every case that only reads, rebuilt for none of them: six identical constructions cost six
+// times the git subprocesses and prove nothing more. `src/recording.test.ts` sets the same precedent.
+const shared = twoRepositories(false);
+
+afterAll(() => rmSync(shared.root, { recursive: true, force: true }));
+
+/**
+ * Runs `body` against this module in a child process whose environment is `overrides` and nothing else.
+ *
+ * A child rather than a call, because Bun hands an inherited child the environment as it stood at *startup*:
+ * a variable assigned into `process.env` mid-run never reaches a git process at all, so a case that sets one
+ * that way passes whether the scrub is there or not. Every case here was that shape once, and removing
+ * `env: git?.env` from the runner left all five of them green — the false green this ticket exists to
+ * correct, rebuilt inside its own fix.
+ *
+ * Built rather than inherited for the same reason in reverse: a `GIT_` name in the developer's shell must not
+ * be able to decide a result.
+ */
+function inChildProcess(body: string, overrides: Readonly<Record<string, string>>): { stdout: string; stderr: string } {
+	const source = `import { defaultRunner } from ${JSON.stringify(join(import.meta.dir, "runner"))};\n${body}`;
+	const result = spawnSync({
+		cmd: ["bun", "-e", source],
+		env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", ...overrides },
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const stderr = result.stderr.toString();
+	// The child's own stderr in the message, or a failure to start it reports only its exit code.
+	expect(result.exitCode, `child exited ${result.exitCode}: ${stderr}`).toBe(0);
+	return { stdout: result.stdout.toString(), stderr };
+}
+
+/** `body` for a child that prints one command's stdout, with `argv` written into it verbatim. */
+function printing(argv: readonly string[]): string {
+	return `process.stdout.write(defaultRunner(${JSON.stringify(argv)}).stdout);`;
+}
+
+/**
+ * Against real git rather than a stub: each case exists for a behaviour of git's own — which variable
+ * overrides `-C`, and which of this tool's commands it reaches — and a stub asserting those asserts only
+ * what this file believes about them. ADR-0029 records the measurements they were written from.
+ */
+describe("a git variable exported before the tool started", () => {
+	test("does not redirect the origin read, which decides whose tickets a run considers", () => {
+		const { stdout } = inChildProcess(printing(["git", "-C", shared.intended, "remote", "get-url", "origin"]), {
+			GIT_DIR: join(shared.other, ".git"),
+		});
+		expect(stdout.trim()).toBe(shared.intended);
+	});
+
+	test("does not redirect the worktree root, where GIT_WORK_TREE reaches and worktree list does not", () => {
+		const { stdout } = inChildProcess(
+			printing(["git", "-C", shared.intended, "rev-parse", "--path-format=absolute", "--show-toplevel"]),
+			{ GIT_WORK_TREE: shared.other },
+		);
+		expect(realpathSync(stdout.trim())).toBe(shared.intended);
+	});
+
+	test("does not redirect the origin read through a global config file", () => {
+		const config = join(shared.root, "config-naming-other");
+		writeFileSync(config, `[remote "origin"]\n\turl = ${shared.other}\n`);
+		const { stdout } = inChildProcess(printing(["git", "-C", shared.intended, "remote", "get-url", "origin"]), {
+			GIT_CONFIG_GLOBAL: config,
+		});
+		expect(stdout.trim()).toBe(shared.intended);
+	});
+
+	test("is scrubbed for git named by an absolute path, not only by the bare word", () => {
+		const binary = Bun.which("git");
+		expect(binary).not.toBeNull();
+		const { stdout } = inChildProcess(printing([binary as string, "-C", shared.intended, "remote", "get-url", "origin"]), {
+			GIT_DIR: join(shared.other, ".git"),
+		});
+		expect(stdout.trim()).toBe(shared.intended);
+	});
+
+	test("does not reach git as an empty value, which git rejects as a repository name at 128", () => {
+		const { stdout } = inChildProcess(
+			`process.stdout.write(String(defaultRunner(${JSON.stringify(["git", "-C", shared.intended, "remote", "get-url", "origin"])}).code));`,
+			{ GIT_DIR: "" },
+		);
+		expect(stdout.trim()).toBe("0");
+	});
+
+	test("does not abort a command it aborts unscrubbed", () => {
+		// GIT_REPLACE_REF_BASE without a trailing slash aborts `worktree add` on a `BUG:` assertion, exit 134.
+		// Its own fixture, because this is the one case that writes.
+		const { root, intended } = twoRepositories(true);
+		expect(defaultRunner(["git", "-C", intended, "-c", "user.email=n@invalid", "-c", "user.name=n", "commit", "--quiet", "--allow-empty", "-m", "init"]).code).toBe(0);
+		const argv = ["git", "-C", intended, "worktree", "add", join(root, "added"), "-b", "added"];
+		const { stdout } = inChildProcess(`process.stdout.write(String(defaultRunner(${JSON.stringify(argv)}).code));`, {
+			GIT_REPLACE_REF_BASE: "refs/other",
+		});
+		expect(stdout.trim()).toBe("0");
+	});
+
+	test("still reaches a command that is not git, which is how gh and glab keep their credentials", () => {
+		const { stdout } = inChildProcess(printing(["printenv", "GIT_DIR"]), { GIT_DIR: "/elsewhere/.git" });
+		expect(stdout.trim()).toBe("/elsewhere/.git");
+	});
+});
+
+describe("the removal notice", () => {
+	function twoGitCalls(overrides: Readonly<Record<string, string>>): string {
+		return inChildProcess(`defaultRunner(["git", "--version"]);\ndefaultRunner(["git", "--version"]);`, overrides).stderr;
+	}
+
+	test("names every variable it removed, and that their configuration went with them", () => {
+		const stderr = twoGitCalls({ GIT_DIR: "/elsewhere/.git", GIT_WORK_TREE: "/elsewhere" });
+		expect(stderr).toContain("GIT_DIR");
+		expect(stderr).toContain("GIT_WORK_TREE");
+		expect(stderr).toMatch(/configured/);
+	});
+
+	test("says it once for a whole run, not once per git command", () => {
+		expect(twoGitCalls({ GIT_DIR: "/elsewhere/.git" }).match(/GIT_DIR/g)).toHaveLength(1);
+	});
+
+	// Absence of the notice rather than an empty stream: the child is a whole Bun process, and owning its
+	// stderr byte for byte would fail on any diagnostic of Bun's own.
+	test("stays silent when nothing was removed", () => {
+		expect(twoGitCalls({})).not.toContain("was removed");
+	});
+
+	test("stays silent about a variable measured as changing no answer", () => {
+		expect(twoGitCalls({ GIT_EDITOR: "true" })).not.toContain("was removed");
+	});
+
+	test("stays silent for a command that is not git, whose environment was not touched", () => {
+		const { stderr } = inChildProcess(`defaultRunner(["printenv", "GIT_DIR"]);`, { GIT_DIR: "/elsewhere/.git" });
+		expect(stderr).not.toContain("was removed");
+	});
+});

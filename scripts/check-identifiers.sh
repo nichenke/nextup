@@ -18,6 +18,18 @@
 # publishing the guard would leak exactly what it protects.
 set -euo pipefail
 
+# An exported GIT_DIR aims the `git ls-files` below at another repository. Removed here rather than routed
+# through the tool's runner, which needs an installed dependency this deliberately runs before. ADR-0029.
+unset "${!GIT_@}"
+
+# An empty listing is refused rather than scanned: both pipelines below end in `|| true`, so nothing to scan
+# reads as nothing found. A redirected environment was one cause of that. Measured in a directory that is not
+# a repository at all, where `ls-files` failed, the failure was swallowed, and the run printed `ok` at exit 0.
+if [ "$(git ls-files | wc -l | tr -d ' ')" -eq 0 ]; then
+	printf 'check-identifiers: nothing is tracked here, so a pass would mean nothing\n' >&2
+	exit 1
+fi
+
 ALLOWED='
 https://anthropic.com/claude-code/marketplace.schema.json
 https://github.com/nichenke/nextup

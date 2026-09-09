@@ -1,9 +1,18 @@
-import { describe, expect, test } from "bun:test";
-import { readdirSync } from "node:fs";
+import { afterEach, describe, expect, test } from "bun:test";
+import { spawnSync } from "bun";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { defaultRunner } from "../src/runner";
 import { runGuardOn } from "./guard-harness";
 
 const guardDirs = (): number => readdirSync(tmpdir()).filter((name) => name.startsWith("nextup-guard-")).length;
+
+const decoys: string[] = [];
+
+afterEach(() => {
+	for (const root of decoys.splice(0)) rmSync(root, { recursive: true, force: true });
+});
 
 // Fixtures the guard must reject are assembled at runtime, because this file is itself tracked
 // and scanned. Splitting after a scheme's colon is no longer sufficient on its own, because the
@@ -45,6 +54,40 @@ describe("runGuardOn", () => {
 		runGuardOn("See https://example.com/issues/1\n");
 		runGuardOn(`Ticket at ${unknownHttpsUrl}\n`);
 		expect(guardDirs()).toBe(before);
+	});
+});
+
+describe("check-identifiers under a redirected git environment", () => {
+	/** An empty repository for `GIT_DIR` to name; a missing path would fail the listing rather than empty it. */
+	function emptyRepository(): string {
+		const root = mkdtempSync(join(tmpdir(), "nextup-decoy-"));
+		decoys.push(root);
+		expect(defaultRunner(["git", "init", "--quiet", join(root, "decoy")]).code).toBe(0);
+		return join(root, "decoy", ".git");
+	}
+
+	// The redirected environment is one cause of an empty listing; the refusal covers the rest, including the
+	// case where `ls-files` fails outright and the failure is swallowed by a trailing `|| true`.
+	test("refuses a scan with nothing tracked, rather than reporting a pass", () => {
+		const root = mkdtempSync(join(tmpdir(), "nextup-decoy-"));
+		decoys.push(root);
+		expect(defaultRunner(["git", "init", "--quiet", root]).code).toBe(0);
+		const result = spawnSync({ cmd: ["bash", join(import.meta.dir, "check-identifiers.sh")], cwd: root });
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr.toString()).toContain("nothing is tracked");
+	});
+
+	test("scans the fixture rather than reporting ok on nothing", () => {
+		const before = process.env.GIT_DIR;
+		process.env.GIT_DIR = emptyRepository();
+		try {
+			const result = runGuardOn(`Ticket at ${unknownHttpsUrl}\n`);
+			expect(result.exitCode).not.toBe(0);
+			expect(result.stderr.toString()).toContain("internal.corp.test");
+		} finally {
+			if (before === undefined) delete process.env.GIT_DIR;
+			else process.env.GIT_DIR = before;
+		}
 	});
 });
 

@@ -2,6 +2,7 @@ import { spawnSync } from "bun";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gitEnvironment } from "../src/runner";
 
 const script = join(import.meta.dir, "check-identifiers.sh");
 
@@ -26,12 +27,16 @@ export function runGuardOn(contents: string) {
 			["git", "init", "-q"],
 			["git", "add", "fixture.md"],
 		]) {
-			const setup = spawnSync({ cmd, cwd: dir });
+			// Scrubbed, or an exported GIT_DIR aims `git init` and `git add` at another repository and the
+			// fixture is never staged where the guard looks. `src/runner.ts` owns which names go.
+			const setup = spawnSync({ cmd, cwd: dir, env: gitEnvironment(process.env).env });
 			if (setup.exitCode !== 0) {
 				throw new Error(`fixture setup failed: ${cmd.join(" ")}`);
 			}
 		}
-		return spawnSync({ cmd: ["bash", script], cwd: dir });
+		// Passed explicitly rather than inherited, or a case that sets a variable could not reach the guard:
+		// Bun gives a child the environment as it stood at startup. Whole, for the reason in ADR-0029.
+		return spawnSync({ cmd: ["bash", script], cwd: dir, env: { ...process.env } });
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
