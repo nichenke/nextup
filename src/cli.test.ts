@@ -131,7 +131,7 @@ describe("run, over a ticket set read from GitHub", () => {
 		const twice: Runner = () => ({ code: 0, stdout: JSON.stringify([row, row]), stderr: "" });
 		const result = run([], deps(inTestTree(twice)));
 		expect(result.code).toBe(2);
-		expect(result.stderr).toContain("no blocking graph could be built over");
+		expect(result.stderr).toContain("more than one row for");
 	});
 
 	test("refuses a working directory whose origin is not on GitHub", () => {

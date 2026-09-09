@@ -44,10 +44,14 @@ edge. Measured against the tree, an open-only read returns `#9:CLOSED` on the ed
 depend on it.
 
 The *seed* is not identical, and the difference is worth being exact about: from a row, `graphFor` seeds a
-blocker's own blockers, and from an edge it seeds them `"unknown"`. What is unchanged is the blockedness
-derived from it, and only because a closed blocker is pruned before its own blockers are ever consulted. An
-*open* blocker outside the read is a different case — there the `"unknown"` is load-bearing, and
-`graphFor`'s own comment says so.
+blocker's own blockers, and from an edge it seeds them `"unknown"`.
+
+That `"unknown"` is honest bookkeeping rather than a load-bearing safety property, and saying so precisely
+matters, because this is the artifact someone will consult before making dependency blocking transitive.
+`deriveEffectiveBlockedness` enqueues only containment parents, never a dependency blocker: a confirmed-open
+blocker returns `blocked` immediately, and a closed one is pruned. So a blocker's own blockers are never
+read, whichever way it was seeded, and the field is inert today. A transitive walk would remove that
+short-circuit — and then the `"unknown"` starts deciding answers, for every blocker the read did not return.
 
 ## What is given up, precisely
 
@@ -64,10 +68,12 @@ something startable instead of handing out something blocked.
 Two consequences of that are worth naming rather than leaving inside "the safe direction", because both are
 quiet:
 
-- **The skip is silent.** An edge wrongly reporting an open blocker makes its dependent read `blocked`, which
-  is a *confident* state and so emits no degrade. If that dependent was the only candidate, the run prints
-  "no candidate to recommend" with no `degraded: ` line at all — indistinguishable from an empty backlog, and
-  with nothing to grep for.
+- **The skip carries no sentinel.** An edge wrongly reporting an open blocker makes its dependent read
+  `blocked`, which is a *confident* state and so emits no degrade. If that dependent was the only candidate,
+  the run prints "no candidate to recommend" with no `degraded: ` line at all, so there is nothing to grep
+  for. The counts line does still tell the two apart — `1 candidates (0 unblocked, 0 unknown, 1 blocked)`
+  against `0 candidates` for an empty backlog — so the gap is the machine-readable signal, not the
+  information.
 - **A disagreement between two edges now degrades the answer.** With closed blockers as rows, `graphFor`
   discarded every edge naming one, so two dependents disagreeing about a blocker was impossible. Outside the
   read, disagreement seeds the blocker `"unknown"`, both dependents derive `"unknown"`, and if nothing else is

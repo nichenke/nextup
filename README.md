@@ -44,6 +44,11 @@ the request was fine, so a retry is the response. Exit 2 is for what needs a per
 origin that is not GitHub, a request the tracker rejects, a response that cannot be read, and any failure
 nothing classified.
 
+`--json` carries the reasons as two lists, and a consumer has to read both: `selection.degraded` is what the
+selector concluded about the ticket set, and `readDegraded` is what the read itself could not do. An outage
+appears in the second while also setting the first to `truncated`, since nothing was read — so a wrapper
+keyed only on `truncated` would answer a network outage by widening a window that was never opened.
+
 Nothing is claimed without an answer. The gate asks on the controlling terminal rather than through
 stdin and stdout, so it still works when either is redirected. `--print-command` neither claims nor asks: it prints the
 command on stdout and the reasoning on stderr, and `--json --print-command` is the whole answer with

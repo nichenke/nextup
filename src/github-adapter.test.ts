@@ -228,6 +228,10 @@ function issueRow(fields: Record<string, unknown> = {}): Record<string, unknown>
 	};
 }
 
+function closedRow(number: number): Record<string, unknown> {
+	return issueRow({ number, state: "CLOSED", url: `${INLINE_REPO}/issues/${number}` });
+}
+
 function blockerNode(number: number, state: string): Record<string, unknown> {
 	return { number, state, url: `${INLINE_REPO}/issues/${number}` };
 }
@@ -256,21 +260,63 @@ describe("a response the read cannot parse", () => {
 
 	/**
 	 * No recording carries a closed row any more, because the query does not ask for one — so this is what
-	 * holds the row-state path down. Without it, hard-coding every row open would pass the whole suite, and
-	 * reversing ADR-0028 would land on an adapter that had quietly stopped reading the field.
+	 * holds the row-state path down. Without it, hard-coding every row open would pass the whole suite, and a
+	 * genuinely closed row would then be accepted in silence.
+	 *
+	 * Checked on all three paths a row can take out of the read, because the narrowing ones are where a closed
+	 * row used to survive: `select` sees only what is handed back, so a row held out for partial blocking or
+	 * sliced off past the limit reached nobody, and the answer reported `closed not asked` over a response that
+	 * held a closed ticket.
 	 */
-	test("reads a closed row as closed, and seeds it into the graph closed", () => {
-		const read = reading(issueRow({ state: "CLOSED" }), issueRow({ number: 2, url: `${INLINE_REPO}/issues/2`, blockedBy: { nodes: [blockerNode(1, "OPEN")], totalCount: 1 } }));
-		expect(read.tickets[0]!.state).toBe("closed");
-		// The row's own state wins over the edge claiming it open, which is ADR-0027's precedence.
-		expect(deriveEffectiveBlockedness(ticketId(read.tickets[1]!.ref), read.graph)).toBe("unblocked");
+	test("refuses a closed row whichever way it would have left the read", () => {
+		const closed = issueRow({ state: "CLOSED" });
+		expect(() => reading(closed)).toThrow(/closed, though it asked for open tickets only/);
+
+		const partial = issueRow({ state: "CLOSED", blockedBy: { nodes: [], totalCount: 2 } });
+		expect(() => reading(partial)).toThrow(GitHubAdapterError);
+
+		const pastTheLimit = () =>
+			readGitHubTicketSet({
+				repo: INLINE_REPO,
+				limit: 1,
+				runner: () => ({ code: 0, stdout: JSON.stringify([issueRow(), closedRow(2)]), stderr: "" }),
+			});
+		expect(pastTheLimit).toThrow(GitHubAdapterError);
+	});
+
+	/**
+	 * The over-fetched row exists to reveal a cap, so its edges must not decide anything: they are one more
+	 * dependent's copy of a third ticket's state, and letting them vote made the answer depend on a row nobody
+	 * asked to consider. Flipping only the probe's edge used to flip which ticket was recommendable.
+	 */
+	test("keeps the over-fetched row's edges out of what it says about a blocker outside the read", () => {
+		const blocked = (probeSays: string) => {
+			const rows = [
+				issueRow({ number: 1, url: `${INLINE_REPO}/issues/1`, blockedBy: { nodes: [blockerNode(99, "CLOSED")], totalCount: 1 } }),
+				issueRow({ number: 2, url: `${INLINE_REPO}/issues/2` }),
+				issueRow({ number: 3, url: `${INLINE_REPO}/issues/3`, blockedBy: { nodes: [blockerNode(99, probeSays)], totalCount: 1 } }),
+			];
+			const read = readGitHubTicketSet({
+				repo: INLINE_REPO,
+				limit: 2,
+				runner: () => ({ code: 0, stdout: JSON.stringify(rows), stderr: "" }),
+			});
+			return { read, first: deriveEffectiveBlockedness(ticketId(read.tickets[0]!.ref), read.graph) };
+		};
+
+		for (const probeSays of ["CLOSED", "OPEN"]) {
+			const { read, first } = blocked(probeSays);
+			expect(read.truncated).toBe(true);
+			expect(first).toBe("unblocked");
+			expect(read.degraded).toEqual([]);
+		}
 	});
 
 	// As this adapter's own failure rather than as the plain `Error` `seedGraph` raises: a caller classifying on
 	// the error type has nothing to recognise that one by, so it would arrive as a stack with no message.
 	test("refuses a response holding one issue twice", () => {
 		expect(() => reading(issueRow(), issueRow())).toThrow(GitHubAdapterError);
-		expect(() => reading(issueRow(), issueRow())).toThrow(/no blocking graph could be built over/);
+		expect(() => reading(issueRow(), issueRow())).toThrow(/more than one row for/);
 	});
 
 	test("refuses a row whose state is missing or is neither open nor closed", () => {

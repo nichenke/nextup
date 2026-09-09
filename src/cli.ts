@@ -27,7 +27,7 @@ export interface CliDeps {
  * command is assertable without capturing a process's streams.
  */
 export interface CliResult {
-	readonly code: 0 | 1 | 2 | 3;
+	readonly code: 0 | 1 | 2;
 	readonly stdout: string;
 	readonly stderr: string;
 }
@@ -61,9 +61,10 @@ to it, so the two tracks cannot compete for one ticket on a flag that never ment
 The filter narrows only what may be recommended: the blocking graph still reads every ticket, so an
 excluded ticket still blocks.
 
-The pick is shown and confirmed before it is claimed. --yes answers in advance, which is what an
-unattended run needs; with neither a terminal nor --yes the run is refused rather than answered on
-your behalf. --print-command claims nothing and never asks.
+Once claiming lands: the pick will be shown and confirmed before it is claimed, --yes will answer in
+advance for an unattended run, with neither a terminal nor --yes the run will be refused rather than
+answered on your behalf, and --print-command will claim nothing and never ask. None of that is wired
+yet — today every invocation prints the pick and stops.
 
 Only open tickets are read, so the limit is spent on tickets a pick can come from. The window is the most
 recently created of them, so a repository with more open tickets than the limit never considers its oldest
@@ -77,13 +78,16 @@ could not be reached is reported as a degraded answer with nothing to recommend,
 `;
 
 export function run(argv: readonly string[], deps: CliDeps): CliResult {
+	// Before parsing, because help is what a person reaches for *after* getting a flag wrong: parsing first
+	// turned `nextup --limit --help` into a usage error on stderr.
+	if (argv.some((word) => word === "--help" || word === "-h")) return { code: 0, stdout: USAGE, stderr: "" };
+
 	let options: Options;
 	try {
 		options = parse(argv);
 	} catch (cause) {
 		return usageError(cause);
 	}
-	if (options.help) return { code: 0, stdout: USAGE, stderr: "" };
 
 	let filter: LabelFilter;
 	try {

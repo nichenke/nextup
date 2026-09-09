@@ -19,7 +19,8 @@ that happens unconditionally and unreported.
 ## The shapes it carries
 
 One issue per shape, keyed by name rather than by number — a rebuilt tree renumbers. The mapping to live
-numbers:
+numbers, deliberately wider than the adapter's own read: that asks `--state open` per ADR-0028, and this asks
+for every state so that `closed-blocker` — which a read now meets only as an edge — is still listed here.
 
 ```sh
 gh issue list --repo nichenke/nextup-test-tree-github --state all --limit 200 \

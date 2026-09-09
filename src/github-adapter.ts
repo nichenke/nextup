@@ -6,7 +6,7 @@ import { type GraphSeed, seedGraph } from "./graph-store";
 import type { Runner } from "./runner";
 import { type Claim, type Ticket, ticketId } from "./ticket";
 import type { ReadDegrade, TicketSetRead } from "./ticket-set-read";
-import { GITHUB_HOST, type TicketRef, isGitHubHost, isValidRepoPath } from "./ticket-ref";
+import { GITHUB_HOST, type TicketRef, formatTicketRef, isGitHubHost, isValidRepoPath } from "./ticket-ref";
 
 export class GitHubAdapterError extends Error {}
 
@@ -47,8 +47,7 @@ export interface GitHubReadInput {
  *
  * @throws GitHubAdapterError on a defect — a limit that is not a positive whole number, a repository that is
  * not `owner/repo` or that no remote resolves to, a request the tracker rejects, a response whose shape
- * cannot be read, or one holding a graph that cannot be built over it. An outage is flagged and continued
- * past instead.
+ * cannot be read, or one holding two rows for one issue. An outage is flagged and continued past instead.
  */
 export function readGitHubTicketSet(input: GitHubReadInput): TicketSetRead {
 	if (!isReadableLimit(input.limit)) {
@@ -61,17 +60,19 @@ export function readGitHubTicketSet(input: GitHubReadInput): TicketSetRead {
 	const rows = readRows(result.stdout, repo);
 	const readings = rows.map((row, index) => readRow(row, `${repo} row ${index}`));
 	requireOneRepository(readings, repo);
-
-	// Every row seeds the graph, including the probe row and any ticket held back below: a row is its own
-	// authority on being open, and dropping one from the graph leaves a dependent's edge — a copy, which can be
-	// stale — to answer for it instead. Seeding all of them and narrowing only what may be recommended is what
-	// keeps the row-over-edge precedence from depending on where the page happened to end.
-	const { graph, contradicted } = buildGraph(readings, repo);
+	requireOneRowPerIssue(readings, repo);
+	requireEveryRowOpen(readings, repo);
 
 	// Truncation is decided on the raw read; `limit` then bounds what comes back, because a row fetched only to
 	// detect a cap must not become the recommendation.
 	const truncated = rows.length > input.limit;
 	const considered = readings.slice(0, input.limit);
+
+	// Every row seeds the graph, including the probe row and any ticket held back below: a row is its own
+	// authority on being open, and dropping one from the graph leaves a dependent's edge — a copy, which can be
+	// stale — to answer for it instead. Seeding all of them and narrowing only what may be recommended is what
+	// keeps the row-over-edge precedence from depending on where the page happened to end.
+	const { graph, contradicted } = graphFor(readings, considered);
 	const partial = considered.filter((reading) => reading.edges === "partial").map((reading) => reading.ticket.ref);
 	const tickets = considered.filter((reading) => reading.edges !== "partial").map((reading) => reading.ticket);
 	// Counted from the edges rather than from the tickets' `blockers`, which mirror them: the graph is seeded
@@ -87,17 +88,33 @@ export function readGitHubTicketSet(input: GitHubReadInput): TicketSetRead {
 }
 
 /**
- * The graph, with whatever `seedGraph` refuses reported as this adapter's own failure. `graph-store.ts`
- * throws a plain `Error` for a read holding one issue twice, which is a response this adapter cannot read
- * like any other — so it arrives at a caller under the class that says so, and named after the read, rather
- * than as an unclassified throw a caller can only report as a stack.
+ * Refuses a response holding one issue twice, which `seedGraph` would refuse a moment later with a plain
+ * `Error` no caller can classify. Checked rather than caught: catching there would relabel a genuine bug in
+ * graph construction as a bad tracker response, and cost it the stack `cli.ts` keeps for exactly that.
  */
-function buildGraph(readings: readonly RowReading[], repo: string): GraphReading {
-	try {
-		return graphFor(readings);
-	} catch (cause) {
+function requireOneRowPerIssue(readings: readonly RowReading[], repo: string): void {
+	const seen = new Set<IssueId>();
+	for (const { ticket } of readings) {
+		const id = ticketId(ticket.ref);
+		if (seen.has(id)) {
+			throw new GitHubAdapterError(`reading ${repo} returned more than one row for ${formatTicketRef(ticket.ref)}`);
+		}
+		seen.add(id);
+	}
+}
+
+/**
+ * Refuses a closed row when the query asked for open tickets only, over every row the response held rather
+ * than over what is handed back. `select` refuses the same thing, but only sees the narrowed set: a closed row
+ * held out for partial blocking, or sliced off past the limit, never reaches it — and the answer then reports
+ * `closed not asked` over a response that contained a closed ticket, which is the reading ADR-0028 forbids.
+ */
+function requireEveryRowOpen(readings: readonly RowReading[], repo: string): void {
+	if (!OPEN_ONLY) return;
+	const closed = readings.find((reading) => reading.ticket.state === "closed");
+	if (closed !== undefined) {
 		throw new GitHubAdapterError(
-			`reading ${repo} returned rows no blocking graph could be built over: ${cause instanceof Error ? cause.message : String(cause)}`,
+			`reading ${repo} answered with ${formatTicketRef(closed.ticket.ref)} closed, though it asked for open tickets only`,
 		);
 	}
 }
@@ -190,7 +207,7 @@ interface GraphReading {
  * group a blocker outside the read has no openness at all, so the traversal degrades its dependent to
  * `"unknown"` — and the edge already carried the answer.
  */
-function graphFor(readings: readonly RowReading[]): GraphReading {
+function graphFor(readings: readonly RowReading[], considered: readonly RowReading[]): GraphReading {
 	const seeds: GraphSeed[] = [];
 	const own = new Set<IssueId>();
 	for (const { ticket } of readings) {
@@ -206,8 +223,12 @@ function graphFor(readings: readonly RowReading[]): GraphReading {
 		});
 	}
 
+	// From `considered` rather than from every row: the over-fetched probe row exists to reveal a cap, and its
+	// edges are one more dependent's copy of some third ticket's state. Let them vote and the row fetched only
+	// to detect truncation decides the answer — a probe whose edge disagreed with a considered ticket's edge
+	// seeded that blocker `"unknown"`, demoted the ticket off the confirmed partition, and changed the pick.
 	const outside = new Map<IssueId, { readonly ref: TicketRef; readonly open: boolean | "unknown" }>();
-	for (const { edges } of readings) {
+	for (const { edges } of considered) {
 		if (typeof edges === "string") continue;
 		for (const edge of edges) {
 			const id = ticketId(edge.ref);

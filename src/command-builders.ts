@@ -183,8 +183,12 @@ export interface GitHubIssueListInput {
 /**
  * The states one read asks for, exported so that an adapter reports what was asked rather than restating it:
  * `TicketSetRead.openOnly` is derived from this, so changing it here changes what the counts may claim.
+ *
+ * Declared as the pair rather than inferred as the one value it holds, so that deriving a boolean from it
+ * stays a comparison. Inferred, `GITHUB_TICKET_STATE === "open"` has no overlap to compare and changing this
+ * line fails the build in `github-adapter.ts` instead of flipping the flag it advertises.
  */
-export const GITHUB_TICKET_STATE = "open";
+export const GITHUB_TICKET_STATE: "open" | "all" = "open";
 
 /**
  * One read of a GitHub ticket set. `--state open` rather than every state: a closed blocker's own state
