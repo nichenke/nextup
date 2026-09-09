@@ -311,21 +311,35 @@ function refuseUnlessOrdinaryLayout(runner: Runner, main: Registration): void {
  *   inside the checkout is taken as given, tracked directory or not.
  * - **Inside `.git`**, which puts git's own administration (`HEAD`, `index`, `index.lock`, `commondir`)
  *   into the session's working tree as untracked files, where `git clean -fd` deletes them and `git add
- *   -A` commits them. Matched literally, so an odd-cased spelling such as `.GIT` is not covered on a
- *   case-insensitive filesystem — out of scope deliberately, since no untrusted input reaches a root.
- *   `refuseUnlessOrdinaryLayout` has already turned away repositories whose git directory is elsewhere.
+ *   -A` commits them. Compared with case folded, so `.GIT` on a case-insensitive filesystem is refused
+ *   too. `refuseUnlessOrdinaryLayout` has already turned away repositories whose git directory is
+ *   elsewhere, so a component match is all this needs.
  * - **Reached through a symlink**, per `refuseIfReachedThroughLink`.
  */
 function resolveContainer(primary: string, root: string | null | undefined): string {
 	const container = resolve(primary, root?.trim() || DEFAULT_WORKTREE_ROOT);
-	if (container === primary) {
+	if (folded(container) === folded(primary)) {
 		throw new WorktreeError(`${primary} is the primary checkout, so it cannot also be the worktree root`, "stale-directory");
 	}
-	if (container.split(sep).includes(".git")) {
+	if (container.split(sep).some((one) => folded(one) === ".git")) {
 		throw new WorktreeError(`${container} is inside a git directory, which a worktree cannot be`, "stale-directory");
 	}
 	refuseIfReachedThroughLink(container);
 	return container;
+}
+
+/**
+ * A path lowered for comparison, for the guards that must fail closed.
+ *
+ * Only the two refusals in `resolveContainer` use it, and both refuse rather than accept, so folding can
+ * only refuse more: the one thing it newly rejects is a genuinely distinct `.GIT` directory on a
+ * case-sensitive filesystem, which nothing here has. The path matching in `ensure` is deliberately *not*
+ * folded — it decides which worktree to attach to, so on a case-sensitive filesystem folding would attach
+ * to a different directory than the one asked for. Closing that needs to know whether the filesystem folds,
+ * which this does not ask.
+ */
+function folded(path: string): string {
+	return path.toLowerCase();
 }
 
 /** The last component of a branch name, which is what the branch is called under the worktree root. */
@@ -450,7 +464,15 @@ function adoptableFromOrigin(runner: Runner, repo: string, branch: string): bool
 			"unsupported-repository",
 		);
 	}
-	return refs[0]?.trim() === `${REMOTE_HEAD}${branch}`;
+	const only = refs[0]?.trim() ?? "";
+	if (!only.startsWith(REMOTES)) return false;
+	const rest = only.slice(REMOTES.length);
+	const slash = rest.indexOf("/");
+	// The remote's name is whatever it is called on disk and git records it verbatim, so a remote named
+	// `Origin` is still the one meant; the branch is compared exactly, because git branch names are
+	// case-sensitive. Compared as one string this returned `created` for such a remote, cutting from HEAD
+	// and leaving the pushed tip behind — the loss asking the remotes exists to prevent.
+	return slash !== -1 && folded(rest.slice(0, slash)) === "origin" && rest.slice(slash + 1) === branch;
 }
 
 /**
@@ -513,7 +535,8 @@ function driftWarnings(runner: Runner, primary: string, head: Head): readonly st
 	return [`the primary checkout ${primary} is on ${head.name}, not on ${target}`];
 }
 
-const REMOTE_HEAD = "refs/remotes/origin/";
+const REMOTES = "refs/remotes/";
+const REMOTE_HEAD = `${REMOTES}origin/`;
 
 function readRegistrations(runner: Runner, repo: string): readonly Registration[] {
 	const result = runner([...worktreeListCommand(repo)]);

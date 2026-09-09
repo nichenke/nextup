@@ -130,6 +130,8 @@ interface GitState {
 	readonly remoteBranches?: readonly string[];
 	/** Further remotes carrying `remoteBranches`, which makes the name ambiguous to git. */
 	readonly alsoOnRemotes?: readonly string[];
+	/** What the canonical remote is called on disk, which git records verbatim. */
+	readonly originName?: string;
 	/** `null` where `origin/HEAD` is not set, which is what a repo with no remote reports. */
 	readonly defaultBranch?: string | null;
 	/** Overrides the git directory, for the layouts `refuseUnlessOrdinaryLayout` turns away. */
@@ -165,7 +167,9 @@ function stubGit(state: GitState): { runner: Runner; issued: string[][] } {
 		}
 		if (words.includes("for-each-ref")) {
 			const branch = argv[argv.length - 1]!.slice("refs/remotes/*/".length);
-			const remotes = (state.remoteBranches ?? []).includes(branch) ? ["origin", ...(state.alsoOnRemotes ?? [])] : [];
+			const remotes = (state.remoteBranches ?? []).includes(branch)
+				? [state.originName ?? "origin", ...(state.alsoOnRemotes ?? [])]
+				: [];
 			return { code: 0, stdout: remotes.map((one) => `refs/remotes/${one}/${branch}\n`).join(""), stderr: "" };
 		}
 		if (words.includes("rev-parse")) {
@@ -532,6 +536,35 @@ describe("ensure", () => {
 		// Exit 0 saying nothing is what `WorktreeError`'s `"git"` covers. Matched against neither accepted
 		// shape it would otherwise report a layout refusal naming no directory at all.
 		expect(kindOf(() => ensure({ runner: silent, repo, ticket: READER }))).toBe("git");
+	});
+
+	test("refuses a root naming the primary checkout however it is cased", () => {
+		const { repo, state } = primaryOn();
+		const git = stubGit(state);
+
+		expect(kindOf(() => ensure({ runner: git.runner, repo, ticket: READER, root: repo.toUpperCase() }))).toBe(
+			"stale-directory",
+		);
+	});
+
+	test("refuses a root reaching the git directory however it is cased", () => {
+		const { repo, state } = primaryOn();
+		const git = stubGit(state);
+
+		for (const root of [".GIT/worktrees", ".Git", join(repo, ".GIT", "trees")]) {
+			expect(kindOf(() => ensure({ runner: git.runner, repo, ticket: READER, root }))).toBe("stale-directory");
+		}
+	});
+
+	test("adopts origin's branch whatever case the remote is named", () => {
+		const { repo, state } = primaryOn();
+		const git = stubGit({ ...state, remoteBranches: [READER_BRANCH], originName: "Origin" });
+
+		// Cutting a new branch here would leave every commit already pushed to that remote behind, which is
+		// what asking the remotes at all is for.
+		const outcome = ensure({ runner: git.runner, repo, ticket: READER });
+		expect(outcome.kind).toBe("checked-out");
+		expect(outcome.command).not.toContain("-b");
 	});
 
 	test("refuses a root naming the primary checkout, where worktrees would sit unignored beside its own files", () => {
