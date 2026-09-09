@@ -145,6 +145,15 @@ export const GITHUB_TEST_TREE: TestTreeSpec = {
 			closed: false,
 		},
 		{
+			key: "several-priorities",
+			title: "Several priority labels at once: the most urgent wins, the unreadable one is still reported",
+			body: "Carries more than one priority label. Labels are a set, so a tracker permits this and a reading has to choose.",
+			labels: ["P0", "P2", "priority: high"],
+			blockedBy: [],
+			claimed: false,
+			closed: false,
+		},
+		{
 			key: "needs-triage",
 			title: "Needs triage: excluded from candidates, still in the graph",
 			body: "The label filter drops this from the candidate set without asking why it carries the label.",

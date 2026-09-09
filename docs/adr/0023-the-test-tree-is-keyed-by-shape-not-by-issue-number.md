@@ -95,7 +95,7 @@ The check that does the job is the inverse, over the same listing: any issue the
 orphan. That is what a rename leaves — along with an issue created by hand, and one filed under any unused
 title. Provisioning refuses on it. The cost of not having it: fix a typo in one of these long prose titles
 and the next run creates a second issue, leaves the original with its edges and its claim, reports a single
-`created` line, and then converges — eighteen issues against a seventeen-issue spec, reporting that every
+`created` line, and then converges — one more issue than the spec describes, reporting that every
 issue matches, with every later recording carrying the orphan.
 
 A **label definition** is the exception, and the distinction is easy to lose: the name and colour of each

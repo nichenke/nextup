@@ -123,6 +123,16 @@ describe("the shapes the GitHub test tree carries", () => {
 		expect(bare).toEqual({ rank: null, unread: [] });
 	});
 
+	// Without this the minimum-rank branch of `readPriority` is unreachable from any recording, and so is the
+	// question of whether an unreadable label is still reported once a rank has been found. Both would be left
+	// to hand-authored scenario inputs, which ADR-0019 admits for how the ladder ranks but not for what a
+	// tracker emits — and a tracker does emit this, because labels are a set.
+	test("a ticket carrying several priority labels at once", () => {
+		const reading = readPriority(issue("several-priorities").labels);
+		expect(reading.rank).toBe(0);
+		expect(reading.unread).toEqual(["priority: high"]);
+	});
+
 	test("a needs-triage ticket, for the exclusion the filter is given by hand", () => {
 		expect(issue("needs-triage").labels).toContain("needs-triage");
 		expect(compileLabelFilter({ include: [], exclude: ["needs-triage"] }).admits(issue("needs-triage").labels)).toBe(

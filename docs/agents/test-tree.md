@@ -33,6 +33,7 @@ gh issue list --repo nichenke/nextup-test-tree-github --state all --limit 200 \
 | `every-blocker-closed` | On the frontier with a blocker total above zero — a reading that consults the total alone calls it blocked |
 | `claimed` | Assigned, so outside the candidate set. Never reassign it |
 | `no-priority`, `unread-priority` | The priority rung absent, and present but unrankable |
+| `several-priorities` | More than one priority label at once — labels are a set, so the reading has to choose |
 | `needs-triage` | A candidate exclusion the filter is given by hand |
 | `excluded-blocker`, `blocked-by-excluded` | A ticket the default filter excludes, still blocking one it admits |
 | `cycle-first`, `cycle-second`, `cycle-third` | A three-hop dependency cycle — ADR-0023 has why three and not two |
