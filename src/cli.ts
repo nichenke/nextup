@@ -104,7 +104,7 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 		});
 		answer = { selection, readDegraded: read.degraded };
 	} catch (cause) {
-		return readError(cause);
+		return failedAnswer(cause);
 	}
 
 	// An outage arrives as a degrade rather than as a throw, so whether anything was picked is the whole
@@ -123,7 +123,7 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
  * environment (ADR-0026) would report a quiet day. Unrecognised, it keeps its stack: nobody has classified
  * it, so whoever reads it needs everything.
  */
-function readError(cause: unknown): CliResult {
+function failedAnswer(cause: unknown): CliResult {
 	if (cause instanceof GitHubAdapterError || cause instanceof SelectionError || cause instanceof RunnerRefusal) {
 		return { code: 2, stdout: "", stderr: `${cause.message}\n` };
 	}

@@ -20,7 +20,7 @@ the whole command surface, including the flags those steps will drive.
 
 ```sh
 bun bin/nextup.ts                   # show the pick — today it stops there
-bun bin/nextup.ts --limit 50        # consider 50 open tickets rather than the default 200
+bun bin/nextup.ts --limit 50        # consider 50 open tickets rather than the default 199
 bun bin/nextup.ts --json            # the selection, and what the read could not answer, as JSON
 bun bin/nextup.ts --yes             # claim without asking, for an unattended run
 bun bin/nextup.ts --print-command   # the same answer, claiming nothing and asking nothing

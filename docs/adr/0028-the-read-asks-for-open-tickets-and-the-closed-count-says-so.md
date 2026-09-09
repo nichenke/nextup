@@ -1,7 +1,7 @@
 # The read asks for open tickets, and the closed count says it never asked
 
 The GitHub read asks `--state open` rather than `--state all`, bounded by a limit the command defaults to
-200. `SelectionCounts.closed` reports `"not-asked"` under such a read rather than a zero, and the selector
+199. `SelectionCounts.closed` reports `"not-asked"` under such a read rather than a zero, and the selector
 refuses a closed ticket in a set read that way.
 
 The three are one decision. Dropping closed rows is what makes the count a lie, so the count's

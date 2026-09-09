@@ -24,9 +24,9 @@ export interface SelectionInput {
 	 */
 	readonly truncated: boolean;
 	/**
-	 * Whether the read that produced `tickets` asked for open tickets only. Required for `truncated`'s
-	 * reason, so that an adapter has to state it; `SelectionCounts.closed` is what it decides, and
-	 * ADR-0028 is why the read asks that way.
+	 * Whether the read that produced `tickets` asked for open tickets only. Required for the same reason
+	 * `truncated` is — so that an adapter has to state it rather than have it assumed. It decides
+	 * `SelectionCounts.closed`, and ADR-0028 is why the read asks that way.
 	 */
 	readonly openOnly: boolean;
 }
