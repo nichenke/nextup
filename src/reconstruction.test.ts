@@ -331,6 +331,20 @@ describe("counts-reconcile", () => {
 		});
 	});
 
+	test("fails a label swapped between two blocked tickets, which leaves every bucket the same size", () => {
+		const shapes = [...SHAPES, { key: "100", blockers: [["3", true]] as const, labels: ["needs-triage"] }];
+		const input = world(shapes);
+		// Neither ticket reaches a frontier on either side, and no other check reads a label, so the totals were
+		// the only thing standing between this and a green run.
+		const tickets = input.read.tickets.map((ticket) =>
+			ticket.ref.key === "100" ? { ...ticket, labels: [] } : ticket.ref.key === "2" ? { ...ticket, labels: ["needs-triage"] } : ticket,
+		);
+		const check = checkNamed({ ...input, read: { ...input.read, tickets } }, "counts-reconcile");
+		expect(check.verdict).toBe("failed");
+		expect(check.detail).toContain("gh:example/repo#2 was read as filtered where the tracker's own claim and labels call for a candidate");
+		expect(check.detail).toContain("gh:example/repo#100 was read as a candidate where the tracker's own claim and labels call for filtered");
+	});
+
 	test("leaves a ticket held out for paging blockers to whole-set-read, counting it on neither side", () => {
 		const input = world();
 		const withheld = input.read.tickets.find((ticket) => ticket.ref.key === "8")!;
@@ -470,6 +484,23 @@ describe("frontier-agrees", () => {
 		const input = unknownBlockingOn("2");
 		const check = checkNamed(input, "frontier-agrees");
 		expect(check).toMatchObject({ verdict: "unexercised", detail: expect.stringContaining("unknown blocking") });
+	});
+
+	test("refuses to compare when the read lost a blocking field on a ticket it placed by claim before blocking", () => {
+		const input = world();
+		// Ticket 8 is claimed, so `place` never asks about its blocking and `counts.unknown` stays zero. Every check
+		// held over this: both frontiers exclude the ticket for the claim, and edges-agree skips it.
+		const tickets = input.read.tickets.map((ticket) => (ticket.ref.key === "8" ? { ...ticket, blockers: "unknown" as const } : ticket));
+		const read = {
+			...input.read,
+			tickets,
+			graph: graphOver(tickets, SHAPES),
+			degraded: [{ kind: "unreadable-blocking", tickets: 1, of: tickets.length }] as const,
+		};
+		expect(checkNamed({ ...input, read }, "frontier-agrees")).toMatchObject({
+			verdict: "unexercised",
+			detail: expect.stringContaining("the read could not read blocking for 1 tickets"),
+		});
 	});
 
 	test("reports the disagreement, not the refusal, where the two also differ on a ticket they could compare", () => {

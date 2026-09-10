@@ -266,6 +266,20 @@ function countsReconcile(input: ReconstructionInput, selection: Selection): Chec
 	const filtered = observed.filter((one) => !one.claimed && !input.filter.admits(one.labels));
 	const candidates = observed.length - claimed.length - filtered.length;
 	const faults: string[] = [];
+	// Per ticket before the totals, because the totals survive a swap: one ticket read as filtered that is not and
+	// another read as admitted that is leaves every bucket the same size. Where both are blocked, neither reaches
+	// either frontier either, and nothing else looks at a label — so the run was green over two misplaced tickets.
+	// Reported by the Codex review on pull request 62.
+	const held = new Map(input.read.tickets.map((ticket) => [ticketId(ticket.ref), ticket] as const));
+	for (const one of observed) {
+		const ticket = held.get(ticketId(one.ref));
+		if (ticket === undefined) continue;
+		const asRead = placementOf(ticket.claim !== null, ticket.labels, input.filter);
+		const asObserved = placementOf(one.claimed, one.labels, input.filter);
+		if (asRead !== asObserved) {
+			faults.push(`${formatTicketRef(one.ref)} was read as ${asRead} where the tracker's own claim and labels call for ${asObserved}`);
+		}
+	}
 	if (counts.claimed !== claimed.length) {
 		faults.push(`the answer counted ${counts.claimed} tickets claimed where the tracker reports ${claimed.length} of them claimed`);
 	}
@@ -281,6 +295,16 @@ function countsReconcile(input: ReconstructionInput, selection: Selection): Chec
 		faults,
 		`${observed.length} tickets: ${counts.claimed} claimed, ${counts.filtered} filtered, ${counts.unblocked} unblocked, ${counts.unknown} unknown, ${counts.blocked} blocked, each placed as the tracker reads it`,
 	);
+}
+
+/**
+ * Where a ticket belongs before blocking is consulted, in the order `place` decides it: a claim outranks a label,
+ * so a claimed ticket the filter would also reject is one placement rather than two. Closed is absent because the
+ * read asked for open tickets only, which `wholeSetRead` faults if it did not.
+ */
+function placementOf(claimed: boolean, labels: readonly string[], filter: LabelFilter): "claimed" | "filtered" | "a candidate" {
+	if (claimed) return "claimed";
+	return filter.admits(labels) ? "a candidate" : "filtered";
 }
 
 /**
@@ -384,8 +408,17 @@ function frontierAgrees(input: ReconstructionInput, selection: Selection, fronti
 	// `unexercised` rather than a fault of its own, because declining to compare is not a disagreement: both exit
 	// non-zero, and a fault here reads as the two frontiers differing, which is the first thing the reader would
 	// go and investigate.
-	if (selection.counts.unknown > 0) {
-		const partial = `${selection.counts.unknown} tickets came back with unknown blocking, so the frontier cannot be compared whole`;
+	// Refused on what the read reported as well as on the candidates it produced. `place` decides a claim and a
+	// label before it consults blocking, so a ticket whose blocking field was unreadable and which is claimed or
+	// filtered never becomes an unknown candidate: `counts.unknown` stays zero while the read did lose a blocking
+	// field, both frontiers then exclude the ticket for the same independent reason and agree, and `edgesAgree`
+	// skips it. Reported by the Codex review on pull request 62, and every check held over it.
+	const notes: string[] = [];
+	if (selection.counts.unknown > 0) notes.push(`${selection.counts.unknown} candidates came back with unknown blocking`);
+	const unreadable = input.read.degraded.reduce((count, degrade) => (degrade.kind === "unreadable-blocking" ? count + degrade.tickets : count), 0);
+	if (unreadable > 0) notes.push(`the read could not read blocking for ${unreadable} tickets`);
+	if (notes.length > 0) {
+		const partial = `${notes.join(", and ")}, so the frontier cannot be compared whole`;
 		if (faults.length === 0) return { name: "frontier-agrees", verdict: "unexercised", detail: [partial] };
 		faults.push(partial);
 	}

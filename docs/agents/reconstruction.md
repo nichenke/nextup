@@ -39,7 +39,7 @@ the ones that change the answer.
 | `whole-set-read` | The read covers the same window the independent query did: untruncated, undegraded, open tickets only, and the same tickets on both sides and in the blocking-field-less read |
 | `references-parse` | Every reference the read produced is one `resolveTicketRef` takes back, without asking a tracker |
 | `blockers-resolve` | Every blocking edge names a ticket in the set or one outside it that still carries a state |
-| `counts-reconcile` | Every ticket was placed exactly once, and under the placement the tracker's own claims and labels call for |
+| `counts-reconcile` | Every ticket was placed under the placement the tracker's own claim and labels call for, compared per ticket and not only as bucket totals |
 | `nothing-blocked-is-recommended` | Nothing the answer offers is a ticket the tracker says waits on something still open |
 | `edges-agree` | The two sides read the same blocking edges, with the same openness — the one check comparing inputs rather than outcomes |
 | `frontier-agrees` | The frontier the adapter derived is the one the tracker reports, both directions |
@@ -60,8 +60,10 @@ the adapter stopped producing the state, which is a defect that would otherwise 
 which before reaching for a different repository: an `unexercised` line arriving where the same repository used
 to exercise the check is the more interesting of the two readings.
 
-`frontier-agrees` reports it for the other reason — the read came back with unknown blocking, so the two
-frontiers cannot be compared whole. Its line says so, and the cause is in `whole-set-read`'s.
+`frontier-agrees` reports it for the other reason — the two frontiers cannot be compared whole. That happens when
+candidates came back with unknown blocking, and also when the read could not read a blocking field on a ticket it
+placed by claim or label first: such a ticket never becomes an unknown candidate, so the candidate count alone
+would have called this comparable when it was not. Its line says which of the two, and how many.
 
 **`failed`** lists every ticket it disagreed about, one per line.
 
@@ -74,7 +76,8 @@ frontiers cannot be compared whole. Its line says so, and the cause is in `whole
   to expect on a healthy adapter: two edges disagreed about one blocker, and ADR-0027 has what the adapter does
   there. `partial-blocking` is a ticket whose blockers arrived as one page of a longer list, held out of the
   answer and not counted missing from it. Neither goes unnoticed: unreadable blocking leaves `frontier-agrees`
-  unable to compare, and a withheld ticket that the tracker would recommend still disagrees there.
+  unable to compare whatever the candidate count says, and a withheld ticket that the tracker would recommend
+  still disagrees there.
 - `frontier-agrees` failing is a real disagreement, naming the ticket and the side that has it; while
   `whole-set-read` holds it is the finding worth having. Read it with the four state checks: a disagreement
   alongside a failing `claimed-leaves-frontier` points at the claim, alongside a failing
