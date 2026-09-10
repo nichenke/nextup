@@ -292,8 +292,8 @@ function readRow(row: Record<string, unknown>, where: string): RowReading {
 
 /**
  * The blocking edges one row carries: an absent field reads `"unknown"`, an empty one reads no blockers, and
- * a node list shorter than its own count reads `"unknown"` too. ADR-0027 has why each, and why the empty case
- * is not the unknown one.
+ * a node list shorter than its own count reads `"partial"`, which holds the ticket out of the answer rather
+ * than judging it either way. ADR-0027 has why each, and why the empty case is not the unknown one.
  *
  * @throws GitHubAdapterError when the field is present in a shape this cannot read — that is our query being
  * wrong rather than the tracker being unavailable.
