@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { classifyFailure, collapseFailure } from "./failure-class";
+import { classifyFailure, collapseFailure, failureDetail } from "./failure-class";
 import { loadRecording, recordingsDir } from "./recording";
 
 function stderrOf(name: string): string {
@@ -74,5 +74,20 @@ describe("collapseFailure", () => {
 
 	test("collapses a tab and a carriage return too, which a CLI on another platform will send", () => {
 		expect(collapseFailure("one\r\ntwo\tthree")).toBe("one two three");
+	});
+});
+
+describe("failureDetail", () => {
+	test("prefers stderr, where a CLI puts a diagnostic it means to be read", () => {
+		expect(failureDetail({ code: 1, stdout: "out", stderr: "the real reason" })).toBe("the real reason");
+	});
+
+	test("falls back to stdout, since a CLI that diagnoses there would otherwise abort saying nothing", () => {
+		expect(failureDetail({ code: 1, stdout: "wrote it here\ninstead", stderr: "" })).toBe("wrote it here instead");
+	});
+
+	test("names the exit code where neither stream said anything", () => {
+		expect(failureDetail({ code: 3, stdout: "", stderr: "" })).toBe("no output, exit 3");
+		expect(failureDetail({ code: 3, stdout: " \n", stderr: "\t" })).toBe("no output, exit 3");
 	});
 });

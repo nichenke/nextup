@@ -38,3 +38,15 @@ export function classifyFailure(stderr: string): FailureClass {
 export function collapseFailure(stderr: string): string {
 	return stderr.trim().replace(/\s+/g, " ");
 }
+
+/**
+ * One failed call's whole evidence, for an abort that has nothing else to offer a person.
+ *
+ * stdout backs up stderr because a CLI may diagnose on either, and the exit code backs up both because a
+ * command can exit non-zero having written to neither — which would otherwise abort on a bare colon.
+ * Classification stays a question about stderr alone, which is what `classifyFailure` was measured
+ * against, so a diagnostic on stdout alone still falls through to the loud class.
+ */
+export function failureDetail(result: { readonly code: number; readonly stdout: string; readonly stderr: string }): string {
+	return collapseFailure(result.stderr) || collapseFailure(result.stdout) || `no output, exit ${result.code}`;
+}

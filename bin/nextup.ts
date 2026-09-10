@@ -44,7 +44,7 @@ function terminal(): Confirm | null {
 	return askOnTerminal;
 }
 
-const result = run(process.argv.slice(2), { runner: defaultRunner, confirm: terminal() });
+const result = run(process.argv.slice(2), { runner: defaultRunner, confirm: terminal(), cwd: process.cwd() });
 if (result.stdout !== "") process.stdout.write(result.stdout);
 if (result.stderr !== "") process.stderr.write(result.stderr);
 // Setting the code and letting the process end, rather than `process.exit`, which tears the process

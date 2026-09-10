@@ -1,5 +1,5 @@
 import { type GitHubClaimCommandInput, githubClaimCommand } from "./command-builders";
-import { classifyFailure, collapseFailure } from "./failure-class";
+import { classifyFailure, failureDetail } from "./failure-class";
 import type { CommandResult, Runner } from "./runner";
 import { GITHUB_HOST, type TicketRef, formatTicketRef, isGitHubHost, isValidRepoPath } from "./ticket-ref";
 
@@ -54,12 +54,8 @@ function requireClaimable(ref: TicketRef): GitHubClaimCommandInput {
 }
 
 function failedClaim(ref: TicketRef, result: CommandResult): GitHubClaimError {
-	// This message is the operator's whole evidence: the run stops here, having already made a worktree. So stdout
-	// backs up stderr the way `run` in `test-tree-provision.ts` reads a failed call, and the exit code backs up
-	// both — a command can exit non-zero having written to neither stream, which would otherwise abort on a bare
-	// colon. Classification still asks stderr alone, which is what it was measured against, so a diagnostic on
-	// stdout alone falls through to the loud class.
-	const detail = collapseFailure(result.stderr) || collapseFailure(result.stdout) || `no output, exit ${result.code}`;
+	// This message is the operator's whole evidence: the run stops here, having already made a worktree.
+	const detail = failureDetail(result);
 	const what = formatTicketRef(ref);
 	// Not "the request is wrong": a missing or unauthenticated `gh`, and a repository we cannot write to, both
 	// land here, and none of the three is fixed by editing the request or by trying again.

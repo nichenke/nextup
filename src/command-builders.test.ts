@@ -15,6 +15,8 @@ import {
 	originRemoteCommand,
 	remoteBranchesCommand,
 	sessionCommand,
+	workspaceCommand,
+	workspaceHostAliveCommand,
 	worktreeAddCommand,
 	worktreeIdentityCommand,
 	worktreeListCommand,
@@ -40,6 +42,7 @@ const jira: TicketRef = { tracker: "jira", repo: null, host: null, key: "ABC-7" 
 
 const BRANCH = "feature/reader-8";
 const WORKTREE_PATH = "/repo/.worktrees/reader-8";
+const SESSION = sessionCommand({ ref: github, slashCommand: DEFAULT_SLASH_COMMAND });
 
 const CASES: readonly Case[] = [
 	{
@@ -144,6 +147,18 @@ const CASES: readonly Case[] = [
 		input: { repo: "example/repo", key: "1" },
 		build: () => githubClaimCommand({ repo: "example/repo", key: "1" }),
 	},
+	{
+		name: "workspace-host-alive",
+		description: "Whether the workspace host is running, asked before the worktree and the claim rather than after.",
+		input: {},
+		build: () => workspaceHostAliveCommand(),
+	},
+	{
+		name: "workspace",
+		description: "The workspace that runs one session in one worktree, its session argv rendered as a shell line.",
+		input: { name: "reader-8", cwd: WORKTREE_PATH, command: SESSION },
+		build: () => workspaceCommand({ name: "reader-8", cwd: WORKTREE_PATH, command: SESSION }),
+	},
 ];
 
 describe("the command-builder golden files", () => {
@@ -246,6 +261,26 @@ describe("githubClaimCommand", () => {
 		expect(() => githubClaimCommand({ repo: "example/repo", key: "037" })).toThrow(/canonical/);
 		expect(() => githubClaimCommand({ repo: "example/repo", key: "07" })).toThrow(/canonical/);
 		expect(() => githubClaimCommand({ repo: "example/repo", key: "0" })).toThrow(/canonical/);
+	});
+});
+
+describe("workspaceCommand", () => {
+	test("runs the session in the worktree, as a line the workspace's own shell parses back", () => {
+		const argv = workspaceCommand({ name: "reader-8", cwd: WORKTREE_PATH, command: SESSION });
+		expect(argv[argv.indexOf("--cwd") + 1]).toBe(WORKTREE_PATH);
+		expect(argv[argv.indexOf("--command") + 1]).toBe(formatCommand(SESSION));
+	});
+
+	// The host defaults this to false, so leaving it off creates the workspace behind the current one and the
+	// run that was asked to start work reports having started it while nothing is on screen.
+	test("asks for the workspace to be focused, which the host does not do by default", () => {
+		const argv = workspaceCommand({ name: "reader-8", cwd: WORKTREE_PATH, command: SESSION });
+		expect(argv[argv.indexOf("--focus") + 1]).toBe("true");
+	});
+
+	test("carries no fallback host and no second attempt, which is the whole argv contract here", () => {
+		const argv = workspaceCommand({ name: "reader-8", cwd: WORKTREE_PATH, command: SESSION });
+		expect(argv[0]).toBe(workspaceHostAliveCommand()[0]);
 	});
 });
 

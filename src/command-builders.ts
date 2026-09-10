@@ -39,6 +39,54 @@ export function sessionCommand(input: SessionCommandInput): readonly string[] {
 	return [SESSION_BINARY, `${input.slashCommand} ${formatTicketRef(input.ref)}`];
 }
 
+/**
+ * The workspace host a session is started in.
+ *
+ * Not a parameter, for the reason `SESSION_BINARY` is not. There is no second host either: a host that
+ * does not answer is refused rather than fallen back from, and ADR-0035 has why the two fallbacks
+ * available were worse than the refusal.
+ */
+const WORKSPACE_HOST = "cmux";
+
+/** Whether the workspace host is there to be asked for a workspace at all. */
+export function workspaceHostAliveCommand(): Argv {
+	return [WORKSPACE_HOST, "ping"];
+}
+
+export interface WorkspaceCommandInput {
+	/** What the workspace is called in the host's own listing. */
+	readonly name: string;
+	/** The worktree the session runs in. */
+	readonly cwd: string;
+	readonly command: readonly string[];
+}
+
+/**
+ * The workspace that runs one session in one worktree.
+ *
+ * The host types `--command` into the workspace's shell rather than executing it as argv, and offers no
+ * argv form — `--layout` spells its surfaces' commands as text too — so the session argv is rendered by
+ * `formatCommand` and a shell parses it back. That is the one caller for which a formatted line is
+ * executed rather than read, which `formatCommand` says what it costs.
+ *
+ * `--focus true` because the host defaults it to false: a run asked to start work would otherwise report
+ * having started it with nothing on screen.
+ */
+export function workspaceCommand(input: WorkspaceCommandInput): Argv {
+	return [
+		WORKSPACE_HOST,
+		"new-workspace",
+		"--name",
+		input.name,
+		"--cwd",
+		input.cwd,
+		"--command",
+		formatCommand(input.command),
+		"--focus",
+		"true",
+	];
+}
+
 /** The tracker CLIs this tool asks about a host, and the flag each spells the host with. */
 const AUTH_STATUS: Record<"github" | "gitlab", readonly string[]> = {
 	github: ["gh", "auth", "status", "--hostname"],
@@ -265,9 +313,12 @@ export function githubClaimCommand(input: GitHubClaimCommandInput): readonly str
 }
 
 /**
- * Argv as one line a POSIX shell parses back into the same words, for a human to read or paste. It is
- * never what the tool executes — the runner takes argv — so this cannot become the path by which a
- * quoting bug reaches a shell.
+ * Argv as one line a POSIX shell parses back into the same words, for a human to read or paste, and for
+ * `workspaceCommand`, whose host accepts no argv.
+ *
+ * That second caller is why the quoting below is load-bearing rather than cosmetic: a line this builds is
+ * executed, not only read, so a word it fails to quote reaches a shell as syntax. The runner still takes
+ * argv everywhere else, so this is the only such path and it is one call wide.
  */
 export function formatCommand(argv: readonly string[]): string {
 	return argv.map((word, index) => quote(word, index === 0)).join(" ");

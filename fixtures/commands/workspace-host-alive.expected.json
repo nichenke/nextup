@@ -1,0 +1,8 @@
+{
+	"description": "Whether the workspace host is running, asked before the worktree and the claim rather than after.",
+	"input": {},
+	"argv": [
+		"cmux",
+		"ping"
+	]
+}
