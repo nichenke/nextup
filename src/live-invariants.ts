@@ -1,5 +1,6 @@
 import type { DependencyGraph, IssueId } from "./effective-blockedness";
 import type { LabelFilter } from "./label-filter";
+import type { NonEmpty } from "./non-empty";
 import type { Runner } from "./runner";
 import { type Selection, select } from "./selector";
 import { type Ticket, ticketId } from "./ticket";
@@ -33,10 +34,8 @@ export interface LiveObservedBlocker {
  * One tracker's three live reads. The seam issue 26 asks for, so that a second tracker supplies these and
  * inherits every check below rather than writing its own.
  *
- * `observe` is the independent query and the other two go through the adapter under test. `readBlind` asks the
- * same question with the blocking field left out of the projection, which is the only one of the four states
- * issue 26 lists that a healthy repository does not produce on its own — and it is reachable without writing
- * anything, by narrowing what the read asks for.
+ * `readBlind` covers the only one of the four states issue 26 lists that a healthy repository does not produce on
+ * its own, and it is reachable without writing anything — by narrowing what the read asks for.
  */
 export interface LiveTracker {
 	readonly name: string;
@@ -48,25 +47,18 @@ export interface LiveTracker {
 	readBlind(limit: number): TicketSetRead;
 }
 
+/** `unexercised` — the check met nothing — is not a pass, and `heldEverywhere` counts it with the failures. */
 export type Verdict = "held" | "failed" | "unexercised";
 
 /**
- * One check's outcome. `detail` is filled in whether the check held or not, because a check that passed
- * without meeting anything is the failure mode this whole harness exists to catch — a pass has to name its
- * evidence.
- *
+ * One check's outcome. `detail` is non-empty whether the check held or not: a pass has to name its evidence.
  * A list rather than one string because a failed check names every ticket it disagreed about, and a real
- * repository produces enough of them that joining them into a line is unreadable — one entry per line is what a
- * report can lay out.
- *
- * `unexercised` is not a pass: it says the repository never produced the state, so the check could not run.
- * Reported that way and counted as a failure by `heldEverywhere`, so pointing this at a repository too simple
- * to exercise a state says so rather than reporting green.
+ * repository supplies more of them than a single line can carry.
  */
 export interface CheckResult {
 	readonly name: string;
 	readonly verdict: Verdict;
-	readonly detail: readonly string[];
+	readonly detail: NonEmpty<string>;
 }
 
 export interface LiveCheckReport {
@@ -93,8 +85,8 @@ export function heldEverywhere(report: LiveCheckReport): boolean {
  *
  * `observe` runs first so its count sizes the adapter read: the comparison is only sound over one window, and
  * asking the adapter for exactly the open tickets an independent query counted is what makes the two the same
- * window. A ticket opened or closed between the two calls shows up as a `whole-set-read` failure rather than as
- * a frontier disagreement, which is why that check comes first in the report.
+ * window. A ticket opened or closed between the two calls fails `whole-set-read`, possibly alongside a frontier
+ * disagreement it caused.
  *
  * @throws LiveCheckError when the repository has no open tickets, so no state can be exercised.
  */
@@ -126,6 +118,7 @@ export function checkLive(input: LiveCheckInput): Omit<LiveCheckReport, "tracker
 			blockersResolve(input),
 			countsReconcile(input, selection),
 			nothingBlockedIsRecommended(input, selection),
+			edgesAgree(input),
 			frontierAgrees(input, selection, frontier),
 			claimedLeavesFrontier(input, frontier),
 			closedBlockerUnblocksItsDependent(input, frontier),
@@ -167,14 +160,12 @@ function wholeSetRead(input: LiveCheckInput): CheckResult {
 	if (input.blind.tickets.length !== input.read.tickets.length) {
 		faults.push(`the blocking-field-less read returned ${input.blind.tickets.length} tickets rather than ${input.read.tickets.length}`);
 	}
-	return {
-		name: "whole-set-read",
-		verdict: faults.length === 0 ? "held" : "failed",
-		detail:
-			faults.length === 0
-				? [`${input.read.tickets.length} open tickets, untruncated, nothing degraded, matching the independent count`]
-				: faults,
-	};
+	return verdictOver(
+		"whole-set-read",
+		input.read.tickets.length,
+		faults,
+		`${input.read.tickets.length} open tickets, untruncated, nothing degraded, matching the independent count`,
+	);
 }
 
 /** That every reference the read produced is one this tool's own parser accepts back. */
@@ -230,16 +221,12 @@ function countsReconcile(input: LiveCheckInput, selection: Selection): CheckResu
 	if (partitioned !== counts.candidates) {
 		faults.push(`${partitioned} candidates were partitioned where ${counts.candidates} were counted`);
 	}
-	return {
-		name: "counts-reconcile",
-		verdict: faults.length === 0 ? "held" : "failed",
-		detail:
-			faults.length === 0
-				? [
-						`${counts.tickets} tickets: ${counts.claimed} claimed, ${counts.filtered} filtered, ${counts.unblocked} unblocked, ${counts.unknown} unknown, ${counts.blocked} blocked`,
-					]
-				: faults,
-	};
+	return verdictOver(
+		"counts-reconcile",
+		counts.tickets,
+		faults,
+		`${counts.tickets} tickets: ${counts.claimed} claimed, ${counts.filtered} filtered, ${counts.unblocked} unblocked, ${counts.unknown} unknown, ${counts.blocked} blocked`,
+	);
 }
 
 /**
@@ -249,6 +236,9 @@ function countsReconcile(input: LiveCheckInput, selection: Selection): CheckResu
  * Judged against the independent observation rather than against the graph the ranking came from. Asking the
  * same graph twice cannot disagree with itself: `select` derives each candidate's state from it, so a check
  * re-deriving from it restates the answer instead of testing it, and passes however wrong the graph is.
+ *
+ * It also asserts the pick is the head of the ranking, which is why one of its faults names that instead of a
+ * blocker: a pick taken from outside the ranking is a recommendation no check above ever looked at.
  */
 function nothingBlockedIsRecommended(input: LiveCheckInput, selection: Selection): CheckResult {
 	const observed = new Map(input.observations.map((one) => [ticketId(one.ref), one] as const));
@@ -280,17 +270,61 @@ function nothingBlockedIsRecommended(input: LiveCheckInput, selection: Selection
 }
 
 /**
+ * That the two sides read the same blocking edges, and not merely that they arrived at the same frontier.
+ *
+ * Every other check compares an outcome. An edge that both sides lost produces the same frontier on both, so
+ * they agree and nothing above can see it — code independence makes the two unlikely to be wrong in the same
+ * way, but it does not make their *data* independent, and only comparing the inputs closes that. ADR-0033 has
+ * the reasoning and what remains open.
+ *
+ * A ticket whose blocking the adapter could not read is skipped rather than faulted: that is
+ * `unknown-blocking-is-not-an-empty-list`'s subject, and a ticket missing from one side entirely is
+ * `wholeSetRead`'s.
+ */
+function edgesAgree(input: LiveCheckInput): CheckResult {
+	const observed = new Map(input.observations.map((one) => [ticketId(one.ref), one] as const));
+	const faults: string[] = [];
+	let compared = 0;
+	for (const ticket of input.read.tickets) {
+		if (ticket.blockers === "unknown") continue;
+		const one = observed.get(ticketId(ticket.ref));
+		if (one === undefined) continue;
+		const read = new Map(ticket.blockers.map((blocker) => [ticketId(blocker), blocker] as const));
+		const tracker = new Map(one.blockers.map((blocker) => [ticketId(blocker.ref), blocker] as const));
+		const named = formatTicketRef(ticket.ref);
+		for (const [id, blocker] of read) {
+			const edge = tracker.get(id);
+			if (edge === undefined) {
+				faults.push(`the read says ${named} is blocked by ${formatTicketRef(blocker)} and the tracker does not`);
+				continue;
+			}
+			const openness = input.read.graph.isOpen(id);
+			if (openness !== edge.open) {
+				faults.push(`${named}'s blocker ${formatTicketRef(blocker)} is ${openness === "unknown" ? "unknown" : openness ? "open" : "closed"} to the read and ${edge.open ? "open" : "closed"} to the tracker`);
+			}
+		}
+		for (const [id, edge] of tracker) {
+			if (!read.has(id)) faults.push(`the tracker says ${named} is blocked by ${formatTicketRef(edge.ref)} and the read does not`);
+		}
+		compared += read.size + tracker.size;
+	}
+	return verdictOver("edges-agree", compared, faults, `${compared} edges, agreed on both sides`);
+}
+
+/**
  * That the frontier the adapter derived is the one the tracker itself reports — criterion two, and the check
  * the other nine exist to make trustworthy.
  *
- * The label filter is shared with the adapter's side on purpose: what is being compared is the read, and the
- * labels each side applies the filter to were read separately, so a misread label still shows up here. A second
- * implementation of the filter would measure the filter instead.
+ * The label filter is shared with the adapter's side on purpose, and the label *values* it decides over are read
+ * separately — so a misread of a label the filter turns on still surfaces here. ADR-0033 has why reimplementing
+ * the filter would measure the filter instead.
  */
 function frontierAgrees(input: LiveCheckInput, selection: Selection, frontier: readonly TicketRef[]): CheckResult {
 	const faults: string[] = [];
-	// Without this the comparison silently narrows: a ticket the adapter could not judge is in neither set, so a
-	// read that degraded on half its tickets would agree with the tracker about the other half and pass.
+	// An unknown ticket the tracker also excludes — claimed, filtered, or open-blocked there — is on neither
+	// frontier, so that half of a degraded read agrees by construction. The guard refuses the comparison rather
+	// than reporting an agreement it did not test. The other half faults on its own, since `observe` carries no
+	// unknown and puts such a ticket on the tracker's frontier.
 	if (selection.counts.unknown > 0) {
 		faults.push(`${selection.counts.unknown} tickets came back with unknown blocking, so the frontier cannot be compared whole`);
 	}
@@ -341,15 +375,20 @@ function claimedLeavesFrontier(input: LiveCheckInput, frontier: readonly TicketR
 function closedBlockerUnblocksItsDependent(input: LiveCheckInput, frontier: readonly TicketRef[]): CheckResult {
 	const onFrontier = new Set(frontier.map(ticketId));
 	const admitted = admittedByRef(input);
-	const freed = input.read.tickets.filter((ticket) => onlyClosedBlockers(ticket, input.read.graph));
-	const faults = freed
-		.filter((ticket) => admitted.has(ticketId(ticket.ref)) && !onFrontier.has(ticketId(ticket.ref)))
+	// Narrowed before the count, not after: a ticket held off the frontier by a claim or a label proves nothing
+	// either way, so counting it as exercised reports evidence for a comparison that never happened. On a
+	// repository where the claimed tickets are the ones with closed blockers, that is a `held` over nothing.
+	const tested = input.read.tickets.filter(
+		(ticket) => onlyClosedBlockers(ticket, input.read.graph) && admitted.has(ticketId(ticket.ref)),
+	);
+	const faults = tested
+		.filter((ticket) => !onFrontier.has(ticketId(ticket.ref)))
 		.map((ticket) => `${formatTicketRef(ticket.ref)} waits only on closed blockers and is off the frontier`);
 	return verdictOver(
 		"closed-blocker-unblocks-its-dependent",
-		freed.length,
+		tested.length,
 		faults,
-		`${freed.length} tickets waiting only on closed blockers, every recommendable one on the frontier`,
+		`${tested.length} recommendable tickets waiting only on closed blockers, every one of them on the frontier`,
 	);
 }
 
@@ -360,9 +399,9 @@ function onlyClosedBlockers(ticket: Ticket, graph: DependencyGraph): boolean {
 }
 
 /**
- * Which read tickets the answer could recommend at all, so that a ticket held off the frontier by a claim or a
- * label is not read as a blocking mistake. Taken from the observations rather than from the tickets, because
- * the claim is one of the things under test and the adapter's copy of it cannot be the judge.
+ * Which tickets the answer could recommend at all, so that one held off the frontier by a claim or a label is not
+ * read as a blocking mistake. Taken from the observations rather than from `read.tickets`, because the claim is one
+ * of the things under test and the adapter's copy of it cannot be the judge.
  */
 function admittedByRef(input: LiveCheckInput): ReadonlySet<IssueId> {
 	const admitted = new Set<IssueId>();
@@ -375,13 +414,16 @@ function admittedByRef(input: LiveCheckInput): ReadonlySet<IssueId> {
 /** That a blocker the read never returned still carries state — the third of the four states criterion three names. */
 function blockerOutsideTheSet(input: LiveCheckInput): CheckResult {
 	const own = new Set(input.read.tickets.map((ticket) => ticketId(ticket.ref)));
+	// Excluded for the reason `blockersResolve` accepts them: a contradicted blocker is seeded unknown deliberately
+	// and is a state the read reported, so faulting on it here would contradict that check in the same report.
+	const contradicted = new Set(refsOfContradictions(input.read).map(ticketId));
 	const outside = new Map<IssueId, TicketRef>();
 	for (const { blocker } of edges(input.read.tickets)) {
 		const id = ticketId(blocker);
 		if (!own.has(id)) outside.set(id, blocker);
 	}
 	const faults = [...outside.values()]
-		.filter((ref) => input.read.graph.isOpen(ticketId(ref)) === "unknown")
+		.filter((ref) => input.read.graph.isOpen(ticketId(ref)) === "unknown" && !contradicted.has(ticketId(ref)))
 		.map((ref) => `${formatTicketRef(ref)} blocks a ticket in the set and the read left it with no state`);
 	return verdictOver(
 		"blocker-outside-the-set",
@@ -400,10 +442,10 @@ function blockerOutsideTheSet(input: LiveCheckInput): CheckResult {
  */
 function unknownBlockingIsNotAnEmptyList(input: LiveCheckInput): CheckResult {
 	const faults: string[] = [];
-	const collapsed = input.blind.tickets.filter((ticket) => ticket.blockers !== "unknown");
-	for (const ticket of collapsed) {
+	for (const ticket of input.blind.tickets) {
 		const blockers = ticket.blockers;
-		const how = blockers === "unknown" ? "unknown" : blockers.length === 0 ? "an empty list" : `${blockers.length} blockers`;
+		if (blockers === "unknown") continue;
+		const how = blockers.length === 0 ? "an empty list" : `${blockers.length} blockers`;
 		faults.push(`${formatTicketRef(ticket.ref)} came back with ${how} where the response carried no blocking field`);
 	}
 	const unreadable = input.blind.degraded.find((degrade) => degrade.kind === "unreadable-blocking");
@@ -434,7 +476,7 @@ function unknownBlockingIsNotAnEmptyList(input: LiveCheckInput): CheckResult {
 	);
 }
 
-/** Every ticket's blocking edges, paired with the ticket that named them. */
+/** Every blocking edge, paired with the ticket that named it. A ticket whose blocking is unknown contributes none. */
 function edges(tickets: readonly Ticket[]): readonly { readonly ticket: Ticket; readonly blocker: TicketRef }[] {
 	return tickets.flatMap((ticket) =>
 		ticket.blockers === "unknown" ? [] : ticket.blockers.map((blocker) => ({ ticket, blocker })),
@@ -448,9 +490,13 @@ function refsOfContradictions(read: TicketSetRead): readonly TicketRef[] {
 /**
  * A check's outcome, where meeting nothing is `unexercised` rather than a pass. `observed` is what the check
  * actually looked at, so a check whose subject the repository never produced cannot report that it held.
+ *
+ * A fault outranks meeting nothing, so a check can be `failed` having observed zero — which is what
+ * `unknownBlockingIsNotAnEmptyList` reports when the read named no degrade at all.
  */
 function verdictOver(name: string, observed: number, faults: readonly string[], detail: string): CheckResult {
-	if (faults.length > 0) return { name, verdict: "failed", detail: faults };
+	const [first, ...rest] = faults;
+	if (first !== undefined) return { name, verdict: "failed", detail: [first, ...rest] };
 	if (observed === 0) return { name, verdict: "unexercised", detail: ["the repository produced nothing for this check to read"] };
 	return { name, verdict: "held", detail: [detail] };
 }

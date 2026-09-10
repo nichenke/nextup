@@ -31,7 +31,6 @@ describe("readBlind", () => {
 	});
 
 	test("refuses a call whose projection it cannot find, rather than passing it through unnarrowed", () => {
-		// A runner that never answers, so reaching it at all would be the failure this asserts against.
 		const unreachable: Runner = () => {
 			throw new Error("the read was passed through without its projection being narrowed");
 		};

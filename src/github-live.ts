@@ -23,9 +23,8 @@ function openIssuesRequest(repo: string): readonly string[] {
 }
 
 /**
- * One ticket's blockers, asked of the per-issue dependency endpoint. `docs/agents/issue-tracker.md` measures this
- * and `--json blockedBy` as the two surfaces that answer authoritatively on the first read, which is what makes
- * either usable as the other's check.
+ * One ticket's blockers, asked of the per-issue dependency endpoint — one of the two surfaces
+ * `docs/agents/issue-tracker.md` measures as authoritative on the first read.
  */
 function blockedByRequest(repo: string, key: string): readonly string[] {
 	return ["gh", "api", "--paginate", "--slurp", `repos/${repo}/issues/${key}/dependencies/blocked_by?per_page=${PAGE}`];
@@ -38,15 +37,8 @@ export interface GitHubLiveInput {
 
 /**
  * GitHub's live check: the adapter's own read, the same read with no blocking field, and an expected answer
- * assembled from a different tracker surface than either.
- *
- * What makes the third one independent is that it shares no code with the adapter, not merely that it is a second
- * call. It reads REST where the adapter reads `gh issue list`'s GraphQL projection, takes each ticket's repository
- * from `repository_url` where the adapter takes it from the issue's own web address, and asks a per-issue
- * dependency endpoint where the adapter reads a bulk `blockedBy` field. A defect in the adapter's parsing
- * therefore shows up as a disagreement rather than being reproduced on both sides.
- *
- * The cost is one call per open ticket. That is why this is a manual target and not something `bun test` runs.
+ * assembled from a surface that shares no parsing code with either. ADR-0033's table is which fact each side
+ * reads from where, and why sharing any of it would hide the defect this is for.
  */
 export function githubLiveTracker(input: GitHubLiveInput): LiveTracker {
 	return {
@@ -107,9 +99,8 @@ function blockersOf(input: GitHubLiveInput, key: string, where: string): readonl
 /**
  * One slurped request's rows, with the pages flattened.
  *
- * @throws GitHubLiveError on any failure at all, including a connectivity one. An expected answer is only worth
- * having if it is complete: degrading here would leave a check comparing the adapter against a partial truth and
- * calling the agreement a pass, which is the failure this whole harness is aimed at.
+ * @throws GitHubLiveError on any failure at all, including a connectivity one — `LiveObservation` has why an
+ * expected answer may not degrade.
  */
 function request(runner: Runner, argv: readonly string[], where: string): readonly Record<string, unknown>[] {
 	const result = runner([...argv]);

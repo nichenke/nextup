@@ -3,27 +3,26 @@ import type { Runner } from "./runner";
 
 export class NotAReadError extends Error {}
 
-/**
- * The commands the live check is allowed to issue, as the leading words each begins with. An allowlist rather
- * than a list of the writes to refuse: `gh` grows subcommands, so a denylist admits every write nobody thought
- * of, while an allowlist that falls behind only refuses a read somebody has to add here deliberately.
- */
+/** The commands the live check may issue, as leading words. An allowlist because `gh` grows subcommands; ADR-0033. */
 const READS: readonly (readonly string[])[] = [
 	["gh", "issue", "list"],
 	["gh", "api"],
-	// `readGitHubTicketSet` resolves the repository from the remote when none is named.
+	// `check-live-invariants.ts` resolves the repository from the remote when `--repo` is absent.
 	["git", "remote", "get-url"],
 ];
 
 /**
- * The `gh api` flags that turn a request into a write. `gh api` is GET until one of these appears — `--method`
- * says so outright, and the field and input flags each imply POST — so refusing all of them is what makes one
- * allowlist entry cover the whole endpoint space rather than every path under it.
+ * The only flags a `gh api` call here may carry. Everything else beginning with `-` is refused, which is what
+ * lets one `READS` entry stand for the whole endpoint space instead of a path list: `gh api` is a GET until a
+ * flag makes it something else, so admitting two known-inert flags is a smaller thing to get right than
+ * enumerating the ones that write.
  *
- * Refused whatever `--method` names, including `GET`: the check never needs to spell the default, so the
- * narrower rule buys nothing and costs a comparison that has to stay right.
+ * Naming the writers instead was tried and is not sound. `gh` uses pflag, which takes a shorthand's value
+ * attached — `gh api -XPOST` and `-fkey=value` both parse, measured on gh 2.100.0 — and clusters boolean
+ * shorthands, so `-iXPOST` carries a method too. Matching each writing flag exactly or before an `=` admitted
+ * all three.
  */
-const WRITING_API_FLAGS: readonly string[] = ["-X", "--method", "-f", "--field", "-F", "--raw-field", "--input"];
+const READABLE_API_FLAGS: ReadonlySet<string> = new Set(["--paginate", "--slurp"]);
 
 /**
  * Wraps a runner so that only reads reach it, which is how issue 26's "writes nothing to any tracker" is a
@@ -40,15 +39,10 @@ export function readOnlyRunner(runner: Runner): Runner {
 		if (read === undefined) {
 			throw new NotAReadError(`${formatCommand(argv)} is not one of the reads this check may issue`);
 		}
-		const writing = read[1] === "api" ? argv.find((word) => isWritingApiFlag(word)) : undefined;
-		if (writing !== undefined) {
-			throw new NotAReadError(`${formatCommand(argv)} carries ${writing}, which makes it a write rather than a read`);
+		const unknown = read[1] === "api" ? argv.slice(2).find((word) => word.startsWith("-") && !READABLE_API_FLAGS.has(word)) : undefined;
+		if (unknown !== undefined) {
+			throw new NotAReadError(`${formatCommand(argv)} carries ${unknown}, which is not a flag a read here may pass`);
 		}
 		return runner(argv);
 	};
-}
-
-/** Both spellings of a flag: on its own, and with its value attached after `=`. */
-function isWritingApiFlag(word: string): boolean {
-	return WRITING_API_FLAGS.some((flag) => word === flag || word.startsWith(`${flag}=`));
 }

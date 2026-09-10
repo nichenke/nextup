@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Reads a real repository's ticket set through the adapter and checks the answer against the tracker's own
- * ground truth. Local and manual, never CI: it needs a credentialed `gh` and it makes one call per open ticket.
+ * ground truth. Local and manual, never CI: it needs a credentialed `gh` and a request per open issue.
  * `docs/agents/live-invariants.md` is how to run it and what each verdict means.
  *
  * It writes nothing anywhere — not to a tracker, which `readOnlyRunner` enforces rather than promises, and not to
@@ -51,10 +51,7 @@ function resolveRepo(named: string | null): string {
 
 const COLUMN = 12;
 
-/**
- * One check as its verdict line plus a line per detail. Indented under the verdict rather than joined onto it,
- * because a failing check names every ticket it disagreed about and a real repository supplies plenty.
- */
+/** One check as its verdict line, with each of its detail lines indented under it. */
 function lines(check: CheckResult): readonly string[] {
 	return [`  ${check.verdict.padEnd(COLUMN)}${check.name}`, ...check.detail.map((detail) => `${" ".repeat(COLUMN + 4)}${detail}`)];
 }
@@ -73,10 +70,6 @@ function render(report: LiveCheckReport): string {
 	].join("\n");
 }
 
-/**
- * Refuses every call that is not a read, so that "writes nothing to any tracker" is a property of this run
- * rather than a claim about it — a write reaching here throws before it is issued.
- */
 const readOnly = readOnlyRunner(defaultRunner);
 
 try {
@@ -86,8 +79,6 @@ try {
 	process.exitCode = heldEverywhere(report) ? 0 : 1;
 } catch (cause) {
 	process.exitCode = 2;
-	// A `NotAReadError` is this check attempting a write, which is a defect in the check itself rather than
-	// something the tracker refused — so it is named rather than folded in with the rest.
 	if (cause instanceof NotAReadError) {
 		process.stderr.write(`the check tried to issue a write, which is a defect in the check: ${cause.message}\n`);
 	} else if (

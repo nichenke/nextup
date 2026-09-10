@@ -45,6 +45,16 @@ describe("readOnlyRunner", () => {
 		expect(() => run([...worktreeAddCommand("/repo", "/repo/.worktrees/x", "feature/x", true)])).toThrow(NotAReadError);
 	});
 
+	test("passes the two flags a read here needs", () => {
+		const { run } = guarded();
+		expect(run(["gh", "api", "--paginate", "--slurp", "repos/nichenke/nextup/issues?state=open"])).toEqual(answered);
+	});
+
+	/**
+	 * The separated spellings, the `=`-attached long forms, and — the ones a per-flag match let through — a
+	 * shorthand with its value attached directly and a cluster hiding one behind a boolean. `gh` parses all three
+	 * of the last group; measured on gh 2.100.0.
+	 */
 	test.each([
 		["-X", ["gh", "api", "-X", "POST", "repos/nichenke/nextup/issues/26/dependencies/blocked_by"]],
 		["--method", ["gh", "api", "--method", "DELETE", "repos/nichenke/nextup/issues/26"]],
@@ -54,10 +64,19 @@ describe("readOnlyRunner", () => {
 		["-F", ["gh", "api", "repos/nichenke/nextup/issues", "-F", "issue_id=1"]],
 		["--raw-field=", ["gh", "api", "repos/nichenke/nextup/issues", "--raw-field=title=x"]],
 		["--input", ["gh", "api", "repos/nichenke/nextup/issues", "--input", "-"]],
+		["-XPOST", ["gh", "api", "-XPOST", "repos/nichenke/nextup/issues/26/comments"]],
+		["-fbody=x", ["gh", "api", "repos/nichenke/nextup/issues/26/comments", "-fbody=x"]],
+		["-Fissue_id=1", ["gh", "api", "repos/nichenke/nextup/issues/26/dependencies/blocked_by", "-Fissue_id=1"]],
+		["-iXPOST", ["gh", "api", "-iXPOST", "repos/nichenke/nextup/issues/26/comments"]],
 	])("refuses a gh api request carrying %s, which makes it a write", (_flag, argv) => {
 		const { run, issued } = guarded();
 		expect(() => run(argv)).toThrow(NotAReadError);
 		expect(issued).toEqual([]);
+	});
+
+	test("refuses a flag nobody anticipated, rather than admitting whatever is not on a list of writes", () => {
+		const { run } = guarded();
+		expect(() => run(["gh", "api", "--some-future-flag", "repos/nichenke/nextup/issues"])).toThrow(NotAReadError);
 	});
 
 	test("names the whole command it refused, so a caller can see which call it was", () => {

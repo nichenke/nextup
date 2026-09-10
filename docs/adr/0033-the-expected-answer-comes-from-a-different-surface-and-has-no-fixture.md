@@ -1,8 +1,9 @@
 # The expected answer comes from a different surface, and has no fixture
 
 The live invariant check derives its expected frontier from a tracker surface the adapter does not read, with
-code the adapter does not share. That independent reader has no stored recording behind it and no unit test
-over tracker-shaped input. Its correctness is established by the comparison it takes part in, not by a fixture.
+code the adapter does not share. That independent reader has no stored recording behind it, and no test
+asserting a successful observation. Its correctness is established by the comparison it takes part in, not by a
+fixture.
 
 Three decisions, and they are one: the surface, the absent fixture, and what replaces the fixture.
 
@@ -29,7 +30,8 @@ put in `bun test`.
 
 Two facts are read the same way on both sides, deliberately. The label filter is one compiled specification,
 because what is under test is the read and a second implementation of the filter would measure the filter. The
-label *values* it decides over are read separately, so a misread label still surfaces. `ticketId` is the other:
+label *values* it decides over are read separately, so a misread of a label the filter turns on still surfaces —
+and only of such a label, since `admits` consults nothing else. `ticketId` is the other:
 it is how the two sides' references are lined up at all.
 
 ## Why the independent reader has no fixture
@@ -41,15 +43,25 @@ endpoints to `bun run capture:github`, or to have no fixture. It has none.
 The reason is that every way this reader can be wrong already surfaces as a failing check:
 
 - It drops or invents a ticket — `whole-set-read` compares the two counts.
-- It misreads a label, an assignee, or a blocker's state — the expected frontier moves and `frontier-agrees`
-  reports which side has the ticket.
+- It misreads an assignee, a blocker's state, or a label the filter decides on — the expected frontier moves and
+  `frontier-agrees` reports which side has the ticket.
 - It misreads a repository — the references stop lining up under `ticketId`, and the same check fires on both
   sides at once.
 - It cannot read a response at all — it throws, and the run exits 2 rather than reporting a check.
 
-Every degenerate output disagrees with a correct adapter. The one way to a false pass is for both sides to be
-wrong identically, and they share no code to be wrong in. A fixture would buy a sharper error message for a
+Every degenerate output disagrees with a correct adapter, so a fixture would buy a sharper error message for a
 class of defect that is already loud.
+
+What that argument does **not** establish is that a false pass is impossible. Sharing no code makes the two
+unlikely to be wrong in the same way; it does not make their *data* independent. Two sides that both lose the
+same edge derive the same frontier, agree, and every check comparing an *outcome* is blind to it. That is why
+`edges-agree` compares the two sides' edge sets directly rather than only their frontiers — an input comparison
+is the only thing that sees a correlated loss. A total correlated loss is caught twice over, since
+`blockers-resolve` and `edges-agree` both then report `unexercised`.
+
+On the GitHub path today the partial case is unreachable, because the adapter reads an absent `blockedBy` and a
+short node list as `"unknown"` rather than losing an edge into an empty list. That protection lives in the
+adapter, though, not in this check, which is why `edges-agree` is worth its calls.
 
 That argument does not extend to the adapter, and must not be read as weakening ADR-0019. The adapter's output
 is shipped behaviour with no second opinion beside it; this reader is one half of a comparison whose other half
@@ -77,6 +89,9 @@ enforced at the seam survives an edit that a comment does not. It is an allowlis
 subcommands: a denylist admits every write nobody anticipated, and an allowlist that falls behind only refuses
 a read somebody has to add deliberately.
 
-The `gh api` entry covers the whole endpoint space, so the write-implying flags are refused there — `--method`
-whatever it names, and the field and input flags that imply a POST. That is why one allowlist entry can stand
-for an endpoint space rather than a path list.
+The `gh api` entry covers the whole endpoint space, so its flags are allowlisted too: a call there may carry
+`--paginate` and `--slurp`, and nothing else beginning with `-`. Naming the writing flags instead was tried and
+is not sound. `gh` uses pflag, which takes a shorthand's value attached and clusters boolean shorthands, so
+`gh api -XPOST`, `-fkey=value` and `-iXPOST` each carry a method or a field while matching no flag name exactly
+or before an `=`. All three were measured as parsing on gh 2.100.0, and all three passed the per-flag version of
+this guard. Allowlisting the two inert flags is a smaller thing to keep right than enumerating the rest.

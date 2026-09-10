@@ -36,9 +36,8 @@ interface Shape {
  * The hand-authored world every case below starts from: a bare frontier ticket, one blocked by an open ticket
  * in the set, one freed by a closed blocker outside it, a claimed one and a filtered one.
  *
- * Authored rather than recorded because every shape here is ours by definition — `Ticket`, `TicketSetRead` and
- * `LiveObservation` — and none of it claims anything about what a tracker emits. CLAUDE.md's fixture provenance
- * rule draws that line, and `scenario.ts`'s inputs sit on the same side of it.
+ * Authored rather than recorded: every shape here is ours by definition and claims nothing about what a tracker
+ * emits, which is the exception CLAUDE.md's fixture provenance rule names.
  */
 const SHAPES: readonly Shape[] = [
 	{ key: "1" },
@@ -136,6 +135,7 @@ describe("checkLive over an agreeing read", () => {
 			"blockers-resolve": "held",
 			"counts-reconcile": "held",
 			"nothing-blocked-is-recommended": "held",
+			"edges-agree": "held",
 			"frontier-agrees": "held",
 			"claimed-leaves-frontier": "held",
 			"closed-blocker-unblocks-its-dependent": "held",
@@ -262,6 +262,59 @@ describe("nothing-blocked-is-recommended", () => {
 	});
 });
 
+describe("edges-agree", () => {
+	test("fails when the read names a blocker the tracker does not", () => {
+		const input = world();
+		const observations = input.observations.map((one) => (one.ref.key === "2" ? { ...one, blockers: [] } : one));
+		expect(checkNamed({ ...input, observations }, "edges-agree")).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("the read says gh:example/repo#2 is blocked by gh:example/repo#3 and the tracker does not"),
+		});
+	});
+
+	test("fails when the tracker names a blocker the read does not", () => {
+		const input = world();
+		const observations = input.observations.map((one) =>
+			one.ref.key === "1" ? { ...one, blockers: [{ ref: ref("9"), open: false }] } : one,
+		);
+		expect(checkNamed({ ...input, observations }, "edges-agree")).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("the tracker says gh:example/repo#1 is blocked by gh:example/repo#9 and the read does not"),
+		});
+	});
+
+	test("fails when the two sides disagree about whether a blocker is open", () => {
+		const input = world();
+		const observations = input.observations.map((one) =>
+			one.ref.key === "4" ? { ...one, blockers: [{ ref: ref("9"), open: true }] } : one,
+		);
+		expect(checkNamed({ ...input, observations }, "edges-agree")).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("is closed to the read and open to the tracker"),
+		});
+	});
+
+	/**
+	 * The gap this check exists for: both sides lose the same edge, so every check comparing outcomes agrees. The
+	 * frontier is identical on both sides here, and only an input comparison sees it.
+	 */
+	test("sees an edge both sides lost, which agrees on every derived answer", () => {
+		const input = world([{ key: "1" }, { key: "2" }, { key: "4", blockers: [["9", false]] }]);
+		expect(checkNamed(input, "frontier-agrees")).toMatchObject({ verdict: "held" });
+		const withEdge = {
+			...input,
+			observations: input.observations.map((one) =>
+				one.ref.key === "2" ? { ...one, blockers: [{ ref: ref("3"), open: true }] } : one,
+			),
+		};
+		expect(checkNamed(withEdge, "edges-agree")).toMatchObject({ verdict: "failed" });
+	});
+
+	test("is unexercised where neither side reported an edge at all", () => {
+		expect(verdicts(world([{ key: "1" }, { key: "2" }]))["edges-agree"]).toBe("unexercised");
+	});
+});
+
 describe("frontier-agrees", () => {
 	test("fails when the tracker has a ticket on the frontier that the adapter does not", () => {
 		const input = world();
@@ -340,6 +393,12 @@ describe("closed-blocker-unblocks-its-dependent", () => {
 		});
 	});
 
+	test("is unexercised where every such ticket was unrecommendable anyway, rather than held over nothing", () => {
+		// The claim is why ticket 4 is off the frontier, so nothing about closed blockers was tested.
+		const input = world([{ key: "1" }, { key: "4", claimed: true, blockers: [["9", false]] }]);
+		expect(checkNamed(input, "closed-blocker-unblocks-its-dependent")).toMatchObject({ verdict: "unexercised" });
+	});
+
 	test("is unexercised where no ticket waits on a closed blocker", () => {
 		expect(verdicts(world([{ key: "1" }, { key: "2", blockers: [["1", true]] }]))["closed-blocker-unblocks-its-dependent"]).toBe(
 			"unexercised",
@@ -350,6 +409,21 @@ describe("closed-blocker-unblocks-its-dependent", () => {
 describe("blocker-outside-the-set", () => {
 	test("is unexercised where every blocker came back as a ticket of its own", () => {
 		expect(verdicts(world([{ key: "1" }, { key: "2", blockers: [["1", true]] }]))["blocker-outside-the-set"]).toBe("unexercised");
+	});
+
+	test("does not fault a blocker the read reported contradicted, which blockers-resolve accepts as a state", () => {
+		const input = world();
+		const graph = seedGraph([
+			...input.read.tickets.map((ticket) => ({
+				id: ticketId(ticket.ref),
+				parent: null,
+				blockers: ticket.blockers === "unknown" ? ("unknown" as const) : ticket.blockers.map(ticketId),
+				open: true,
+			})),
+			{ id: ticketId(ref("9")), parent: null, blockers: "unknown" as const, open: "unknown" as const },
+		]);
+		const read = { ...input.read, graph, degraded: [{ kind: "contradicted-blocker", refs: [ref("9")] }] as const };
+		expect(checkNamed({ ...input, read }, "blocker-outside-the-set")).toMatchObject({ verdict: "held" });
 	});
 
 	test("names the blocker when the read left one outside the set with no state", () => {
