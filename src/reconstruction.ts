@@ -5,7 +5,7 @@ import type { Runner } from "./runner";
 import { type Selection, select } from "./selector";
 import { type Ticket, ticketId } from "./ticket";
 import { type TicketRef, formatTicketRef, resolveTicketRef } from "./ticket-ref";
-import type { TicketSetRead } from "./ticket-set-read";
+import type { ReadDegrade, TicketSetRead } from "./ticket-set-read";
 
 export class ReconstructionError extends Error {}
 
@@ -148,6 +148,28 @@ const NO_RUNNER: Runner = (argv) => {
 };
 
 /**
+ * Whether a degrade says anything about the window `wholeSetRead` is comparing. An outage is the call itself
+ * failing, so there is no window at all; the rest are the tracker answering with less than one answer in it,
+ * which `TicketSetRead.degraded` holds apart from a defect — and `contradicted-blocker` is the one to expect on a
+ * healthy adapter, exempted by name in the three checks that consult a blocker's openness (ADR-0027). Faulting on
+ * every kind reported a healthy read as a disagreement about the window, which is how a real one gets waved
+ * through.
+ *
+ * Nothing goes unnoticed for being false here: unreadable blocking leaves `frontierAgrees` unable to compare, and
+ * a withheld ticket keeps its place in the expected frontier, so one that should be recommended still disagrees
+ * there.
+ *
+ * A `Record` rather than a test on one kind, following `tally` in `selector.ts`: a kind added to `ReadDegrade`
+ * without a decision here fails to compile, instead of joining the quiet side by default.
+ */
+const DEGRADE_IS_THIS_CHECKS_BUSINESS: Record<ReadDegrade["kind"], boolean> = {
+	outage: true,
+	"unreadable-blocking": false,
+	"partial-blocking": false,
+	"contradicted-blocker": false,
+};
+
+/**
  * That the read covers the same window the independent query did, which every comparison below rests on. First
  * in the report because a failure here explains the ones after it.
  *
@@ -161,7 +183,10 @@ function wholeSetRead(input: ReconstructionInput): CheckResult {
 	const faults: string[] = [];
 	if (!input.read.openOnly) faults.push("the read did not ask for open tickets only, so it is a wider set than was observed");
 	if (input.read.truncated) faults.push("the read stopped short of the whole ticket set");
-	for (const degrade of input.read.degraded) faults.push(`the read degraded: ${degrade.kind}`);
+	for (const degrade of input.read.degraded) {
+		if (!DEGRADE_IS_THIS_CHECKS_BUSINESS[degrade.kind]) continue;
+		faults.push(degrade.kind === "outage" ? `the read did not complete: ${degrade.detail}` : `the read degraded: ${degrade.kind}`);
+	}
 	const met = metByRead(input.read);
 	const observed = refsById(input.observations.map((one) => one.ref));
 	const blind = refsById(input.blind.tickets.map((ticket) => ticket.ref));
@@ -169,11 +194,12 @@ function wholeSetRead(input: ReconstructionInput): CheckResult {
 	for (const ref of onlyIn(met, observed)) faults.push(`the read returned ${formatTicketRef(ref)}, which was not observed open`);
 	for (const ref of onlyIn(met, blind)) faults.push(`the blocking-field-less read did not return ${formatTicketRef(ref)}`);
 	for (const ref of onlyIn(blind, met)) faults.push(`the blocking-field-less read returned ${formatTicketRef(ref)}, which the read did not meet`);
+	const kinds = input.read.degraded.map((degrade) => degrade.kind);
 	return verdictOver(
 		"whole-set-read",
 		met.size,
 		faults,
-		`${met.size} open tickets, untruncated, nothing degraded, the same set the tracker observed`,
+		`${met.size} open tickets, untruncated, ${kinds.length === 0 ? "nothing degraded" : `degraded: ${kinds.join(", ")}`}, the same set the tracker observed`,
 	);
 }
 

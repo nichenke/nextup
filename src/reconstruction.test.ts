@@ -176,10 +176,22 @@ describe("whole-set-read", () => {
 		});
 	});
 
-	test("fails a read that degraded, since a degraded read cannot be compared whole", () => {
+	test("fails a read whose call did not complete, since there is no window to compare", () => {
 		const input = world();
 		const degraded = { ...input.read, degraded: [{ kind: "outage", detail: "could not resolve host" }] as const };
-		expect(checkNamed({ ...input, read: degraded }, "whole-set-read")).toMatchObject({ verdict: "failed" });
+		expect(checkNamed({ ...input, read: degraded }, "whole-set-read")).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("the read did not complete: could not resolve host"),
+		});
+	});
+
+	test("names a contradicted blocker without faulting on it, since a healthy adapter reports one", () => {
+		const input = world();
+		const degraded = { ...input.read, degraded: [{ kind: "contradicted-blocker", refs: [ref("9")] }] as const };
+		expect(checkNamed({ ...input, read: degraded }, "whole-set-read")).toMatchObject({
+			verdict: "held",
+			detail: expect.stringContaining("degraded: contradicted-blocker"),
+		});
 	});
 
 	test("fails a read that did not ask for open tickets only", () => {
@@ -235,7 +247,8 @@ describe("whole-set-read", () => {
 			degraded: [{ kind: "partial-blocking", refs: [withheld.ref] }] as const,
 		};
 		const check = checkNamed({ ...input, read }, "whole-set-read");
-		expect(check.detail).toContain("the read degraded: partial-blocking");
+		expect(check.verdict).toBe("held");
+		expect(check.detail).toContain("degraded: partial-blocking");
 		expect(check.detail).not.toContain("#4 was observed open and the read did not return it");
 		expect(check.detail).not.toContain("the blocking-field-less read returned");
 	});

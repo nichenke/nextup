@@ -68,11 +68,13 @@ frontiers cannot be compared whole. Its line says so, and the cause is in `whole
 - `whole-set-read` failing first explains the rest, and its everyday cause is not a defect: a ticket opened or
   closed between the three reads leaves them holding different sets. It names which ticket and which side, so
   rerun once before investigating; a difference surviving a rerun is a real one.
-- A `the read degraded: <kind>` line is different — the read itself came back with less than it asked for, so a
-  rerun will not clear it and the kind names the cause. `contradicted-blocker` is the one to expect on a healthy
-  adapter: two edges disagreed about one blocker, which is a read this harness cannot compare whole rather than
-  a defect in it. ADR-0027 has what the adapter does there and why. `partial-blocking` is the other — a ticket
-  whose blockers arrived as one page of a longer list, held out of the answer and not reported missing from it.
+- Only one degrade fails this check: `the read did not complete`, which is the call itself failing. The others
+  are the tracker answering with less than one answer in it rather than a defect, so `whole-set-read` names them
+  in its `held` line — `degraded: contradicted-blocker` — and does not fault. `contradicted-blocker` is the one
+  to expect on a healthy adapter: two edges disagreed about one blocker, and ADR-0027 has what the adapter does
+  there. `partial-blocking` is a ticket whose blockers arrived as one page of a longer list, held out of the
+  answer and not counted missing from it. Neither goes unnoticed: unreadable blocking leaves `frontier-agrees`
+  unable to compare, and a withheld ticket that the tracker would recommend still disagrees there.
 - `frontier-agrees` failing is a real disagreement, naming the ticket and the side that has it; while
   `whole-set-read` holds it is the finding worth having. Read it with the four state checks: a disagreement
   alongside a failing `claimed-leaves-frontier` points at the claim, alongside a failing
