@@ -124,9 +124,9 @@ function request(runner: Runner, argv: readonly string[], where: string): readon
 /**
  * The owner and repository from an API collection address, taken as the two segments after `/repos/`.
  *
- * Deliberately a different field, read by different code, than the adapter's `addressRepo`: a rename or a
- * differently-cased spelling reaching only one of them is exactly the class of defect this check is for, and
- * sharing the parser would hide it.
+ * Deliberately a different field, read by different code, than the adapter's `addressRepo`. Reusing that parser
+ * is the tempting simplification and it defeats the check: the two sides would agree about a repository by
+ * construction rather than by both reading it right.
  */
 function repoOf(address: string, where: string): string {
 	const repo = /\/repos\/([^/\s?#]+\/[^/\s?#]+)$/.exec(address)?.[1];
