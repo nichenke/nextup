@@ -1,0 +1,6 @@
+gh:example/repo#3 — Document the retention policy
+  the only candidate the ladder ranked
+  priority none, unblocks 0, blockers confirmed closed
+
+3 tickets: 0 closed, 0 claimed, 0 filtered out (excluding wayfinder:*), 3 candidates (1 unblocked, 0 unknown, 2 blocked)
+deadlock: gh:example/repo#1 blocked by gh:example/repo#2 blocked by gh:example/repo#1, so nothing in it can ever unblock

@@ -1,0 +1,12 @@
+{
+	"description": "Two tickets waiting on one groundwork ticket, and a third waiting on both — the same ticket reached by two paths, and no loop anywhere. A traversal reporting a repeated visit as a cycle would call this a deadlock, where in fact the groundwork ticket is the pick.",
+	"truncated": false,
+	"openOnly": false,
+	"filter": { "include": [], "exclude": ["wayfinder:*"] },
+	"tickets": [
+		{ "ref": "gh:example/repo#1", "title": "Delete the old store", "state": "open", "blockers": ["gh:example/repo#2", "gh:example/repo#3"], "labels": [] },
+		{ "ref": "gh:example/repo#2", "title": "Cut over the reads", "state": "open", "blockers": ["gh:example/repo#4"], "labels": [] },
+		{ "ref": "gh:example/repo#3", "title": "Cut over the writes", "state": "open", "blockers": ["gh:example/repo#4"], "labels": [] },
+		{ "ref": "gh:example/repo#4", "title": "Migrate the store", "state": "open", "blockers": [], "labels": [] }
+	]
+}

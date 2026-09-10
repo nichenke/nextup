@@ -2,4 +2,4 @@ gh:example/repo#1 — Land the parser
   the only candidate the ladder ranked
   priority P1, unblocks 1, blockers confirmed closed
 
-3 tickets: closed not asked, 1 claimed, 0 filtered out, 2 candidates (1 unblocked, 0 unknown, 1 blocked)
+3 tickets: closed not asked, 1 claimed, 0 filtered out (excluding wayfinder:*), 2 candidates (1 unblocked, 0 unknown, 1 blocked)

@@ -6,8 +6,8 @@
 	"counts": {
 		"tickets": 3,
 		"closed": 0,
-		"claimed": 1,
-		"filtered": 0,
+		"claimed": 0,
+		"filtered": 1,
 		"candidates": 2,
 		"unblocked": 0,
 		"unknown": 0,

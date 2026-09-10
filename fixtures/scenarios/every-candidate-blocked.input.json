@@ -1,10 +1,10 @@
 {
-	"description": "A tracker that answers the blocking query for every ticket and reports an open blocker on each — a GitHub repository whose dependencies API is enabled, mid-migration, where nothing has been started yet. There is nothing to recommend, and the answer says so rather than reaching into the blocked set.",
+	"description": "Every candidate blocked and nothing deadlocked — a GitHub repository mid-migration where the one ticket everything waits on is already being worked. There is nothing to recommend today and the set opens up when that ticket closes, which is what deadlock-names-the-cycle reports the same emptiness without.",
 	"truncated": false,
 	"openOnly": false,
 	"filter": { "include": [], "exclude": ["wayfinder:*"] },
 	"tickets": [
-		{ "ref": "gh:example/repo#1", "title": "Migrate the store", "state": "open", "blockers": ["gh:example/repo#2"], "labels": [] },
+		{ "ref": "gh:example/repo#1", "title": "Migrate the store", "state": "open", "claim": { "by": "octocat" }, "blockers": [], "labels": [] },
 		{ "ref": "gh:example/repo#2", "title": "Cut over the reads", "state": "open", "blockers": ["gh:example/repo#1"], "labels": [] },
 		{ "ref": "gh:example/repo#3", "title": "Delete the old store", "state": "open", "blockers": ["gh:example/repo#1"], "labels": [] }
 	]

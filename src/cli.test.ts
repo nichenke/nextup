@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { type CliDeps, DEFAULT_LIMIT, run } from "./cli";
+import { DEFAULT_LABEL_FILTER, compileLabelFilter } from "./label-filter";
 import type { Runner } from "./runner";
-import { answeringOrigin, githubRecording, replayRunner, respondingRunner, sentinelLines } from "./test-support";
-import { GITHUB_TEST_TREE, openIssues, shapeTitle } from "./test-tree";
+import { DEADLOCK_PREFIX } from "./selection-output";
+import { answeringOrigin, deadlockLines, githubRecording, replayRunner, respondingRunner, sentinelLines } from "./test-support";
+import { GITHUB_TEST_TREE, type TestTreeSpec, openIssues, shapeTitle } from "./test-tree";
 import { GITHUB_HOST } from "./ticket-ref";
 
 /** Every test below runs through this, so a call that started shelling out fails loudly here first. */
@@ -33,6 +35,12 @@ function inTestTree(answer: Runner): Runner {
 	return answeringOrigin(`git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo}.git`, answer);
 }
 
+/** How many of a tree's open issues the default filter refuses, so no test writes that number down. */
+function excludedByDefault(tree: TestTreeSpec): number {
+	const filter = compileLabelFilter(DEFAULT_LABEL_FILTER);
+	return openIssues(tree).filter((issue) => !filter.admits(issue.labels)).length;
+}
+
 describe("run, over a ticket set read from GitHub", () => {
 	/**
 	 * The limit the CLI has to be given for its argv to match the recording, which was captured asking for one
@@ -59,7 +67,25 @@ describe("run, over a ticket set read from GitHub", () => {
 		expect(result.stdout).toContain(shapeTitle(GITHUB_TEST_TREE, "several-priorities"));
 		expect(result.stdout).toContain(`${TREE} tickets:`);
 		expect(result.stdout).toContain("closed not asked");
+		// The count moved when `needs-triage` joined the defaults and no assertion here noticed, because none
+		// named it at all.
+		expect(result.stdout).toContain(`${excludedByDefault(GITHUB_TEST_TREE)} filtered out`);
 		expect(result.stderr).toBe("");
+	});
+
+	// The tree carries one deliberate cycle, so this is the diagnostic against edges a tracker really
+	// returned rather than against a hand-built graph. The numbers are not asserted: the tree is keyed by
+	// shape and ADR-0023 says why a test may not claim an issue number.
+	test("names the tree's blocking cycle, from the edges the tracker returned", () => {
+		const result = run(["--limit", String(TREE)], readingTree("ticket-set"));
+		const lines = deadlockLines(result.stdout);
+		expect(lines).toHaveLength(1);
+
+		const chain = lines[0]!.slice(DEADLOCK_PREFIX.length).split(", so ")[0]!.split(" blocked by ");
+		expect(chain).toHaveLength(4);
+		expect(new Set(chain).size).toBe(3);
+		expect(chain[0]).toBe(chain[3]);
+		expect(result.code).toBe(0);
 	});
 
 	test("bounds the read at a default of its own rather than at whatever the tracker CLI does", () => {
@@ -150,6 +176,16 @@ describe("the command line itself", () => {
 		expect(result.code).toBe(0);
 		expect(result.stdout).toContain("--include");
 		expect(result.stdout).toContain("--json");
+	});
+
+	// The usage text spells the default exclusions out, so a fourth one added to the filter and not to the
+	// prose leaves --help describing a filter the tool does not run, with nothing failing.
+	//
+	// Quoted as the text quotes them, not as bare words: `spec` is a substring of the "specification" two
+	// lines below it, so a bare-word assertion holds over a usage text that has stopped naming the pattern.
+	test("names every default exclusion it applies", () => {
+		const result = run(["--help"], deps());
+		for (const pattern of DEFAULT_LABEL_FILTER.exclude) expect(result.stdout).toContain(`'${pattern}'`);
 	});
 
 	test("refuses an unrecognised flag rather than ignoring it", () => {

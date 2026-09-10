@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { type Recording, RecordingError, loadRecording, recordingsDir } from "./recording";
 import type { CommandResult, Runner } from "./runner";
-import { DEGRADED_PREFIX } from "./selection-output";
+import { DEADLOCK_PREFIX, DEGRADED_PREFIX } from "./selection-output";
 
 /** One stored GitHub recording by name, so no test spells the corpus layout for itself. */
 export function githubRecording(name: string): Recording {
@@ -19,7 +19,16 @@ export function answeringOrigin(remote: string, answer: Runner): Runner {
 
 /** The sentinel lines of a rendering, which is the contract `DEGRADED_PREFIX` exists to be tested through. */
 export function sentinelLines(text: string): string[] {
-	return text.split("\n").filter((line) => line.startsWith(DEGRADED_PREFIX));
+	return linesWithPrefix(text, DEGRADED_PREFIX);
+}
+
+/** The deadlock lines of a rendering, the same contract for `DEADLOCK_PREFIX` that `sentinelLines` is. */
+export function deadlockLines(text: string): string[] {
+	return linesWithPrefix(text, DEADLOCK_PREFIX);
+}
+
+function linesWithPrefix(text: string, prefix: string): string[] {
+	return text.split("\n").filter((line) => line.startsWith(prefix));
 }
 
 export function fakeRunner(result: CommandResult): Runner {

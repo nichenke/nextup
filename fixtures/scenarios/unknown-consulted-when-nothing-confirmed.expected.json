@@ -51,6 +51,7 @@
 		"unknown": 2,
 		"blocked": 0
 	},
+	"deadlocks": [],
 	"degraded": [
 		"unknown-blocking"
 	],

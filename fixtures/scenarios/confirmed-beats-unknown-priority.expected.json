@@ -39,6 +39,7 @@
 		"unknown": 1,
 		"blocked": 0
 	},
+	"deadlocks": [],
 	"degraded": [],
 	"filter": {
 		"include": [],

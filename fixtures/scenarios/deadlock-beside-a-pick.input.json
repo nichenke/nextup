@@ -1,0 +1,11 @@
+{
+	"description": "A cycle in one corner of a repository and startable work in another. Pins that the pick, the rung it won on and the counts are all what they would be without the cycle, and that the cycle is named beside them; ADR-0030 has why it is reported that way rather than by refusing.",
+	"truncated": false,
+	"openOnly": false,
+	"filter": { "include": [], "exclude": ["wayfinder:*"] },
+	"tickets": [
+		{ "ref": "gh:example/repo#1", "title": "Migrate the store", "state": "open", "blockers": ["gh:example/repo#2"], "labels": [] },
+		{ "ref": "gh:example/repo#2", "title": "Cut over the reads", "state": "open", "blockers": ["gh:example/repo#1"], "labels": [] },
+		{ "ref": "gh:example/repo#3", "title": "Document the retention policy", "state": "open", "blockers": [], "labels": [] }
+	]
+}

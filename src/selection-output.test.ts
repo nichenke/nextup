@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { seedGraph } from "./graph-store";
-import { DEFAULT_LABEL_FILTER, compileLabelFilter } from "./label-filter";
+import { DEFAULT_LABEL_FILTER, type LabelFilterSpec, compileLabelFilter } from "./label-filter";
 import { DEGRADED_PREFIX, type Answer, answerJson, renderAnswer, renderSelection, selectionJson } from "./selection-output";
 import { type Selection, select } from "./selector";
-import { sentinelLines } from "./test-support";
+import { deadlockLines, sentinelLines } from "./test-support";
 import { type Ticket, ticketId } from "./ticket";
 import type { TicketRef } from "./ticket-ref";
 import type { ReadDegrade } from "./ticket-set-read";
@@ -21,7 +21,12 @@ function refOf(key: string): TicketRef {
 	return { tracker: "github", repo: "example/repo", host: null, key };
 }
 
-function selectionOf(specs: readonly Spec[], truncated = false, openOnly = false): Selection {
+function selectionOf(
+	specs: readonly Spec[],
+	truncated = false,
+	openOnly = false,
+	filter: LabelFilterSpec = DEFAULT_LABEL_FILTER,
+): Selection {
 	const tickets: Ticket[] = specs.map((spec) => ({
 		ref: refOf(spec.key),
 		title: spec.title ?? `Ticket ${spec.key}`,
@@ -39,7 +44,7 @@ function selectionOf(specs: readonly Spec[], truncated = false, openOnly = false
 			open: (spec.state ?? "open") === "open",
 		})),
 	);
-	return select({ tickets, graph, filter: compileLabelFilter(DEFAULT_LABEL_FILTER), truncated, openOnly });
+	return select({ tickets, graph, filter: compileLabelFilter(filter), truncated, openOnly });
 }
 
 describe("selectionJson", () => {
@@ -78,6 +83,12 @@ describe("selectionJson", () => {
 		expect(json.decision).toBeNull();
 		expect(json.consulted).toBeNull();
 		expect(json.ranked).toEqual([]);
+	});
+
+	test("carries each deadlock as its cycle in short form", () => {
+		const json = selectionJson(selectionOf([{ key: "1", blockers: ["2"] }, { key: "2", blockers: ["1"] }]));
+		expect(json.deadlocks).toEqual([{ cycle: ["gh:example/repo#1", "gh:example/repo#2"] }]);
+		expect(selectionJson(selectionOf([{ key: "1" }])).deadlocks).toEqual([]);
 	});
 
 	test("echoes the filter and the counts", () => {
@@ -152,6 +163,31 @@ describe("renderSelection", () => {
 		expect(text).toContain("2 blocked");
 	});
 
+	test("names the cycle on its own greppable line when nothing can ever unblock", () => {
+		const text = renderSelection(selectionOf([{ key: "1", blockers: ["2"] }, { key: "2", blockers: ["1"] }]));
+		expect(deadlockLines(text)).toEqual([
+			"deadlock: gh:example/repo#1 blocked by gh:example/repo#2 blocked by gh:example/repo#1, so nothing in it can ever unblock",
+		]);
+	});
+
+	test("names a self-blocking ticket as the one-member case", () => {
+		expect(deadlockLines(renderSelection(selectionOf([{ key: "1", blockers: ["1"] }])))).toEqual([
+			"deadlock: gh:example/repo#1 blocked by gh:example/repo#1, so nothing in it can ever unblock",
+		]);
+	});
+
+	test("reports the deadlock beside the pick, not instead of it", () => {
+		const text = renderSelection(
+			selectionOf([{ key: "1", blockers: ["2"] }, { key: "2", blockers: ["1"] }, { key: "3" }]),
+		);
+		expect(text).toContain("gh:example/repo#3 — Ticket 3");
+		expect(deadlockLines(text)).toHaveLength(1);
+	});
+
+	test("carries no deadlock line for a ticket set that merely waits on open work", () => {
+		expect(deadlockLines(renderSelection(selectionOf([{ key: "1" }, { key: "2", blockers: ["1"] }])))).toEqual([]);
+	});
+
 	test("names a priority label the ladder did not read, on the candidate that carried it", () => {
 		const text = renderSelection(selectionOf([{ key: "1", labels: ["priority:high"] }]));
 		expect(text).toContain("priority none (unread: priority:high)");
@@ -171,6 +207,30 @@ describe("renderSelection", () => {
 
 	test("ends with a newline, so it composes with anything reading it a line at a time", () => {
 		expect(renderSelection(selectionOf([{ key: "1" }]))).toEndWith("\n");
+	});
+
+	// A count on its own leaves a user whose ticket is missing nothing to look up, and the exclusions are a
+	// floor no flag mentioned, so the run has to name the ones it applied.
+	test("names the exclusions beside the count of what they dropped", () => {
+		const text = renderSelection(selectionOf([{ key: "1" }, { key: "2", labels: ["needs-triage"] }]));
+		expect(text).toContain("1 filtered out (excluding wayfinder:*, needs-triage, spec)");
+	});
+
+	// A ticket dropped for lacking an included label counts as filtered too, so naming only the exclusions
+	// blames a pattern that had nothing to do with it.
+	test("names an included label as well, since it filters just as much", () => {
+		const text = renderSelection(
+			selectionOf([{ key: "1", labels: ["backend"] }, { key: "2" }], false, false, {
+				include: ["backend"],
+				exclude: ["wayfinder:*"],
+			}),
+		);
+		expect(text).toContain("1 filtered out (including backend; excluding wayfinder:*)");
+	});
+
+	test("says nothing about exclusions where the filter carries none", () => {
+		const text = renderSelection(selectionOf([{ key: "1" }], false, false, { include: [], exclude: [] }));
+		expect(text).toContain("0 filtered out,");
 	});
 
 	test("counts the closed tickets of a set that was read with them", () => {

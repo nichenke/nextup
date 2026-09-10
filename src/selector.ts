@@ -1,5 +1,7 @@
+import { findBlockingCycles } from "./deadlock";
 import { type BlockedState, type DependencyGraph, type IssueId, deriveEffectiveBlockedness } from "./effective-blockedness";
 import type { LabelFilter, LabelFilterSpec } from "./label-filter";
+import { type NonEmpty, mapNonEmpty } from "./non-empty";
 import { type PriorityReading, readPriority } from "./priority";
 import { type Ticket, ticketId } from "./ticket";
 import { type TicketRef, compareTicketRefs, formatTicketRef } from "./ticket-ref";
@@ -82,6 +84,15 @@ export interface SelectionCounts {
 	readonly blocked: number;
 }
 
+/**
+ * `CONTEXT.md`'s **Deadlock**, reported beside the answer rather than in place of it. ADR-0030 has why it is
+ * not a `Degrade`.
+ */
+export interface Deadlock {
+	/** Each ticket blocked by the next, the last blocked by the first; one member where it blocks itself. */
+	readonly cycle: NonEmpty<TicketRef>;
+}
+
 export interface Selection {
 	readonly pick: Candidate | null;
 	readonly decision: Decision | null;
@@ -90,6 +101,7 @@ export interface Selection {
 	/** The consulted partition, ranked. The other partition is reported only as a count. */
 	readonly ranked: readonly Candidate[];
 	readonly counts: SelectionCounts;
+	readonly deadlocks: readonly Deadlock[];
 	readonly degraded: readonly Degrade[];
 	readonly filter: LabelFilterSpec;
 }
@@ -117,6 +129,7 @@ export function select(input: SelectionInput): Selection {
 		consulted,
 		ranked,
 		counts: tally(placements, input.openOnly),
+		deadlocks: findDeadlocks(ids, input.graph),
 		degraded: degradesOf({ truncated: input.truncated, unknownBlocking: consulted === "unknown" }),
 		filter: input.filter.spec,
 	};
@@ -199,6 +212,38 @@ function identify(tickets: readonly Ticket[]): Map<Ticket, IssueId> {
 		ids.set(ticket, id);
 	}
 	return ids;
+}
+
+/**
+ * The deadlocks over the whole ticket set, as references rather than graph ids — the ids are keys nobody
+ * outside the graph reads, and a report a person acts on has to name what the tracker calls each ticket.
+ *
+ * Every ticket rather than every candidate, which ADR-0030 has the reason for.
+ */
+function findDeadlocks(ids: ReadonlyMap<Ticket, IssueId>, graph: DependencyGraph): Deadlock[] {
+	const refs = new Map<IssueId, TicketRef>();
+	for (const [ticket, id] of ids) refs.set(id, ticket.ref);
+	// The lookup below cannot miss: `findBlockingCycles` walks only within the ids handed to it, which are these.
+	return findBlockingCycles(refs.keys(), graph)
+		.map((cycle) => ({ cycle: fromLowestRef(mapNonEmpty(cycle, (id) => refs.get(id)!)) }))
+		.sort((one, other) => compareTicketRefs(one.cycle[0], other.cycle[0]));
+}
+
+/**
+ * A cycle turned to begin at its lowest reference, which is also how the lines are ordered against each
+ * other — `compareTicketRefs`, the same total order the ladder's last rung uses. ADR-0030 has why the walk
+ * itself cannot do this.
+ *
+ * Turning a cycle is safe where reordering one would not be: every ticket keeps the ticket that blocks it
+ * next to it, including the last, which still closes on the first.
+ */
+function fromLowestRef(cycle: NonEmpty<TicketRef>): NonEmpty<TicketRef> {
+	let lowest = 0;
+	for (let index = 1; index < cycle.length; index++) {
+		if (compareTicketRefs(cycle[index]!, cycle[lowest]!) < 0) lowest = index;
+	}
+	if (lowest === 0) return cycle;
+	return [cycle[lowest]!, ...cycle.slice(lowest + 1), ...cycle.slice(0, lowest)];
 }
 
 function requireNoClosedTicketUnderOpenOnly(input: SelectionInput): void {

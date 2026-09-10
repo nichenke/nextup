@@ -11,7 +11,11 @@ export interface LabelFilterSpec {
 	readonly exclude: readonly string[];
 }
 
-export const DEFAULT_LABEL_FILTER: LabelFilterSpec = { include: [], exclude: ["wayfinder:*"] };
+/**
+ * What no run recommends unless a caller says otherwise. All three are exclusions rather than a required
+ * label, which is what makes the default portable; ADR-0031 has why, and what each one is for.
+ */
+export const DEFAULT_LABEL_FILTER: LabelFilterSpec = { include: [], exclude: ["wayfinder:*", "needs-triage", "spec"] };
 
 /**
  * A filter whose patterns `compileLabelFilter` has already checked. `spec` is what ran, for output to

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { seedGraph } from "./graph-store";
 import { DEFAULT_LABEL_FILTER, type LabelFilterSpec, compileLabelFilter } from "./label-filter";
-import { SelectionError, type SelectionInput, select } from "./selector";
+import { type Deadlock, SelectionError, type SelectionInput, select } from "./selector";
 import { type Claim, type Ticket, ticketId } from "./ticket";
 import { type TicketRef, formatTicketRef } from "./ticket-ref";
 
@@ -213,6 +213,105 @@ describe("the confirmed and unknown partition", () => {
 		expect(deadlocked.decision).toBeNull();
 		expect(deadlocked.consulted).toBeNull();
 		expect(deadlocked.counts.blocked).toBe(2);
+	});
+});
+
+describe("the deadlock diagnostic", () => {
+	function deadlocksOf(specs: readonly Spec[], options?: { filter?: LabelFilterSpec }): string[][] {
+		return select(inputOf(specs, options)).deadlocks.map((deadlock) => deadlock.cycle.map(formatTicketRef));
+	}
+
+	// The two shapes that both report nothing to recommend, told apart. Every candidate here is blocked by
+	// a ticket somebody is working, so the backlog opens up when that ticket closes.
+	test("reports no deadlock where every candidate waits on work that can still land", () => {
+		const selection = select(
+			inputOf([{ key: "1", claim: { by: "octocat" } }, { key: "2", blockers: ["1"] }, { key: "3", blockers: ["1"] }]),
+		);
+		expect(selection.pick).toBeNull();
+		expect(selection.deadlocks).toEqual([]);
+	});
+
+	// `bun test` is transpile-only, so the assertion here is `tsc --noEmit`, which CI runs as its own gate: it
+	// fails if the directive stops being needed, which is what an empty cycle becoming representable looks
+	// like.
+	test("cannot represent a cycle that names no ticket", () => {
+		// @ts-expect-error an empty cycle is not a Deadlock
+		const empty: Deadlock = { cycle: [] };
+		expect(empty.cycle).toHaveLength(0);
+	});
+
+	test("names the tickets of a cycle nothing can ever unblock", () => {
+		const selection = select(inputOf([{ key: "1", blockers: ["2"] }, { key: "2", blockers: ["1"] }]));
+		expect(selection.pick).toBeNull();
+		expect(selection.deadlocks.map((deadlock) => deadlock.cycle.map(formatTicketRef))).toEqual([
+			["gh:example/repo#1", "gh:example/repo#2"],
+		]);
+	});
+
+	test("reports a self-blocking ticket as the one-member case", () => {
+		expect(deadlocksOf([{ key: "1", blockers: ["1"] }])).toEqual([["gh:example/repo#1"]]);
+	});
+
+	test("still recommends and still counts everything, with a deadlock in the set", () => {
+		const selection = select(inputOf([{ key: "1", blockers: ["2"] }, { key: "2", blockers: ["1"] }, { key: "3" }]));
+		expect(formatTicketRef(selection.pick!.ref)).toBe("gh:example/repo#3");
+		expect(selection.counts.tickets).toBe(3);
+		expect(selection.counts.blocked).toBe(2);
+		expect(selection.deadlocks).toHaveLength(1);
+	});
+
+	test("reports no deadlock for a diamond", () => {
+		expect(
+			deadlocksOf([{ key: "1", blockers: ["2", "3"] }, { key: "2", blockers: ["4"] }, { key: "3", blockers: ["4"] }, { key: "4" }]),
+		).toEqual([]);
+	});
+
+	test("reports no deadlock where a member of the cycle is closed, and recommends what it freed", () => {
+		const selection = select(
+			inputOf([{ key: "1", blockers: ["2"] }, { key: "2", blockers: ["3"], state: "closed" }, { key: "3", blockers: ["1"] }]),
+		);
+		expect(selection.deadlocks).toEqual([]);
+		expect(formatTicketRef(selection.pick!.ref)).toBe("gh:example/repo#1");
+	});
+
+	test("names a cycle among tickets the filter dropped", () => {
+		expect(
+			deadlocksOf(
+				[
+					{ key: "1", blockers: ["2"], labels: ["wayfinder:decision"] },
+					{ key: "2", blockers: ["1"], labels: ["wayfinder:decision"] },
+					{ key: "3", blockers: ["1"] },
+				],
+				{ filter: DEFAULT_LABEL_FILTER },
+			),
+		).toEqual([["gh:example/repo#1", "gh:example/repo#2"]]);
+	});
+
+	// Keys whose digits and text disagree about order: as text "10" < "100" < "8" < "9", which is what the
+	// walk sorts on, so it starts these cycles at #10 and #100 and lists them in that order. Single-digit
+	// fixtures agree with reference order by accident and cannot catch it.
+	test("orders the cycles and turns each to start at its lowest reference", () => {
+		expect(
+			deadlocksOf([
+				{ key: "8", blockers: ["10"] },
+				{ key: "10", blockers: ["8"] },
+				{ key: "9", blockers: ["100"] },
+				{ key: "100", blockers: ["9"] },
+			]),
+		).toEqual([
+			["gh:example/repo#8", "gh:example/repo#10"],
+			["gh:example/repo#9", "gh:example/repo#100"],
+		]);
+	});
+
+	test("turns a longer cycle without disturbing which ticket blocks which", () => {
+		expect(deadlocksOf([{ key: "10", blockers: ["2"] }, { key: "2", blockers: ["9"] }, { key: "9", blockers: ["10"] }])).toEqual([
+			["gh:example/repo#2", "gh:example/repo#9", "gh:example/repo#10"],
+		]);
+	});
+
+	test("reports no deadlock where the edge closing the loop was never read", () => {
+		expect(deadlocksOf([{ key: "1", blockers: ["2"] }, { key: "2", blockers: "unknown" }])).toEqual([]);
 	});
 });
 

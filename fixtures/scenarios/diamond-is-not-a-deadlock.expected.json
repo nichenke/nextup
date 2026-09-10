@@ -1,13 +1,13 @@
 {
 	"pick": {
-		"ref": "gh:example/repo#1",
-		"title": "Update the changelog",
+		"ref": "gh:example/repo#4",
+		"title": "Migrate the store",
 		"url": null,
 		"labels": [],
 		"blocked": "unblocked",
 		"priority": null,
 		"unreadPriority": [],
-		"unblocks": 0
+		"unblocks": 2
 	},
 	"decision": {
 		"kind": "only-candidate"
@@ -15,25 +15,25 @@
 	"consulted": "unblocked",
 	"ranked": [
 		{
-			"ref": "gh:example/repo#1",
-			"title": "Update the changelog",
+			"ref": "gh:example/repo#4",
+			"title": "Migrate the store",
 			"url": null,
 			"labels": [],
 			"blocked": "unblocked",
 			"priority": null,
 			"unreadPriority": [],
-			"unblocks": 0
+			"unblocks": 2
 		}
 	],
 	"counts": {
 		"tickets": 4,
 		"closed": 0,
-		"claimed": 1,
+		"claimed": 0,
 		"filtered": 0,
-		"candidates": 3,
+		"candidates": 4,
 		"unblocked": 1,
 		"unknown": 0,
-		"blocked": 2
+		"blocked": 3
 	},
 	"deadlocks": [],
 	"degraded": [],

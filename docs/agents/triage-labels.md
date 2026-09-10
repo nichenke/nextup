@@ -29,3 +29,8 @@ label strings:
 The repo also carries a `spec` label, which is not part of the triage vocabulary. It marks an issue
 whose body is itself the specification rather than a report, and it composes with a state role
 rather than replacing one.
+
+Composing does not make it selectable. `nextup` excludes `spec` from candidates by default, so a `spec`
+issue also labelled `ready-for-agent` is never recommended — the state role says it is ready for an agent
+to read, not that the specification is itself a piece of work.
+`docs/adr/0031-the-default-candidate-exclusions-are-negative-filters.md` has why.

@@ -1,5 +1,6 @@
 import type { LabelFilterSpec } from "./label-filter";
-import type { Candidate, Degrade, Rung, Selection, SelectionCounts } from "./selector";
+import { type NonEmpty, mapNonEmpty } from "./non-empty";
+import type { Candidate, Deadlock, Degrade, Rung, Selection, SelectionCounts } from "./selector";
 import { type TicketRef, formatTicketRef } from "./ticket-ref";
 import type { ReadDegrade } from "./ticket-set-read";
 
@@ -9,6 +10,9 @@ import type { ReadDegrade } from "./ticket-set-read";
  * this is the contract.
  */
 export const DEGRADED_PREFIX = "degraded: ";
+
+/** Greppable like `DEGRADED_PREFIX`, and stable for the same reason: the prose after it is free to change. */
+export const DEADLOCK_PREFIX = "deadlock: ";
 
 /**
  * The JSON forms are their source types with only the fields that change shape restated. Spelling them
@@ -21,10 +25,13 @@ export type DecisionJson =
 	| { readonly kind: "only-candidate" }
 	| { readonly kind: "rung"; readonly rung: Rung; readonly over: string };
 
-export type SelectionJson = Omit<Selection, "pick" | "decision" | "ranked" | "degraded"> & {
+export type DeadlockJson = Omit<Deadlock, "cycle"> & { readonly cycle: NonEmpty<string> };
+
+export type SelectionJson = Omit<Selection, "pick" | "decision" | "ranked" | "deadlocks" | "degraded"> & {
 	readonly pick: CandidateJson | null;
 	readonly decision: DecisionJson | null;
 	readonly ranked: readonly CandidateJson[];
+	readonly deadlocks: readonly DeadlockJson[];
 	readonly degraded: readonly Degrade["kind"][];
 };
 
@@ -44,12 +51,17 @@ export function selectionJson(selection: Selection): SelectionJson {
 					? { kind: "only-candidate" }
 					: { kind: "rung", rung: selection.decision.rung, over: formatTicketRef(selection.decision.over) },
 		ranked: selection.ranked.map(candidateJson),
+		deadlocks: selection.deadlocks.map(deadlockJson),
 		degraded: selection.degraded.map((degrade) => degrade.kind),
 	};
 }
 
 function candidateJson(candidate: Candidate): CandidateJson {
 	return { ...candidate, ref: formatTicketRef(candidate.ref) };
+}
+
+function deadlockJson(deadlock: Deadlock): DeadlockJson {
+	return { ...deadlock, cycle: mapNonEmpty(deadlock.cycle, formatTicketRef) };
 }
 
 /**
@@ -113,6 +125,16 @@ function degradedLine(reason: string): string {
 	return `${DEGRADED_PREFIX}${reason.replace(/\s+/g, " ").trim()}`;
 }
 
+/**
+ * One deadlock as a chain closing on the ticket it started from, so a reader can open each ticket in the
+ * tracker, find the next one on it, and arrive back where they began. The first reference is repeated at
+ * the end for that reason: a list would leave the last edge, the one that makes it a loop, unstated.
+ */
+function deadlockLine(deadlock: Deadlock): string {
+	const chain = refList([...deadlock.cycle, deadlock.cycle[0]], " blocked by ");
+	return `${DEADLOCK_PREFIX}${chain}, so nothing in it can ever unblock`;
+}
+
 const DEGRADE_REASON: Record<Degrade["kind"], string> = {
 	truncated: "the ticket set was truncated, so a better candidate may not have been read",
 	"unknown-blocking": "no candidate's blockers could be confirmed closed, so this pick may be blocked",
@@ -137,8 +159,8 @@ function readDegradeReason(degrade: ReadDegrade): string {
 	}
 }
 
-function refList(refs: readonly TicketRef[]): string {
-	return refs.map(formatTicketRef).join(", ");
+function refList(refs: readonly TicketRef[], separator = ", "): string {
+	return refs.map(formatTicketRef).join(separator);
 }
 
 export function renderSelection(selection: Selection): string {
@@ -154,7 +176,8 @@ export function renderSelection(selection: Selection): string {
 	}
 
 	lines.push("");
-	lines.push(renderCounts(selection.counts));
+	lines.push(renderCounts(selection.counts, selection.filter));
+	for (const deadlock of selection.deadlocks) lines.push(deadlockLine(deadlock));
 	for (const degrade of selection.degraded) lines.push(degradedLine(DEGRADE_REASON[degrade.kind]));
 
 	return `${lines.join("\n")}\n`;
@@ -197,12 +220,28 @@ function renderPriority(candidate: Candidate): string {
 	return `${rank} (unread: ${candidate.unreadPriority.join(", ")})`;
 }
 
-function renderCounts(counts: SelectionCounts): string {
+function renderCounts(counts: SelectionCounts, filter: LabelFilterSpec): string {
 	const aside = [
 		counts.closed === "not-asked" ? "closed not asked" : `${counts.closed} closed`,
 		`${counts.claimed} claimed`,
-		`${counts.filtered} filtered out`,
+		`${counts.filtered} filtered out${renderFilter(filter)}`,
 		`${counts.candidates} candidates (${counts.unblocked} unblocked, ${counts.unknown} unknown, ${counts.blocked} blocked)`,
 	];
 	return `${counts.tickets} tickets: ${aside.join(", ")}`;
+}
+
+/**
+ * The whole filter that did the filtering, beside the count of what it dropped. A count alone leaves a user
+ * whose ticket is missing with nothing to look up, and the exclusions are a floor a flag never mentioned.
+ *
+ * Both halves, because `counts.filtered` is one number over two causes: a ticket carrying an excluded label and
+ * a ticket lacking an included one are both filtered. Naming only the exclusions blamed a pattern that had
+ * nothing to do with a ticket dropped by `--include`. Printed whether or not anything was dropped, so the line
+ * keeps one shape.
+ */
+function renderFilter(filter: LabelFilterSpec): string {
+	const halves: string[] = [];
+	if (filter.include.length > 0) halves.push(`including ${filter.include.join(", ")}`);
+	if (filter.exclude.length > 0) halves.push(`excluding ${filter.exclude.join(", ")}`);
+	return halves.length === 0 ? "" : ` (${halves.join("; ")})`;
 }

@@ -33,6 +33,15 @@ considers its oldest — the truncation sentinel is what says so.
 [ADR-0028](./docs/adr/0028-the-read-asks-for-open-tickets-and-the-closed-count-says-so.md) has the
 measurement that makes that safe for blocking, and what the default limit claims.
 
+A **deadlock** — `CONTEXT.md` has the term — is named on a `deadlock: ` line, each ticket followed by the one
+blocking it and closing on the ticket it started from, so every edge can be followed in the tracker. Not one
+line per loop: where loops interlock, some are named and the rest are the same tickets over again, so an
+absent line is not the absence of a cycle. It is reported beside the answer rather than instead of it, since a
+cycle in one corner of a repository does not stop a pick from another, and under `--json` it is
+`selection.deadlocks` — neither of the two degrade lists below.
+[ADR-0030](./docs/adr/0030-a-deadlock-is-named-beside-the-answer.md) has what gets named, why the selector
+detects it, and why no adapter refuses it.
+
 `--help` has the label-filter semantics and the exit codes. A degraded answer carries one `degraded: ` line
 per reason, which is the sentinel to grep for — a truncated read, a pick whose blockers nothing could
 confirm, a tracker that could not be reached, rows that did not report their blockers, tickets held back
