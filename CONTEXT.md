@@ -65,6 +65,12 @@ _Avoid_: unresolved, indeterminate, null
 The tickets whose blockers are all closed — open, unblocked, unclaimed.
 _Avoid_: ready tickets, available work
 
+**Deadlock**:
+A set of tickets that block each other in a loop, so no order of work opens them. What tells an empty
+candidate set that will open up on its own from one that never will. Its **cycle** is the loop named ticket
+by ticket, each blocked by the next.
+_Avoid_: circular dependency, stuck, unresolvable
+
 **Ranking ladder**:
 The fixed, ordered list of comparison keys that picks a winner from the candidate set. Each rung is
 skipped when its signal is absent; the last rung always applies, so the order is total.

@@ -55,11 +55,18 @@ usage: nextup [--include <label>]... [--exclude <label>]... [--limit <n>] [--yes
   --json             emit the answer as JSON rather than the human rendering
   --help, -h         print this
 
-A label may end in "*" to match a prefix. --exclude 'wayfinder:*' always applies and --exclude adds
-to it, so the two tracks cannot compete for one ticket on a flag that never mentioned wayfinder.
+A label may end in "*" to match a prefix. Three exclusions always apply and --exclude adds to them
+rather than replacing them: 'wayfinder:*', so the planning and delivery tracks cannot compete for
+one ticket; 'needs-triage', because an untriaged ticket is a wrong answer rather than a lower-ranked
+one; and 'spec', so a run never recommends starting work on the specification its own tickets were
+cut from. Excluding a label a repository does not use costs nothing.
 
 The filter narrows only what may be recommended: the blocking graph still reads every ticket, so an
 excluded ticket still blocks.
+
+Tickets that block each other in a loop are named on a "deadlock: " line, which is the sentinel for
+the one thing no rerun improves: a backlog that is merely blocked opens up when its blockers close,
+and one holding a cycle does not until a person breaks it.
 
 Once claiming lands: the pick will be shown and confirmed before it is claimed, --yes will answer in
 advance for an unattended run, with neither a terminal nor --yes the run will be refused rather than

@@ -1,5 +1,6 @@
 import type { LabelFilterSpec } from "./label-filter";
-import type { Candidate, Degrade, Rung, Selection, SelectionCounts } from "./selector";
+import { type NonEmpty, mapNonEmpty } from "./non-empty";
+import type { Candidate, Deadlock, Degrade, Rung, Selection, SelectionCounts } from "./selector";
 import { type TicketRef, formatTicketRef } from "./ticket-ref";
 import type { ReadDegrade } from "./ticket-set-read";
 
@@ -9,6 +10,9 @@ import type { ReadDegrade } from "./ticket-set-read";
  * this is the contract.
  */
 export const DEGRADED_PREFIX = "degraded: ";
+
+/** Greppable like `DEGRADED_PREFIX`, and stable for the same reason: the prose after it is free to change. */
+export const DEADLOCK_PREFIX = "deadlock: ";
 
 /**
  * The JSON forms are their source types with only the fields that change shape restated. Spelling them
@@ -21,10 +25,13 @@ export type DecisionJson =
 	| { readonly kind: "only-candidate" }
 	| { readonly kind: "rung"; readonly rung: Rung; readonly over: string };
 
-export type SelectionJson = Omit<Selection, "pick" | "decision" | "ranked" | "degraded"> & {
+export type DeadlockJson = Omit<Deadlock, "cycle"> & { readonly cycle: NonEmpty<string> };
+
+export type SelectionJson = Omit<Selection, "pick" | "decision" | "ranked" | "deadlocks" | "degraded"> & {
 	readonly pick: CandidateJson | null;
 	readonly decision: DecisionJson | null;
 	readonly ranked: readonly CandidateJson[];
+	readonly deadlocks: readonly DeadlockJson[];
 	readonly degraded: readonly Degrade["kind"][];
 };
 
@@ -44,12 +51,17 @@ export function selectionJson(selection: Selection): SelectionJson {
 					? { kind: "only-candidate" }
 					: { kind: "rung", rung: selection.decision.rung, over: formatTicketRef(selection.decision.over) },
 		ranked: selection.ranked.map(candidateJson),
+		deadlocks: selection.deadlocks.map(deadlockJson),
 		degraded: selection.degraded.map((degrade) => degrade.kind),
 	};
 }
 
 function candidateJson(candidate: Candidate): CandidateJson {
 	return { ...candidate, ref: formatTicketRef(candidate.ref) };
+}
+
+function deadlockJson(deadlock: Deadlock): DeadlockJson {
+	return { ...deadlock, cycle: mapNonEmpty(deadlock.cycle, formatTicketRef) };
 }
 
 /**
@@ -113,6 +125,16 @@ function degradedLine(reason: string): string {
 	return `${DEGRADED_PREFIX}${reason.replace(/\s+/g, " ").trim()}`;
 }
 
+/**
+ * One deadlock as a chain closing on the ticket it started from, so a reader can open each ticket in the
+ * tracker, find the next one on it, and arrive back where they began. The first reference is repeated at
+ * the end for that reason: a list would leave the last edge, the one that makes it a loop, unstated.
+ */
+function deadlockLine(deadlock: Deadlock): string {
+	const chain = [...deadlock.cycle, deadlock.cycle[0]].map(formatTicketRef).join(" blocked by ");
+	return `${DEADLOCK_PREFIX}${chain}, so nothing in it can ever unblock`;
+}
+
 const DEGRADE_REASON: Record<Degrade["kind"], string> = {
 	truncated: "the ticket set was truncated, so a better candidate may not have been read",
 	"unknown-blocking": "no candidate's blockers could be confirmed closed, so this pick may be blocked",
@@ -155,6 +177,7 @@ export function renderSelection(selection: Selection): string {
 
 	lines.push("");
 	lines.push(renderCounts(selection.counts));
+	for (const deadlock of selection.deadlocks) lines.push(deadlockLine(deadlock));
 	for (const degrade of selection.degraded) lines.push(degradedLine(DEGRADE_REASON[degrade.kind]));
 
 	return `${lines.join("\n")}\n`;

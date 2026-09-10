@@ -6,14 +6,21 @@
 	"counts": {
 		"tickets": 3,
 		"closed": 0,
-		"claimed": 1,
+		"claimed": 0,
 		"filtered": 0,
-		"candidates": 2,
+		"candidates": 3,
 		"unblocked": 0,
 		"unknown": 0,
-		"blocked": 2
+		"blocked": 3
 	},
-	"deadlocks": [],
+	"deadlocks": [
+		{
+			"cycle": [
+				"gh:example/repo#1",
+				"gh:example/repo#2"
+			]
+		}
+	],
 	"degraded": [],
 	"filter": {
 		"include": [],

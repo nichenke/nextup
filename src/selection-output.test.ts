@@ -3,7 +3,7 @@ import { seedGraph } from "./graph-store";
 import { DEFAULT_LABEL_FILTER, compileLabelFilter } from "./label-filter";
 import { DEGRADED_PREFIX, type Answer, answerJson, renderAnswer, renderSelection, selectionJson } from "./selection-output";
 import { type Selection, select } from "./selector";
-import { sentinelLines } from "./test-support";
+import { deadlockLines, sentinelLines } from "./test-support";
 import { type Ticket, ticketId } from "./ticket";
 import type { TicketRef } from "./ticket-ref";
 import type { ReadDegrade } from "./ticket-set-read";
@@ -80,6 +80,12 @@ describe("selectionJson", () => {
 		expect(json.ranked).toEqual([]);
 	});
 
+	test("carries each deadlock as its cycle in short form", () => {
+		const json = selectionJson(selectionOf([{ key: "1", blockers: ["2"] }, { key: "2", blockers: ["1"] }]));
+		expect(json.deadlocks).toEqual([{ cycle: ["gh:example/repo#1", "gh:example/repo#2"] }]);
+		expect(selectionJson(selectionOf([{ key: "1" }])).deadlocks).toEqual([]);
+	});
+
 	test("echoes the filter and the counts", () => {
 		const json = selectionJson(selectionOf([{ key: "1" }]));
 		expect(json.filter).toEqual(DEFAULT_LABEL_FILTER);
@@ -150,6 +156,31 @@ describe("renderSelection", () => {
 		const text = renderSelection(selectionOf([{ key: "1", blockers: ["2"] }, { key: "2", blockers: ["1"] }]));
 		expect(text).toContain("no candidate to recommend");
 		expect(text).toContain("2 blocked");
+	});
+
+	test("names the cycle on its own greppable line when nothing can ever unblock", () => {
+		const text = renderSelection(selectionOf([{ key: "1", blockers: ["2"] }, { key: "2", blockers: ["1"] }]));
+		expect(deadlockLines(text)).toEqual([
+			"deadlock: gh:example/repo#1 blocked by gh:example/repo#2 blocked by gh:example/repo#1, so nothing in it can ever unblock",
+		]);
+	});
+
+	test("names a self-blocking ticket as the one-member case", () => {
+		expect(deadlockLines(renderSelection(selectionOf([{ key: "1", blockers: ["1"] }])))).toEqual([
+			"deadlock: gh:example/repo#1 blocked by gh:example/repo#1, so nothing in it can ever unblock",
+		]);
+	});
+
+	test("reports the deadlock beside the pick, not instead of it", () => {
+		const text = renderSelection(
+			selectionOf([{ key: "1", blockers: ["2"] }, { key: "2", blockers: ["1"] }, { key: "3" }]),
+		);
+		expect(text).toContain("gh:example/repo#3 — Ticket 3");
+		expect(deadlockLines(text)).toHaveLength(1);
+	});
+
+	test("carries no deadlock line for a ticket set that merely waits on open work", () => {
+		expect(deadlockLines(renderSelection(selectionOf([{ key: "1" }, { key: "2", blockers: ["1"] }])))).toEqual([]);
 	});
 
 	test("names a priority label the ladder did not read, on the candidate that carried it", () => {

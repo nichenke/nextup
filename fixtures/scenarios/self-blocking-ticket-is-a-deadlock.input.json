@@ -1,0 +1,9 @@
+{
+	"description": "One ticket recorded as blocking itself, which a tracker permits and a person writes by mistake. It is the one-member case of the same shape, reported rather than skipped as too small to be a loop.",
+	"truncated": false,
+	"openOnly": false,
+	"filter": { "include": [], "exclude": ["wayfinder:*"] },
+	"tickets": [
+		{ "ref": "gh:example/repo#1", "title": "Migrate the store", "state": "open", "blockers": ["gh:example/repo#1"], "labels": [] }
+	]
+}
