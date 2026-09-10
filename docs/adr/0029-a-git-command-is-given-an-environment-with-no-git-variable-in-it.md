@@ -54,9 +54,8 @@ name here costs a silent removal that was correct anyway and can never admit a r
 Against git 2.55, every command in `command-builders.ts` — the closed set of what this tool runs: the origin
 read, `worktree list`, `show-ref`, `for-each-ref`, `rev-parse --git-common-dir`, the worktree identity
 `rev-parse`, `symbolic-ref`, and `worktree add` — run against a repository named `<intended>` with each
-variable pointing at `<other>`. Testing one command and generalising is the fault that produced 0026's list.
-
-Each variable was set to `<other>`, or to the value given, and each command was run against `<intended>`.
+variable set to `<other>`, or to the value the table gives. Testing one command and generalising is the
+fault that produced 0026's list.
 
 | Variable | What changed |
 | --- | --- |
@@ -136,27 +135,6 @@ is empty" and "git is broken" are not the same report:
   `core.sparseCheckout` rather than inferred from a file being absent, because an unstaged deletion looks
   identical on disk and refusing that would refuse an everyday tree; a file merely deleted is scanned as the
   absence it is, which `ADR-0006`'s "the files as they stood when it ran" already scopes.
-- a tracked file the scan cannot open, which it skips exactly as it skips an absent one. A mode-000 file
-  holding an identifier passed, and so did one under a mode-000 *directory*. Both measured.
-
-The property is that the scan read every tracked file it could have, and it took three attempts to state it
-without a hole, which is worth recording as its own lesson. `xargs -0 ls` answered "is the path there", not
-"can it be read", so a mode-000 file passed. `[ -e ] && [ ! -r ]` answered readability but cannot see through
-an unreadable directory, so a path behind one read as absent and was tolerated — the branch deliberately left
-open for an unstaged deletion. Each fix closed the case it was shown and left the sibling of the same property.
-
-It is now asked as two questions, because no single test answers both, and git does the classifying rather
-than a predicate standing in for it: `git ls-files --deleted` puts a path it cannot examine on stderr and a
-genuinely deleted one on stdout, so the first refuses and the second is tolerated. What remains after that is
-a path git could stat, where `[ -r ]` is the whole question — a mode-000 file reaches neither the error nor
-the deleted list.
-
-Separately, the scan now passes `--` to `grep`. A tracked filename may begin with a hyphen, and `git ls-files`
-happily reports one: with a file named `-d`, BSD `grep` rejected its own argument list, `2>/dev/null` ate the
-error, `|| true` ate the status, and the guard printed `ok` over the identifier inside it. Measured. This is
-older than the work here, but a change claiming whole-tree coverage owns it.
-
-Together these make the `GIT_` removal above a second line of defence rather than the only one.
 
 `scripts/guard-harness.ts` spawns git raw to build a throwaway fixture repository. It asks `src/runner.ts`
 for the scrubbed environment rather than owning a list. It hands the guard script the environment whole, on
