@@ -2,4 +2,4 @@ gh:example/repo#1 — Update the changelog
   the only candidate the ladder ranked
   priority none, unblocks 0, blockers confirmed closed
 
-4 tickets: 0 closed, 1 claimed, 0 filtered out (wayfinder:*), 3 candidates (1 unblocked, 0 unknown, 2 blocked)
+4 tickets: 0 closed, 1 claimed, 0 filtered out (excluding wayfinder:*), 3 candidates (1 unblocked, 0 unknown, 2 blocked)

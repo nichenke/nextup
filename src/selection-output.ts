@@ -224,17 +224,24 @@ function renderCounts(counts: SelectionCounts, filter: LabelFilterSpec): string 
 	const aside = [
 		counts.closed === "not-asked" ? "closed not asked" : `${counts.closed} closed`,
 		`${counts.claimed} claimed`,
-		`${counts.filtered} filtered out${renderExclusions(filter)}`,
+		`${counts.filtered} filtered out${renderFilter(filter)}`,
 		`${counts.candidates} candidates (${counts.unblocked} unblocked, ${counts.unknown} unknown, ${counts.blocked} blocked)`,
 	];
 	return `${counts.tickets} tickets: ${aside.join(", ")}`;
 }
 
 /**
- * The patterns that did the filtering, beside the count of what they dropped. A count alone leaves a user whose
- * ticket is missing with nothing to look up: the exclusions are a floor a flag never mentioned, so the run has
- * to say which ones it applied. Printed whether or not anything was dropped, so the line keeps one shape.
+ * The whole filter that did the filtering, beside the count of what it dropped. A count alone leaves a user
+ * whose ticket is missing with nothing to look up, and the exclusions are a floor a flag never mentioned.
+ *
+ * Both halves, because `counts.filtered` is one number over two causes: a ticket carrying an excluded label and
+ * a ticket lacking an included one are both filtered. Naming only the exclusions blamed a pattern that had
+ * nothing to do with a ticket dropped by `--include`. Printed whether or not anything was dropped, so the line
+ * keeps one shape.
  */
-function renderExclusions(filter: LabelFilterSpec): string {
-	return filter.exclude.length === 0 ? "" : ` (${filter.exclude.join(", ")})`;
+function renderFilter(filter: LabelFilterSpec): string {
+	const halves: string[] = [];
+	if (filter.include.length > 0) halves.push(`including ${filter.include.join(", ")}`);
+	if (filter.exclude.length > 0) halves.push(`excluding ${filter.exclude.join(", ")}`);
+	return halves.length === 0 ? "" : ` (${halves.join("; ")})`;
 }

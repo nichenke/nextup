@@ -213,7 +213,19 @@ describe("renderSelection", () => {
 	// floor no flag mentioned, so the run has to name the ones it applied.
 	test("names the exclusions beside the count of what they dropped", () => {
 		const text = renderSelection(selectionOf([{ key: "1" }, { key: "2", labels: ["needs-triage"] }]));
-		expect(text).toContain("1 filtered out (wayfinder:*, needs-triage, spec)");
+		expect(text).toContain("1 filtered out (excluding wayfinder:*, needs-triage, spec)");
+	});
+
+	// A ticket dropped for lacking an included label counts as filtered too, so naming only the exclusions
+	// blames a pattern that had nothing to do with it.
+	test("names an included label as well, since it filters just as much", () => {
+		const text = renderSelection(
+			selectionOf([{ key: "1", labels: ["backend"] }, { key: "2" }], false, false, {
+				include: ["backend"],
+				exclude: ["wayfinder:*"],
+			}),
+		);
+		expect(text).toContain("1 filtered out (including backend; excluding wayfinder:*)");
 	});
 
 	test("says nothing about exclusions where the filter carries none", () => {
