@@ -183,6 +183,10 @@ function wholeSetRead(input: ReconstructionInput): CheckResult {
 	const faults: string[] = [];
 	if (!input.read.openOnly) faults.push("the read did not ask for open tickets only, so it is a wider set than was observed");
 	if (input.read.truncated) faults.push("the read stopped short of the whole ticket set");
+	// Asked of the blind read too, which the membership comparison below cannot answer for: a read truncated back to
+	// the same tickets matches on membership while having looked at a wider set than the other two did. Reachable
+	// without a defect — a ticket opened between the two adapter reads, sorting after the ones already asked for.
+	if (input.blind.truncated) faults.push("the blocking-field-less read stopped short of the whole ticket set");
 	for (const degrade of input.read.degraded) {
 		if (!DEGRADE_IS_THIS_CHECKS_BUSINESS[degrade.kind]) continue;
 		faults.push(degrade.kind === "outage" ? `the read did not complete: ${degrade.detail}` : `the read degraded: ${degrade.kind}`);

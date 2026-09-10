@@ -185,6 +185,14 @@ describe("whole-set-read", () => {
 		});
 	});
 
+	test("fails a blocking-field-less read that stopped short, even where it returned the same tickets", () => {
+		const input = world();
+		expect(checkNamed({ ...input, blind: { ...input.blind, truncated: true } }, "whole-set-read")).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("the blocking-field-less read stopped short"),
+		});
+	});
+
 	test("names a contradicted blocker without faulting on it, since a healthy adapter reports one", () => {
 		const input = world();
 		const degraded = { ...input.read, degraded: [{ kind: "contradicted-blocker", refs: [ref("9")] }] as const };
