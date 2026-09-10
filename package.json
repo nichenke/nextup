@@ -11,6 +11,7 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "check:identifiers": "bash scripts/check-identifiers.sh",
+    "check:live": "bun scripts/reconstruct.ts",
     "provision:test-tree": "bun scripts/provision-test-tree.ts",
     "capture:github": "bun scripts/capture-github-recordings.ts"
   },

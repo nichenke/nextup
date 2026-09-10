@@ -171,6 +171,12 @@ injected process runner, so tests never touch a network or an external binary.
 What a tracker read is asserted against comes from `fixtures/recordings/`, captured by a credentialed
 local run that is never part of the above: `docs/agents/test-tree.md` has the command and the rules.
 
+A fixture only ever puts a shape where its author expected one, so `bun run check:live` performs
+`CONTEXT.md`'s **reconstruction**: it reads a real repository through the adapter and checks the answer
+against the tracker's own account of the same tickets. Credentialed, local, and never CI, for the same
+reason the capture is:
+`docs/agents/reconstruction.md` has how to run it and what each verdict means.
+
 The guard runs first, before any install, and CI keeps that order. It needs no dependencies, and
 ordering it after `bun install` once meant a failing install stopped it from running at all — on a
 commit whose lockfile held a private registry host.

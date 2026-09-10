@@ -3,6 +3,7 @@ import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
 	DEFAULT_SLASH_COMMAND,
+	GITHUB_TICKET_FIELDS,
 	authStatusCommand,
 	refExistsCommand,
 	defaultBranchCommand,
@@ -17,6 +18,7 @@ import {
 	worktreeAddCommand,
 	worktreeIdentityCommand,
 	worktreeListCommand,
+	withoutBlockingField,
 } from "./command-builders";
 import type { TicketRef } from "./ticket-ref";
 
@@ -197,6 +199,28 @@ describe("githubIssueListCommand", () => {
 	test("refuses a row count no read could use, rather than letting the CLI reject it", () => {
 		expect(() => githubIssueListCommand({ repo: "example/repo", rows: 0 })).toThrow(/above zero/);
 		expect(() => githubIssueListCommand({ repo: "example/repo", rows: 1.5 })).toThrow(/whole number/);
+	});
+});
+
+describe("withoutBlockingField", () => {
+	test("drops the blocking field and leaves the rest of the projection alone", () => {
+		const argv = withoutBlockingField(githubIssueListCommand({ repo: "example/repo", rows: 2 }));
+		const projection = argv[argv.indexOf("--json") + 1]!.split(",");
+		expect(projection).not.toContain("blockedBy");
+		expect(projection).toEqual(GITHUB_TICKET_FIELDS.filter((field) => field !== "blockedBy"));
+	});
+
+	test("changes nothing else about the read", () => {
+		const asked = githubIssueListCommand({ repo: "example/repo", rows: 2 });
+		const blinded = withoutBlockingField(asked);
+		expect(blinded.length).toBe(asked.length);
+		expect(blinded.filter((word, index) => word !== asked[index])).toHaveLength(1);
+	});
+
+	test("refuses an argv that does not spell its projection as one word", () => {
+		expect(() => withoutBlockingField(["gh", "issue", "list", "--json", "number", "--json", "blockedBy"])).toThrow(
+			/does not spell the issue-list projection/,
+		);
 	});
 });
 
