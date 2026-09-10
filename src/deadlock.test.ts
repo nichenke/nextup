@@ -60,6 +60,13 @@ describe("findBlockingCycles", () => {
 		expect(cycles({ a: { blockers: ["a"] } })).toEqual([["a"]]);
 	});
 
+	// The self-block is the shortest loop through `a`, so it is what `a` is reported for; `b` is on no
+	// shorter one and is reported for the loop it does sit on. Naming only the self-block would leave the
+	// pair looking like one stray ticket rather than two that also wait on each other.
+	test("reports a self-block and the longer cycle its ticket also sits on", () => {
+		expect(cycles({ a: { blockers: ["a", "b"] }, b: { blockers: ["a"] } })).toEqual([["a"], ["b", "a"]]);
+	});
+
 	test("does not report a cycle one of whose members is closed", () => {
 		expect(cycles({ a: { blockers: ["b"] }, b: { blockers: ["c"] }, c: { blockers: ["a"], open: false } })).toEqual(
 			[],

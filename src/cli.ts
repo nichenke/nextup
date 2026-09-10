@@ -84,8 +84,9 @@ Exit status, of what is wired: 0 a pick reported, 1 nothing to recommend, 2 some
 — a repository that cannot be resolved, a read that is itself wrong, or a bad invocation. A tracker that
 could not be reached is reported as a degraded answer with nothing to recommend, which is 1.
 
-A deadlocked ticket set is also 1, so the status does not say whether waiting will help: a wrapper that
-retries on 1 has to read the "deadlock: " lines to know that this one will answer the same tomorrow.
+A deadlock never decides the status. Whether the answer is 0 or 1 is only whether there was a pick, so a
+cycle reported beside one is still 0, and a set with nothing to recommend is 1 whether its candidates are
+merely blocked or deadlocked. A wrapper deciding whether to retry has to read the "deadlock: " lines.
 `;
 
 export function run(argv: readonly string[], deps: CliDeps): CliResult {

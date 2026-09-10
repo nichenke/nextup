@@ -31,11 +31,12 @@ export type BlockingCycle = NonEmpty<IssueId>;
 export function findBlockingCycles(nodes: Iterable<IssueId>, graph: DependencyGraph): readonly BlockingCycle[] {
 	const within = new Set(nodes);
 	const blockersOf = memoizedBlockers(within, graph);
+	const looping = loopingNodes(within, blockersOf);
 
 	const cycles: BlockingCycle[] = [];
 	const reported = new Set<IssueId>();
 	for (const start of [...within].sort()) {
-		if (reported.has(start)) continue;
+		if (!looping.has(start) || reported.has(start)) continue;
 		const cycle = shortestCycleThrough(start, blockersOf);
 		if (cycle === null) continue;
 		cycles.push(cycle);
@@ -45,10 +46,72 @@ export function findBlockingCycles(nodes: Iterable<IssueId>, graph: DependencyGr
 }
 
 /**
- * One walk begins at every ticket no earlier cycle named, and they cross the same nodes, so a node's edges
- * are asked for once per walk that reaches it — quadratic in the ticket set. Held for the duration of one
- * call instead: a thousand tickets each blocked by twenty, with no cycle to stop a walk early, measured
- * 469ms without this and 72ms with it.
+ * The tickets that lie on some cycle, which is a property of the strongly connected components: a component
+ * of more than one ticket is mutually reachable and therefore looping, and a lone ticket loops only by
+ * blocking itself.
+ *
+ * This is what keeps a healthy ticket set cheap. Walking from every ticket costs a traversal per ticket, and
+ * a set with no cycle in it pays that in full to find nothing — a thousand tickets each blocked by twenty
+ * measured 202ms. One pass over the edges here answers which tickets can be on a cycle at all, and the walks
+ * below start only at those. The answer is unchanged: every cycle through a ticket lies inside that ticket's
+ * own component, so a ticket in none of them had no cycle to report.
+ *
+ * Iterative rather than recursive (Tarjan, 1972): the depth is the ticket set's, and a tracker's own limit is
+ * what bounds that rather than anything here.
+ */
+function loopingNodes(within: ReadonlySet<IssueId>, blockersOf: (node: IssueId) => readonly IssueId[]): Set<IssueId> {
+	const looping = new Set<IssueId>();
+	const index = new Map<IssueId, number>();
+	const low = new Map<IssueId, number>();
+	const open: IssueId[] = [];
+	const isOpen = new Set<IssueId>();
+	let counter = 0;
+
+	const enter = (node: IssueId): { node: IssueId; edges: readonly IssueId[]; at: number } => {
+		index.set(node, counter);
+		low.set(node, counter);
+		counter++;
+		open.push(node);
+		isOpen.add(node);
+		return { node, edges: blockersOf(node), at: 0 };
+	};
+
+	for (const root of within) {
+		if (index.has(root)) continue;
+		const walk = [enter(root)];
+		while (walk.length > 0) {
+			const frame = walk[walk.length - 1]!;
+			if (frame.at < frame.edges.length) {
+				const blocker = frame.edges[frame.at++]!;
+				if (!index.has(blocker)) walk.push(enter(blocker));
+				else if (isOpen.has(blocker)) low.set(frame.node, Math.min(low.get(frame.node)!, index.get(blocker)!));
+				continue;
+			}
+
+			walk.pop();
+			const caller = walk[walk.length - 1];
+			if (caller !== undefined) low.set(caller.node, Math.min(low.get(caller.node)!, low.get(frame.node)!));
+			if (low.get(frame.node) !== index.get(frame.node)) continue;
+
+			const component: IssueId[] = [];
+			for (let member = open.pop()!; ; member = open.pop()!) {
+				isOpen.delete(member);
+				component.push(member);
+				if (member === frame.node) break;
+			}
+			const alone = component.length === 1 ? component[0]! : null;
+			if (alone === null) for (const member of component) looping.add(member);
+			else if (blockersOf(alone).includes(alone)) looping.add(alone);
+		}
+	}
+	return looping;
+}
+
+/**
+ * The component pass and every walk ask the same tickets for their edges, and `graph.blockers` copies its
+ * list on the way out, so the reads are held for the length of one call. On a thousand tickets in a single
+ * component that measured 26.8ms without this against 10.0ms with it, and 104.8ms against 61.7ms where the
+ * blocking is dense enough to make the copies the cost.
  *
  * Safe against the one implementation there is: `seedGraph` answers from a map it built and copies on the
  * way out, so asking twice cannot differ. The port promises no such thing — `DependencyGraph` says only that
@@ -82,8 +145,7 @@ function confirmedBlockers(node: IssueId, within: ReadonlySet<IssueId>, graph: D
  * than whichever longer one a depth-first walk wandered into.
  *
  * Bounded by the graph: a node is enqueued once, and `start` is never re-enqueued because reaching it
- * returns. Dequeued by moving a head index rather than by `shift`, which recopies the queue each time: on
- * the same thousand-ticket set that costs a further 72ms against 58ms, and it grows with blocker degree.
+ * returns.
  */
 function shortestCycleThrough(
 	start: IssueId,
@@ -91,8 +153,8 @@ function shortestCycleThrough(
 ): BlockingCycle | null {
 	const from = new Map<IssueId, IssueId>();
 	const queue: IssueId[] = [start];
-	for (let head = 0; head < queue.length; head++) {
-		const node = queue[head]!;
+	while (queue.length > 0) {
+		const node = queue.shift()!;
 		for (const blocker of blockersOf(node)) {
 			if (blocker === start) return walkBack(node, start, from);
 			if (from.has(blocker)) continue;
