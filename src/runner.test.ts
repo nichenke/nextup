@@ -20,10 +20,10 @@ describe("defaultRunner", () => {
 
 	// A signal-killed child has no exit code, and `code` is a number — `worktree.ts` puts it in front of a
 	// user. SIGABRT rather than any signal because that is how git dies on a `BUG:` assertion.
-	test("gives a signal-killed command a number for a code, and names the signal", () => {
+	test("gives a signal-killed command the code a shell would, and names the signal", () => {
 		const result = defaultRunner(["bash", "-c", "kill -ABRT $$"]);
-		expect(result.code).not.toBeNull();
-		expect(result.code).not.toBe(0);
+		// 134, not a sentinel: git's own fatal exit is 128, so a stand-in there would be unreadable beside it.
+		expect(result.code).toBe(134);
 		expect(result.stderr).toContain("SIGABRT");
 	});
 });

@@ -61,7 +61,7 @@ variable pointing at `<other>`. Testing one command and generalising is the faul
 | `GIT_DIR`, `GIT_COMMON_DIR` | origin read, `worktree list`, `--git-common-dir`, and `worktree add` all answered for `<other>`; the worktree it created went there |
 | `GIT_WORK_TREE` | the identity `rev-parse` alone reported `<other>` as the worktree root |
 | `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM` | the origin read returned `<other>`'s URL |
-| `GIT_REPLACE_REF_BASE` | `worktree add` aborted on a `BUG:` assertion in git, exit 134 — no redirect, but a crash the tool would report as an ordinary failure |
+| `GIT_REPLACE_REF_BASE` | `worktree add` aborted on a `BUG:` assertion in git, exit 134 — no redirect, but a crash. The runner reports a signalled death as 128 plus the signal number, which is where that 134 comes from |
 | the other fourteen tried | no answer changed |
 
 The fourteen: `GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_INDEX_FILE`, `GIT_NAMESPACE`,
@@ -126,10 +126,17 @@ is empty" and "git is broken" are not the same report:
   produced no worktree lands. Reported as a listing failure rather than as a claim about the contents — under
   `CLAUDE.md`'s ordering this step runs before any dependency install, so a broken image reaches it first.
 - nothing tracked, where a pass would mean nothing.
-- a tracked file the scan cannot read, which is a sparse checkout. `ls-files` counts it and `grep` skips it,
-  so the guard passed on the subset that was materialised — measured with the identifier in the excluded file.
-  Sparse checkouts are denied rather than reported on: nothing in this repository needs one, CI takes the whole
-  tree, and a guard that cannot read a file cannot vouch for it.
+- a sparse checkout, where `ls-files` counts a tracked file that is not in the worktree and `grep` skips it, so
+  the guard passed on the subset that was materialised — measured with the identifier in the excluded file.
+  Denied rather than reported on: nothing in this repository needs one, and CI takes the whole tree. Asked of
+  `core.sparseCheckout` rather than inferred from a file being absent, because an unstaged deletion looks
+  identical on disk and refusing that would refuse an everyday tree; a file merely deleted is scanned as the
+  absence it is, which `ADR-0006`'s "the files as they stood when it ran" already scopes.
+
+Separately, the scan now passes `--` to `grep`. A tracked filename may begin with a hyphen, and `git ls-files`
+happily reports one: with a file named `-d`, BSD `grep` rejected its own argument list, `2>/dev/null` ate the
+error, `|| true` ate the status, and the guard printed `ok` over the identifier inside it. Measured. This is
+older than the work here, but a change claiming whole-tree coverage owns it.
 
 Together these make the `GIT_` removal above a second line of defence rather than the only one.
 
@@ -158,14 +165,17 @@ current directory: asking "which repository am I in" is its purpose, and a scrub
 answer the directory rather than an inherited variable. Under 0026 the same situation threw instead.
 
 A variable can also carry configuration rather than a location, and that is removed too. The case that matters
-is a
-container running as a uid that does not own the checkout, where
-`GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='*'` is how trust is granted when there
-is no writable global config. Under 0026 that environment ran; here every command loses the grant and fails at
-128 with `detected dubious ownership`, which this tool would report as a checkout it cannot read. It is a real
-cost of the prefix rule and it is accepted rather than carved out: a keep-list for the trio would be the
-enumerated list again, in the place hardest to reason about, since the trio can set *any* key. Nothing runs
-that way today. The notice says what was removed and that its configuration went with it, and deliberately
+is a checkout owned by another uid, where
+`GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=<path>` is how trust is granted when
+there is no writable global config. Measured against a repository owned by another user on this machine: with
+the grant, `rev-parse --show-toplevel` answers; with the same grant through this runner, 128 and
+`fatal: detected dubious ownership`, which the tool reports as a checkout it cannot read. Under 0026 that
+environment ran.
+
+It is a real cost of the prefix rule and it is accepted rather than carved out: a keep-list for the trio would
+be the enumerated list again, in the place hardest to reason about, since the trio can set *any* key. The
+recovery is `git config --global --add safe.directory <path>`, which nothing here strips, because `HOME` carries
+no `GIT_` prefix. The notice says what was removed and that its configuration went with it, and deliberately
 does not advise unsetting — in this case the variable is the only reason git works.
 
 `GIT_CONFIG_PARAMETERS`, which git exports to hooks, reaches `git config --get remote.origin.url` but not

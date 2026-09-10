@@ -39,10 +39,11 @@ if [ -z "$tracked" ]; then
 	exit 1
 fi
 
-# A tracked file the scan cannot read is scanned as absent, so a sparse checkout passes on the subset it
-# materialised. Denied rather than reported on: nothing here needs one, and CI takes the whole tree.
-if ! git ls-files -z | xargs -0 ls >/dev/null 2>&1; then
-	printf 'check-identifiers: a tracked file is not readable, so a scan would cover part of the tree\n' >&2
+# A sparse checkout keeps tracked files out of the worktree, so the scan reads a subset and passes -- measured
+# with the identifier in the excluded file. Asked of git rather than inferred from a file being absent, because
+# an unstaged deletion looks identical on disk and is an everyday state, not a reason to refuse.
+if [ "$(git config --get core.sparseCheckout || true)" = "true" ]; then
+	printf 'check-identifiers: this is a sparse checkout, so a scan would cover part of the tree\n' >&2
 	exit 1
 fi
 
@@ -124,7 +125,10 @@ PATTERN='([a-z][a-z0-9+.-]*://[^[:space:]]+)|([A-Za-z0-9._%+/-]+@[A-Za-z0-9.-]*\
 # segment has to become a slash before the segment is a URL worth splitting out. It also means a
 # comment in this file cannot quote an escaped-slash URL -- normalization would turn the quote into
 # a real one and the guard would flag its own source.
-normalized=$(git ls-files -z | xargs -0 grep -Ih '' 2>/dev/null |
+# `--` because a tracked filename may begin with a hyphen, which grep would otherwise read as an option: a
+# file named `-d` made BSD grep reject its own argument list, the error went to /dev/null, and the guard
+# printed `ok` over the identifier inside it. Measured.
+normalized=$(git ls-files -z | xargs -0 grep -Ih '' -- 2>/dev/null |
 	awk '{ gsub(/\\\//, "/"); gsub(/\\[nrt]/, "\n"); print }' || true)
 
 # Surrounding markup travels with a token: a markdown link wraps it in parentheses, prose ends it

@@ -108,15 +108,34 @@ describe("check-identifiers under a redirected git environment", () => {
 		expect(result.stderr.toString()).toContain("internal.corp.test");
 	});
 
-	// A sparse checkout lists a tracked file the scan cannot read, so it would pass on the subset it
+	// A sparse checkout keeps a tracked file out of the worktree, so the scan would pass on the subset it
 	// materialised — with the excluded file carrying the identifier.
 	test("refuses a sparse checkout, rather than scanning the part of the tree it has", () => {
-		const root = repositoryWith({ "keep/a.md": "clean\n", [`drop/b.md`]: `leak at ${unknownHttpsUrl}\n` });
+		const root = repositoryWith({ "keep/a.md": "clean\n", "drop/b.md": `leak at ${unknownHttpsUrl}\n` });
 		expect(defaultRunner(["git", "-C", root, "sparse-checkout", "init", "--cone"]).code).toBe(0);
 		expect(defaultRunner(["git", "-C", root, "sparse-checkout", "set", "keep"]).code).toBe(0);
 		const result = guardIn(root);
 		expect(result.exitCode).toBe(1);
-		expect(result.stderr.toString()).toContain("not readable");
+		expect(result.stderr.toString()).toContain("sparse checkout");
+	});
+
+	// A tracked file absent from the worktree is indistinguishable from a sparse one on disk, and deleting a
+	// file without staging it is an everyday state. The scan covers what is there rather than refusing.
+	test("scans a tree with a tracked file deleted but not staged", () => {
+		const root = repositoryWith({ "a.md": "clean\n", "b.md": `leak at ${unknownHttpsUrl}\n` });
+		rmSync(join(root, "a.md"));
+		const result = guardIn(root);
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr.toString()).toContain("internal.corp.test");
+	});
+
+	// `xargs` reads a leading hyphen as an option, so the scan rejected its own argument list, the error went
+	// to /dev/null and the guard passed over the file.
+	test("scans a tracked file whose name begins with a hyphen", () => {
+		const root = repositoryWith({ "-d": `leak at ${unknownHttpsUrl}\n` });
+		const result = guardIn(root);
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr.toString()).toContain("internal.corp.test");
 	});
 
 	test("scans the fixture rather than reporting ok on nothing", () => {

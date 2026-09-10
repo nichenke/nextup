@@ -1,4 +1,5 @@
 import { spawnSync } from "bun";
+import { constants } from "node:os";
 
 export interface CommandResult {
 	code: number;
@@ -8,8 +9,16 @@ export interface CommandResult {
 
 export type Runner = (argv: string[]) => CommandResult;
 
-/** Stands in for the exit code a child killed by a signal does not have. 127 already means "no such binary". */
-const KILLED_BY_SIGNAL = 128;
+/**
+ * The exit code a shell reports for a child killed by `signal`, which is the convention every caller already
+ * reads that way — 134 for `SIGABRT`, the code ADR-0029 measured `git worktree add` aborting with. Taken from
+ * the platform's own table rather than a list here, so an unlisted signal cannot come out as a wrong number.
+ */
+function signalledExitCode(signal: string): number {
+	const numbers: Record<string, number | undefined> = constants.signals;
+	// 128 alone for a name the table does not hold: still non-zero, and the name itself reaches stderr.
+	return 128 + (numbers[signal] ?? 0);
+}
 
 /**
  * The runner refusing to run anything at all, as against a command that ran and failed. Its own class so a
@@ -58,10 +67,11 @@ function reportRemovals(names: readonly string[]): void {
 	if (removalsReported || names.length === 0) return;
 	removalsReported = true;
 	const one = names.length === 1;
-	// Deliberately no "unset them" advice: a removed variable may have carried the only configuration that
-	// makes git work here. ADR-0029.
+	// Says what the class can do, not what these names did: the whole prefix goes, and most of it was measured
+	// as changing no answer. Deliberately no "unset them" advice — a removed variable may have carried the only
+	// configuration that makes git work here. ADR-0029.
 	process.stderr.write(
-		`${names.join(", ")} ${one ? "was" : "were"} removed from the environment of every git command: an inherited GIT_ variable answers for a repository this tool did not ask about. Anything ${one ? "it" : "they"} configured is gone with ${one ? "it" : "them"}.\n`,
+		`${names.join(", ")} ${one ? "was" : "were"} removed from the environment of every git command, because a GIT_ variable can answer for a repository this tool did not ask about and the whole class goes rather than a list of names. Anything ${one ? "it" : "they"} configured is gone with ${one ? "it" : "them"}.\n`,
 	);
 }
 
@@ -80,7 +90,7 @@ export const defaultRunner: Runner = (argv) => {
 		// the message a user reads, where `null` names nothing. The signal goes to stderr so neither is lost.
 		const signal = result.signalCode;
 		return {
-			code: result.exitCode ?? KILLED_BY_SIGNAL,
+			code: signal ? signalledExitCode(signal) : (result.exitCode ?? 0),
 			stdout: result.stdout.toString(),
 			stderr: signal ? `${result.stderr.toString()}killed by ${signal}\n` : result.stderr.toString(),
 		};
