@@ -174,12 +174,20 @@ describe("the command line itself", () => {
 	// Help is what a person reaches for after getting a flag wrong, so it cannot be conditional on the rest of
 	// the line parsing: judged in order, each of these was a usage error on stderr instead.
 	test("answers a help request even when another flag on the line is wrong", () => {
-		for (const argv of [["--help", "--limit"], ["--limit", "--help"], ["--bogus", "-h"]]) {
+		for (const argv of [["--help", "--limit"], ["--limit", "--help"], ["--bogus", "-h"], ["--json", "-h"]]) {
 			const result = run(argv, deps());
 			expect(result.code).toBe(0);
 			expect(result.stdout).toContain("usage: nextup");
 			expect(result.stderr).toBe("");
 		}
+	});
+
+	// `-h` is a label a repository may really carry, and the filter accepts it, so this line is a read. Scanning
+	// the whole argv for help swallowed it and printed usage for an invocation that asked to select a ticket.
+	test("reads a label that happens to be spelled like the help flag", () => {
+		const result = run(["--include", "-h"], deps(inTestTree(() => ({ code: 0, stdout: "[]", stderr: "" }))));
+		expect(result.stdout).not.toContain("usage: nextup");
+		expect(result.code).toBe(1);
 	});
 
 	test("refuses a limit no read could use, before any read happens", () => {

@@ -124,10 +124,10 @@ The adapter still refuses to default a limit — a default is a claim about some
 adapter has no standing to make one. The command does, because a bare `nextup` is what the spec's user
 stories ask for, and a tool that demands a row count before it will answer is not that.
 
-The claim it makes is that a repository with more than about two hundred *open* tickets wants a narrower
-query rather than a longer read. A read that hits the limit reports itself truncated rather than answering
-as though it were whole; `--limit` overrides it, and the honest response to the truncation sentinel is
-`--include`, not a bigger number.
+The claim it makes is that a repository with more than about two hundred *open* tickets is one whose oldest
+open work this tool will not consider until asked. A read that hits the limit reports itself truncated rather
+than answering as though it were whole, and a bigger `--limit` is what answers that — see above for why
+`--include` is not, despite what this section said until a reviewer caught it.
 
 199 rather than 200, because the read asks for one row more than the limit to detect a cap, and `gh` pages
 at a hundred. Measured against a large repository with `GH_DEBUG=api`: `--limit 200` costs two GraphQL

@@ -79,9 +79,7 @@ could not be reached is reported as a degraded answer with nothing to recommend,
 `;
 
 export function run(argv: readonly string[], deps: CliDeps): CliResult {
-	// Before parsing, because help is what a person reaches for *after* getting a flag wrong: parsing first
-	// turned `nextup --limit --help` into a usage error on stderr.
-	if (argv.some((word) => word === "--help" || word === "-h")) return { code: 0, stdout: USAGE, stderr: "" };
+	if (asksForHelp(argv)) return { code: 0, stdout: USAGE, stderr: "" };
 
 	let options: Options;
 	try {
@@ -144,6 +142,37 @@ interface Options {
 	readonly filter: LabelFilterSpec;
 }
 
+/**
+ * The flags whose next word is a value rather than a flag. Must list exactly the cases below that call
+ * `value`, because `asksForHelp` reads this to know which words are not flags at all.
+ */
+const VALUE_FLAGS: ReadonlySet<string> = new Set(["--include", "--exclude", "--limit"]);
+
+/**
+ * Whether the line asks for help, answered before the rest of it is judged: help is what a person reaches
+ * for *after* getting a flag wrong, and parsing first turned `nextup --limit --help` into a usage error.
+ *
+ * A word standing in as a flag's value is skipped, because `-h` is a label a repository may really carry and
+ * `--include -h` is then a read rather than a request for help. `--help` in that position still asks for
+ * help: `canBeValue` refuses it as a value, so no read could have used it either way.
+ */
+function asksForHelp(argv: readonly string[]): boolean {
+	for (let i = 0; i < argv.length; i++) {
+		const word = argv[i]!;
+		if (VALUE_FLAGS.has(word) && canBeValue(argv[i + 1])) {
+			i++;
+			continue;
+		}
+		if (word === "--help" || word === "-h") return true;
+	}
+	return false;
+}
+
+/** A flag's value is anything but another long flag, which is the rule `value` enforces. */
+function canBeValue(word: string | undefined): word is string {
+	return word !== undefined && !word.startsWith("--");
+}
+
 function parse(argv: readonly string[]): Options {
 	let json = false;
 	let yes = false;
@@ -201,7 +230,7 @@ function tickets(given: string, flag: string): number {
 
 function value(argv: readonly string[], index: number, flag: string): string {
 	const given = argv[index];
-	if (given === undefined || given.startsWith("--")) {
+	if (!canBeValue(given)) {
 		throw new CliError(`${flag} needs a value`);
 	}
 	return given;
