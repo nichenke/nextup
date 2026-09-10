@@ -26,9 +26,9 @@ bun bin/nextup.ts --print-command       # print the session command, starting no
 bun bin/nextup.ts --help                # every flag
 ```
 
-The session runs in a cmux workspace. Starting writes in three places — the worktree, the claim, then the
-session — and nothing unwinds. A workspace host that is not running is refused before any of them, with no
-fallback. "Design in one screen" below has both, and the decisions behind them.
+The session runs in a cmux workspace, and cmux is required rather than optional: a host that does not answer
+fails the run, with no fallback. Starting writes in three places — the worktree, the claim, then the session —
+and nothing unwinds. "Design in one screen" below has both, and the decisions behind them.
 
 Only open tickets are read, and the counts line says `closed not asked` rather than reporting a zero as a
 count. The window is the most recently created open tickets, so a backlog larger than `--limit` never
@@ -69,10 +69,8 @@ refused rather than answered on your behalf. Declining exits 0 — the gate did 
 needs to know whether a session started passes `--yes` and reads the `start` object under `--json`.
 
 `--print-command` starts nothing, creates nothing, claims nothing, and never asks. It prints the session
-command after the answer, and `--json --print-command` carries it as `start.command`. It is both the
-sandbox-safe bridge
-([ADR-0002](./docs/adr/0002-pure-selector-separate-launcher.md)) and what to reach for when the workspace
-host is down.
+command after the answer, and `--json --print-command` carries it as `start.command`. It is the sandbox-safe
+bridge — [ADR-0002](./docs/adr/0002-pure-selector-separate-launcher.md) has why the tool is split that way.
 
 - [The spec](https://github.com/nichenke/nextup/issues/2) — problem, solution, user stories, and the
   phased delivery
@@ -105,9 +103,9 @@ doing.
 
 That ordering covers a failed claim, and not a session that cannot start: a dead workspace host would strand
 both a worktree and a claim behind it. So the host is asked before either write, and a host that does not
-answer is refused rather than fallen back from —
+answer fails the run —
 [ADR-0035](./docs/adr/0035-a-workspace-host-that-is-not-running-is-refused-before-anything-is-written.md)
-has why both available fallbacks were worse, and why that check narrows the window rather than closing it.
+has why there is no fallback.
 
 Where the session fails anyway, re-running is *not* the recovery. The claim has landed by then, and a claimed
 ticket is not a candidate, so the next run would pick a different ticket and leave this one claimed with

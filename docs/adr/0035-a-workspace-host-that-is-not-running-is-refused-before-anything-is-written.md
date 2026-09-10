@@ -54,9 +54,11 @@ release path, and the release is itself a call that can fail.
 This is the one place the launch step narrows what 0016 promised, and it is a property of ordering rather than
 of this decision: any third write after the claim would reach it.
 
-`--print-command` becomes the answer for an operator whose host is down, rather than only the sandbox-safe
-path [0002](./0002-pure-selector-separate-launcher.md) describes. It is the same output either way; what
-changes is that it is now named in the refusal, so the message leaves a person with something to do.
+The refusal prescribes nothing. A host that does not answer reports what the probe said and stops, without
+offering `--print-command` or any other route: the host is expected to be running — a run is most often
+started from inside a session on it — so this path is a genuine failure rather than a situation to be
+navigated, and advice written for it would be advice nobody reads. `--print-command` stays what
+[0002](./0002-pure-selector-separate-launcher.md) made it, the sandbox-safe bridge.
 
 `formatCommand` acquires an executed caller, and its documentation had to be corrected rather than
 extended: the claim that a formatted line is never what the tool executes was true when written and is

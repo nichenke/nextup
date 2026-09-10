@@ -42,11 +42,10 @@ describe("requireWorkspaceHost", () => {
 		expect(calls).toEqual([[...workspaceHostAliveCommand()]]);
 	});
 
-	// ADR-0035: there is no fallback, so the message is all a person gets.
-	test("refuses a host that does not answer, and says what to do instead", () => {
+	test("refuses a host that does not answer, reporting what the probe said and nothing more", () => {
 		const dead = fakeRunner({ code: 1, stdout: "", stderr: "connect: no such file or directory" });
 		expect(() => requireWorkspaceHost(dead)).toThrow(LaunchError);
-		expect(() => requireWorkspaceHost(dead)).toThrow(/--print-command/);
+		expect(() => requireWorkspaceHost(dead)).toThrow(/no such file or directory/);
 	});
 
 	test("reports a host that failed silently rather than aborting on an empty reason", () => {

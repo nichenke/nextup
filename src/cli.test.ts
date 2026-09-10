@@ -417,7 +417,7 @@ describe("a start that could not finish", () => {
 		);
 		const result = run([...LIMIT, "--yes"], deps(runner));
 		expect(result.code).toBe(2);
-		expect(result.stderr).toContain("--print-command");
+		expect(result.stderr).toContain("no such file or directory");
 		expect(of("worktree", "add")).toEqual([]);
 		expect(of("issue", "edit")).toEqual([]);
 	});

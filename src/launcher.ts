@@ -35,11 +35,11 @@ export function planLaunch(input: LaunchPlanInput): LaunchPlan {
 }
 
 /**
- * Refuses the run unless the workspace host is there to start a session in.
+ * Refuses the run unless the workspace host answers.
  *
- * Asked before the worktree and the claim, which is the whole reason it is a separate call rather than part
- * of `launch`. It narrows that window and does not close it: the host can still go away before `launch`,
- * where the creation's own exit status is the verdict. ADR-0035 has why, and why there is no fallback.
+ * Asked before the worktree and the claim, which is the whole reason it is a separate call rather than part of
+ * `launch` — a host that will not serve should not leave those two behind. ADR-0035 has why there is no
+ * fallback.
  *
  * @throws LaunchError when the host does not answer.
  */
@@ -47,9 +47,7 @@ export function requireWorkspaceHost(runner: Runner): void {
 	const argv = workspaceHostAliveCommand();
 	const result = runner([...argv]);
 	if (result.code === 0) return;
-	throw new LaunchError(
-		`${formatCommand(argv)} did not answer, so there is no workspace host to start a session in: ${failureDetail(result)}. Start it and run this again. --print-command gives the session command instead, but it makes no worktree, so run it somewhere you meant to work rather than in the checkout you are standing in.`,
-	);
+	throw new LaunchError(`${formatCommand(argv)} failed, so nothing was started: ${failureDetail(result)}`);
 }
 
 export interface LaunchInput {

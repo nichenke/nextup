@@ -97,9 +97,8 @@ blockers nothing could confirm is worth knowing about before you claim it. --yes
 unattended run. With neither a terminal to ask on nor --yes, the run is refused rather than answered on
 your behalf. --print-command never asks, because it starts nothing.
 
-There is no fallback when the workspace host is not running: the run is refused, before the worktree and
-the claim. Start the host and run again. --print-command gives the session command instead, but it makes no
-worktree, so it is not the same thing as having started the work.
+A workspace host that does not answer is a failure, not a fallback: the run stops, before the worktree and
+the claim.
 
 Only open tickets are read, so the limit is spent on tickets a pick can come from. The window is the most
 recently created of them, so a repository with more open tickets than the limit never considers its oldest
