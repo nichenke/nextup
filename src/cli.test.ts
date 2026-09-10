@@ -95,6 +95,8 @@ describe("run, over a ticket set read from GitHub", () => {
 		expect(result.code).toBe(1);
 		expect(result.stdout).toContain("no candidate to recommend");
 		expect(sentinelLines(result.stdout).some((line) => line.includes("could not be read"))).toBe(true);
+		// The path where nothing was read at all, so the one a zero would misdescribe worst.
+		expect(result.stdout).toContain("closed not asked");
 	});
 
 	test("refuses a read that is itself wrong, rather than reporting it as a quiet day", () => {
@@ -166,6 +168,36 @@ describe("the command line itself", () => {
 		const result = run(["gh:1"], deps());
 		expect(result.code).toBe(2);
 		expect(result.stderr).toContain("gh:1");
+	});
+
+	test("answers a help request even when another flag on the line is wrong", () => {
+		for (const argv of [["--help", "--limit"], ["--limit", "--help"], ["--bogus", "-h"], ["--json", "-h"]]) {
+			const result = run(argv, deps());
+			expect(result.code).toBe(0);
+			expect(result.stdout).toContain("usage: nextup");
+			expect(result.stderr).toBe("");
+		}
+	});
+
+	test("reads a label that happens to be spelled like the help flag", () => {
+		const result = run(["--include", "-h"], deps(inTestTree(() => ({ code: 0, stdout: "[]", stderr: "" }))));
+		expect(result.stdout).not.toContain("usage: nextup");
+		expect(result.code).toBe(1);
+	});
+
+	// The same word after a flag that could never use it. A limit is digits, so `-h` there is the help request
+	// it looks like rather than a value, and skipping it made this the one bad-flag case help did not answer.
+	test("answers help after a flag whose value it could not have been", () => {
+		const result = run(["--limit", "-h"], deps());
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain("usage: nextup");
+	});
+
+	// The guard against over-correcting: a bad limit that is not a help request is still a usage error.
+	test("refuses a mistyped limit that asks for nothing", () => {
+		const result = run(["--limit", "abc"], deps());
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("--limit");
 	});
 
 	test("refuses a limit no read could use, before any read happens", () => {

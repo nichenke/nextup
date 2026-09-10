@@ -79,9 +79,7 @@ could not be reached is reported as a degraded answer with nothing to recommend,
 `;
 
 export function run(argv: readonly string[], deps: CliDeps): CliResult {
-	// Before parsing, because help is what a person reaches for *after* getting a flag wrong: parsing first
-	// turned `nextup --limit --help` into a usage error on stderr.
-	if (argv.some((word) => word === "--help" || word === "-h")) return { code: 0, stdout: USAGE, stderr: "" };
+	if (asksForHelp(argv)) return { code: 0, stdout: USAGE, stderr: "" };
 
 	let options: Options;
 	try {
@@ -137,7 +135,6 @@ function failedAnswer(cause: unknown): CliResult {
 class CliError extends Error {}
 
 interface Options {
-	readonly help: boolean;
 	readonly json: boolean;
 	readonly yes: boolean;
 	readonly printCommand: boolean;
@@ -145,8 +142,49 @@ interface Options {
 	readonly filter: LabelFilterSpec;
 }
 
+/**
+ * What each value-taking flag could actually use as its value, asked per flag rather than in general: a label
+ * may be spelled almost anything, including `-h`, while a limit is only ever digits. Must hold exactly the
+ * cases below that call `value`.
+ */
+const VALUE_FLAGS: ReadonlyMap<string, (word: string) => boolean> = new Map([
+	["--include", canBeValue],
+	["--exclude", canBeValue],
+	["--limit", isTicketCount],
+]);
+
+/**
+ * Whether the line asks for help, answered before the rest of it is judged: help is what a person reaches
+ * for *after* getting a flag wrong, so `nextup --limit --help` must not come back a usage error.
+ *
+ * A word the preceding flag could really use is skipped, so `--include -h` is a read of a repository whose
+ * label is spelled `-h`. The question is per flag and not just "is this a flag": `-h` cannot be a limit, so
+ * `--limit -h` is a help request beside a mistyped value rather than a value.
+ */
+function asksForHelp(argv: readonly string[]): boolean {
+	for (let i = 0; i < argv.length; i++) {
+		const word = argv[i]!;
+		const usable = VALUE_FLAGS.get(word);
+		const next = argv[i + 1];
+		if (usable !== undefined && next !== undefined && usable(next)) {
+			i++;
+			continue;
+		}
+		if (word === "--help" || word === "-h") return true;
+	}
+	return false;
+}
+
+function canBeValue(word: string | undefined): word is string {
+	return word !== undefined && !word.startsWith("--");
+}
+
+/** Digits only, which is what `tickets` accepts, so the two cannot disagree about what a limit looks like. */
+function isTicketCount(word: string): boolean {
+	return /^[0-9]+$/.test(word);
+}
+
 function parse(argv: readonly string[]): Options {
-	let help = false;
 	let json = false;
 	let yes = false;
 	let printCommand = false;
@@ -157,10 +195,6 @@ function parse(argv: readonly string[]): Options {
 	for (let i = 0; i < argv.length; i++) {
 		const flag = argv[i]!;
 		switch (flag) {
-			case "--help":
-			case "-h":
-				help = true;
-				break;
 			case "--json":
 				json = true;
 				break;
@@ -186,7 +220,7 @@ function parse(argv: readonly string[]): Options {
 
 	// The default exclusion is a floor, not a starting point a filter flag replaces: `--include backend`
 	// would otherwise hand out a wayfinder ticket labelled `backend`.
-	return { help, json, yes, printCommand, limit, filter: { include, exclude: [...DEFAULT_LABEL_FILTER.exclude, ...exclude] } };
+	return { json, yes, printCommand, limit, filter: { include, exclude: [...DEFAULT_LABEL_FILTER.exclude, ...exclude] } };
 }
 
 /**
@@ -198,7 +232,7 @@ function parse(argv: readonly string[]): Options {
  * saying so.
  */
 function tickets(given: string, flag: string): number {
-	const limit = /^[0-9]+$/.test(given) ? Number(given) : Number.NaN;
+	const limit = isTicketCount(given) ? Number(given) : Number.NaN;
 	if (!isReadableLimit(limit)) {
 		throw new CliError(`${flag} takes a whole number of tickets above zero, and ${given} is not one`);
 	}
@@ -207,7 +241,7 @@ function tickets(given: string, flag: string): number {
 
 function value(argv: readonly string[], index: number, flag: string): string {
 	const given = argv[index];
-	if (given === undefined || given.startsWith("--")) {
+	if (!canBeValue(given)) {
 		throw new CliError(`${flag} needs a value`);
 	}
 	return given;
