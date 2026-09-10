@@ -1,0 +1,444 @@
+import { describe, expect, test } from "bun:test";
+import { seedGraph } from "./graph-store";
+import { DEFAULT_LABEL_FILTER, compileLabelFilter } from "./label-filter";
+import {
+	type CheckResult,
+	type LiveCheckInput,
+	type LiveObservation,
+	type LiveTracker,
+	type Verdict,
+	checkLive,
+	checkLiveTracker,
+	heldEverywhere,
+} from "./live-invariants";
+import { type Ticket, ticketId } from "./ticket";
+import type { TicketRef } from "./ticket-ref";
+import type { TicketSetRead } from "./ticket-set-read";
+
+const REPO = "example/repo";
+const FILTER = compileLabelFilter(DEFAULT_LABEL_FILTER);
+/** One address for every ticket: no check reads it, and the guard's allowlist holds this spelling verbatim. */
+const ISSUE_URL = "https://example.com/example/repo/issues/1";
+
+function ref(key: string, repo = REPO): TicketRef {
+	return { tracker: "github", repo, host: null, key };
+}
+
+interface Shape {
+	readonly key: string;
+	readonly claimed?: boolean;
+	readonly labels?: readonly string[];
+	/** Each blocker as its key and whether it is open; a key outside `SHAPES` is a blocker outside the set. */
+	readonly blockers?: readonly (readonly [string, boolean])[];
+}
+
+/**
+ * The hand-authored world every case below starts from: a bare frontier ticket, one blocked by an open ticket
+ * in the set, one freed by a closed blocker outside it, a claimed one and a filtered one.
+ *
+ * Authored rather than recorded because every shape here is ours by definition — `Ticket`, `TicketSetRead` and
+ * `LiveObservation` — and none of it claims anything about what a tracker emits. CLAUDE.md's fixture provenance
+ * rule draws that line, and `scenario.ts`'s inputs sit on the same side of it.
+ */
+const SHAPES: readonly Shape[] = [
+	{ key: "1" },
+	{ key: "2", blockers: [["3", true]] },
+	{ key: "3" },
+	{ key: "4", blockers: [["9", false]] },
+	{ key: "8", claimed: true },
+	{ key: "10", labels: ["needs-triage"] },
+];
+
+function ticketOf(shape: Shape): Ticket {
+	return {
+		ref: ref(shape.key),
+		title: `ticket ${shape.key}`,
+		state: "open",
+		claim: shape.claimed === true ? { by: "nichenke" } : null,
+		blockers: (shape.blockers ?? []).map(([key]) => ref(key)),
+		url: ISSUE_URL,
+		labels: shape.labels ?? [],
+	};
+}
+
+function observationOf(shape: Shape): LiveObservation {
+	return {
+		ref: ref(shape.key),
+		claimed: shape.claimed === true,
+		labels: shape.labels ?? [],
+		blockers: (shape.blockers ?? []).map(([key, open]) => ({ ref: ref(key), open })),
+	};
+}
+
+/** The read as the adapter would have produced it: a seed per ticket, plus one per blocker outside the set. */
+function readOf(shapes: readonly Shape[]): TicketSetRead {
+	const tickets = shapes.map(ticketOf);
+	const own = new Set(tickets.map((ticket) => ticketId(ticket.ref)));
+	const outside = new Map<string, boolean>();
+	for (const shape of shapes) {
+		for (const [key, open] of shape.blockers ?? []) {
+			if (!own.has(ticketId(ref(key)))) outside.set(key, open);
+		}
+	}
+	return {
+		tickets,
+		graph: seedGraph([
+			...tickets.map((ticket) => ({
+				id: ticketId(ticket.ref),
+				parent: null,
+				blockers: ticket.blockers === "unknown" ? ("unknown" as const) : ticket.blockers.map(ticketId),
+				open: true,
+			})),
+			...[...outside].map(([key, open]) => ({ id: ticketId(ref(key)), parent: null, blockers: "unknown" as const, open })),
+		]),
+		truncated: false,
+		openOnly: true,
+		degraded: [],
+	};
+}
+
+/** The same tickets read with no blocking field in the response, which is what `readBlind` produces live. */
+function blindOf(shapes: readonly Shape[]): TicketSetRead {
+	const tickets = shapes.map((shape) => ({ ...ticketOf(shape), blockers: "unknown" as const }));
+	return {
+		tickets,
+		graph: seedGraph(
+			tickets.map((ticket) => ({ id: ticketId(ticket.ref), parent: null, blockers: "unknown" as const, open: true })),
+		),
+		truncated: false,
+		openOnly: true,
+		degraded: [{ kind: "unreadable-blocking", tickets: tickets.length, of: tickets.length }],
+	};
+}
+
+function world(shapes: readonly Shape[] = SHAPES): LiveCheckInput {
+	return { read: readOf(shapes), blind: blindOf(shapes), observations: shapes.map(observationOf), filter: FILTER };
+}
+
+function verdicts(input: LiveCheckInput): Record<string, Verdict> {
+	const named: Record<string, Verdict> = {};
+	for (const check of checkLive(input).checks) named[check.name] = check.verdict;
+	return named;
+}
+
+/** One named check with its detail lines joined, so a case can assert on wording without pinning line breaks. */
+function checkNamed(input: LiveCheckInput, name: string): Omit<CheckResult, "detail"> & { readonly detail: string } {
+	const found = checkLive(input).checks.find((check) => check.name === name);
+	if (found === undefined) throw new Error(`no check named ${name}`);
+	return { ...found, detail: found.detail.join("; ") };
+}
+
+describe("checkLive over an agreeing read", () => {
+	test("every check runs and holds", () => {
+		expect(verdicts(world())).toEqual({
+			"whole-set-read": "held",
+			"references-parse": "held",
+			"blockers-resolve": "held",
+			"counts-reconcile": "held",
+			"nothing-blocked-is-recommended": "held",
+			"frontier-agrees": "held",
+			"claimed-leaves-frontier": "held",
+			"closed-blocker-unblocks-its-dependent": "held",
+			"blocker-outside-the-set": "held",
+			"unknown-blocking-is-not-an-empty-list": "held",
+		});
+	});
+
+	test("the frontier is the unclaimed, admitted, unblocked tickets, ranked", () => {
+		// Ticket 3 leads on the unblocks rung, since ticket 2 is waiting on it.
+		expect(checkLive(world()).frontier.map((one) => one.key)).toEqual(["3", "1", "4"]);
+	});
+
+	test("a passing check names what it read, so a pass cannot be a check that met nothing", () => {
+		for (const check of checkLive(world()).checks) {
+			expect(check.detail).not.toBeEmpty();
+			expect(check.detail.every((detail) => detail !== "")).toBe(true);
+		}
+	});
+});
+
+describe("whole-set-read", () => {
+	test("fails a read that stopped short of the ticket set", () => {
+		const input = world();
+		expect(checkNamed({ ...input, read: { ...input.read, truncated: true } }, "whole-set-read")).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("stopped short"),
+		});
+	});
+
+	test("fails a read that degraded, since a degraded read cannot be compared whole", () => {
+		const input = world();
+		const degraded = { ...input.read, degraded: [{ kind: "outage", detail: "could not resolve host" }] as const };
+		expect(checkNamed({ ...input, read: degraded }, "whole-set-read")).toMatchObject({ verdict: "failed" });
+	});
+
+	test("fails a read that did not ask for open tickets only", () => {
+		const input = world();
+		expect(checkNamed({ ...input, read: { ...input.read, openOnly: false } }, "whole-set-read")).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("open tickets only"),
+		});
+	});
+
+	test("fails when the two sides counted different numbers of open tickets", () => {
+		const input = world();
+		expect(checkNamed({ ...input, observations: input.observations.slice(1) }, "whole-set-read")).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("5 were observed open"),
+		});
+	});
+});
+
+describe("references-parse", () => {
+	test("fails a reference this tool's own parser will not take back", () => {
+		const input = world();
+		// Three path segments: `isValidRepoPath` refuses it for GitHub, so the short form does not resolve.
+		const tickets = [{ ...ticketOf({ key: "1" }), ref: ref("1", "owner/repo/extra") }, ...input.read.tickets.slice(1)];
+		expect(checkNamed({ ...input, read: { ...input.read, tickets } }, "references-parse")).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("did not re-parse"),
+		});
+	});
+});
+
+describe("blockers-resolve", () => {
+	test("fails when an edge names a blocker the read left with no state", () => {
+		const input = world();
+		// The graph without its outside seeds: ticket 4's closed blocker then has no openness at all.
+		const graph = seedGraph(
+			input.read.tickets.map((ticket) => ({
+				id: ticketId(ticket.ref),
+				parent: null,
+				blockers: ticket.blockers === "unknown" ? ("unknown" as const) : ticket.blockers.map(ticketId),
+				open: true,
+			})),
+		);
+		expect(checkNamed({ ...input, read: { ...input.read, graph } }, "blockers-resolve")).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("left with no state"),
+		});
+	});
+
+	test("accepts a blocker the read reported contradicted, which is a state rather than an absence", () => {
+		const input = world();
+		const graph = seedGraph([
+			...input.read.tickets.map((ticket) => ({
+				id: ticketId(ticket.ref),
+				parent: null,
+				blockers: ticket.blockers === "unknown" ? ("unknown" as const) : ticket.blockers.map(ticketId),
+				open: true,
+			})),
+			{ id: ticketId(ref("9")), parent: null, blockers: "unknown" as const, open: "unknown" as const },
+		]);
+		const read = { ...input.read, graph, degraded: [{ kind: "contradicted-blocker", refs: [ref("9")] }] as const };
+		expect(checkNamed({ ...input, read }, "blockers-resolve")).toMatchObject({ verdict: "held" });
+	});
+
+	test("is unexercised by a ticket set with no edges at all", () => {
+		expect(verdicts(world([{ key: "1" }, { key: "2" }]))["blockers-resolve"]).toBe("unexercised");
+	});
+});
+
+describe("nothing-blocked-is-recommended", () => {
+	test("fails when the tracker says a ranked ticket waits on something still open", () => {
+		const input = world();
+		// The adapter read ticket 1 as unblocked; the tracker says it waits on an open ticket 7.
+		const observations = input.observations.map((one) =>
+			one.ref.key === "1" ? { ...one, blockers: [{ ref: ref("7"), open: true }] } : one,
+		);
+		expect(checkNamed({ ...input, observations }, "nothing-blocked-is-recommended")).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("waits on"),
+		});
+	});
+
+	test("fails when a ranked ticket is not among the tickets the tracker reported open", () => {
+		const input = world();
+		const observations = input.observations.filter((one) => one.ref.key !== "1");
+		expect(checkNamed({ ...input, observations }, "nothing-blocked-is-recommended")).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("did not report it"),
+		});
+	});
+});
+
+describe("frontier-agrees", () => {
+	test("fails when the tracker has a ticket on the frontier that the adapter does not", () => {
+		const input = world();
+		// The tracker says ticket 2's blocker has closed; the adapter still reads it open.
+		const observations = input.observations.map((one) =>
+			one.ref.key === "2" ? { ...one, blockers: [{ ref: ref("3"), open: false }] } : one,
+		);
+		expect(checkNamed({ ...input, observations }, "frontier-agrees")).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("on the tracker's frontier and not on the adapter's"),
+		});
+	});
+
+	test("fails when the adapter has a ticket on the frontier that the tracker does not", () => {
+		const input = world();
+		const observations = input.observations.map((one) =>
+			one.ref.key === "1" ? { ...one, blockers: [{ ref: ref("3"), open: true }] } : one,
+		);
+		expect(checkNamed({ ...input, observations }, "frontier-agrees")).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("on the adapter's frontier and not on the tracker's"),
+		});
+	});
+
+	test("refuses to compare a frontier the adapter could not judge whole", () => {
+		const input = world();
+		const tickets = input.read.tickets.map((ticket) =>
+			ticket.ref.key === "1" ? { ...ticket, blockers: "unknown" as const } : ticket,
+		);
+		const graph = seedGraph(
+			tickets.map((ticket) => ({
+				id: ticketId(ticket.ref),
+				parent: null,
+				blockers: ticket.blockers === "unknown" ? ("unknown" as const) : ticket.blockers.map(ticketId),
+				open: true,
+			})),
+		);
+		const check = checkNamed({ ...input, read: { ...input.read, tickets, graph } }, "frontier-agrees");
+		expect(check).toMatchObject({ verdict: "failed", detail: expect.stringContaining("unknown blocking") });
+	});
+
+	test("reads labels from the observation, so a label the adapter misread disagrees", () => {
+		const input = world();
+		const tickets = input.read.tickets.map((ticket) => (ticket.ref.key === "10" ? { ...ticket, labels: ["enhancement"] } : ticket));
+		expect(checkNamed({ ...input, read: { ...input.read, tickets } }, "frontier-agrees")).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("gh:example/repo#10 is on the adapter's frontier"),
+		});
+	});
+});
+
+describe("claimed-leaves-frontier", () => {
+	test("fails when a claim the tracker reports did not take its ticket off the frontier", () => {
+		const input = world();
+		const tickets = input.read.tickets.map((ticket) => (ticket.ref.key === "8" ? { ...ticket, claim: null } : ticket));
+		expect(checkNamed({ ...input, read: { ...input.read, tickets } }, "claimed-leaves-frontier")).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("is claimed and is on the frontier anyway"),
+		});
+	});
+
+	test("is unexercised where nothing in the repository is claimed", () => {
+		expect(verdicts(world([{ key: "1" }, { key: "2" }]))["claimed-leaves-frontier"]).toBe("unexercised");
+	});
+});
+
+describe("closed-blocker-unblocks-its-dependent", () => {
+	test("fails when a ticket waiting only on closed blockers is kept off the frontier", () => {
+		const input = world();
+		// A label the adapter read and the tracker did not: ticket 4 is filtered out of the answer while the
+		// observation still says it is recommendable.
+		const tickets = input.read.tickets.map((ticket) => (ticket.ref.key === "4" ? { ...ticket, labels: ["needs-triage"] } : ticket));
+		expect(checkNamed({ ...input, read: { ...input.read, tickets } }, "closed-blocker-unblocks-its-dependent")).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("waits only on closed blockers and is off the frontier"),
+		});
+	});
+
+	test("is unexercised where no ticket waits on a closed blocker", () => {
+		expect(verdicts(world([{ key: "1" }, { key: "2", blockers: [["1", true]] }]))["closed-blocker-unblocks-its-dependent"]).toBe(
+			"unexercised",
+		);
+	});
+});
+
+describe("blocker-outside-the-set", () => {
+	test("is unexercised where every blocker came back as a ticket of its own", () => {
+		expect(verdicts(world([{ key: "1" }, { key: "2", blockers: [["1", true]] }]))["blocker-outside-the-set"]).toBe("unexercised");
+	});
+
+	test("names the blocker when the read left one outside the set with no state", () => {
+		const input = world();
+		const graph = seedGraph(
+			input.read.tickets.map((ticket) => ({
+				id: ticketId(ticket.ref),
+				parent: null,
+				blockers: ticket.blockers === "unknown" ? ("unknown" as const) : ticket.blockers.map(ticketId),
+				open: true,
+			})),
+		);
+		expect(checkNamed({ ...input, read: { ...input.read, graph } }, "blocker-outside-the-set")).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("gh:example/repo#9"),
+		});
+	});
+});
+
+describe("unknown-blocking-is-not-an-empty-list", () => {
+	test("fails when an absent blocking field came back as no blockers", () => {
+		const input = world();
+		const tickets = input.blind.tickets.map((ticket) => (ticket.ref.key === "1" ? { ...ticket, blockers: [] } : ticket));
+		expect(checkNamed({ ...input, blind: { ...input.blind, tickets } }, "unknown-blocking-is-not-an-empty-list")).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("an empty list"),
+		});
+	});
+
+	test("fails when the read did not say its blocking was unreadable", () => {
+		const input = world();
+		expect(
+			checkNamed({ ...input, blind: { ...input.blind, degraded: [] } }, "unknown-blocking-is-not-an-empty-list"),
+		).toMatchObject({ verdict: "failed", detail: expect.stringContaining("did not report unreadable blocking") });
+	});
+
+	test("fails when the degrade covers fewer tickets than the read returned", () => {
+		const input = world();
+		const degraded = [{ kind: "unreadable-blocking", tickets: 1, of: input.blind.tickets.length }] as const;
+		expect(
+			checkNamed({ ...input, blind: { ...input.blind, degraded } }, "unknown-blocking-is-not-an-empty-list"),
+		).toMatchObject({ verdict: "failed", detail: expect.stringContaining("1 of 6") });
+	});
+
+	test("fails when a candidate was called confirmed-unblocked with no blocking field to say so", () => {
+		const input = world();
+		// The collapse itself: an absent field seeded as a confirmed absence of blockers.
+		const graph = seedGraph(
+			input.blind.tickets.map((ticket) => ({ id: ticketId(ticket.ref), parent: null, blockers: [], open: true })),
+		);
+		expect(
+			checkNamed({ ...input, blind: { ...input.blind, graph } }, "unknown-blocking-is-not-an-empty-list"),
+		).toMatchObject({ verdict: "failed", detail: expect.stringContaining("confirmed-unblocked") });
+	});
+});
+
+describe("checkLiveTracker", () => {
+	function tracker(shapes: readonly Shape[]): LiveTracker & { readonly limits: number[] } {
+		const limits: number[] = [];
+		return {
+			name: "github",
+			limits,
+			observe: () => shapes.map(observationOf),
+			read: (limit) => {
+				limits.push(limit);
+				return readOf(shapes);
+			},
+			readBlind: (limit) => {
+				limits.push(limit);
+				return blindOf(shapes);
+			},
+		};
+	}
+
+	test("sizes both adapter reads from the independently observed count", () => {
+		const one = tracker(SHAPES);
+		const report = checkLiveTracker(one, FILTER);
+		expect(one.limits).toEqual([SHAPES.length, SHAPES.length]);
+		expect(report.tracker).toBe("github");
+		expect(heldEverywhere(report)).toBe(true);
+	});
+
+	test("refuses a repository with no open tickets rather than reporting checks that read nothing", () => {
+		expect(() => checkLiveTracker(tracker([]), FILTER)).toThrow(/no open tickets/);
+	});
+
+	test("an unexercised check is not a pass", () => {
+		const report = checkLiveTracker(tracker([{ key: "1" }, { key: "2" }]), FILTER);
+		expect(report.checks.some((check) => check.verdict === "unexercised")).toBe(true);
+		expect(heldEverywhere(report)).toBe(false);
+	});
+});

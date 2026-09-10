@@ -216,6 +216,26 @@ export function githubIssueListCommand(input: GitHubIssueListInput): readonly st
 	];
 }
 
+/**
+ * An issue-list argv with the blocking field taken out of its projection, so the response carries no `blockedBy`
+ * key at all — the shape a read of an unavailable dependency surface has to be told apart from an empty one.
+ *
+ * Not a parameter of `githubIssueListCommand`, which stays the one projection every read asks for. This is the
+ * narrowing two callers outside the read need: the capture that stores the shape, and the live check that asserts
+ * an absent field reads as unknown.
+ *
+ * @throws CommandBuilderError when the argv does not spell its projection as one word, since returning it
+ * unchanged would hand back a read of the opposite shape under this name.
+ */
+export function withoutBlockingField(argv: readonly string[]): readonly string[] {
+	const projection = GITHUB_TICKET_FIELDS.join(",");
+	const kept = GITHUB_TICKET_FIELDS.filter((field) => field !== "blockedBy").join(",");
+	if (!argv.includes(projection)) {
+		throw new CommandBuilderError(`${formatCommand(argv)} does not spell the issue-list projection as one word`);
+	}
+	return argv.map((word) => (word === projection ? kept : word));
+}
+
 export interface GitHubClaimCommandInput {
 	readonly repo: string;
 	readonly key: string;

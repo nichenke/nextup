@@ -5,7 +5,7 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { GITHUB_TICKET_FIELDS, githubClaimCommand, githubIssueListCommand } from "../src/command-builders";
+import { githubClaimCommand, githubIssueListCommand, withoutBlockingField } from "../src/command-builders";
 import { collapseFailure } from "../src/failure-class";
 import { GITHUB_PLACEHOLDER_HOST, redactRecordingIdentifiers } from "../src/recording-identifiers";
 import { type Recording, recordingsDir } from "../src/recording";
@@ -69,7 +69,7 @@ function captures(writeTarget: string): readonly Capture[] {
 			name: "ticket-set-without-blockers",
 			description:
 				"The same read with the blocking field left out of the projection, so every row carries no blockedBy key at all — the shape a read of an unavailable dependency surface has to be told apart from an empty one.",
-			argv: withoutBlockedBy(githubIssueListCommand({ repo: GITHUB_TEST_TREE.repo, rows: WHOLE_TREE_ROWS })),
+			argv: withoutBlockingField(githubIssueListCommand({ repo: GITHUB_TEST_TREE.repo, rows: WHOLE_TREE_ROWS })),
 			succeeds: true,
 		},
 		{
@@ -104,16 +104,6 @@ function captures(writeTarget: string): readonly Capture[] {
 			succeeds: false,
 		},
 	];
-}
-
-/** The projection minus the blocking field, which no adapter asks for and only a capture needs. */
-function withoutBlockedBy(argv: readonly string[]): readonly string[] {
-	const projection = GITHUB_TICKET_FIELDS.join(",");
-	const kept = GITHUB_TICKET_FIELDS.filter((field) => field !== "blockedBy").join(",");
-	// Refused rather than returned unchanged: a capture of the full projection under this name is a recording
-	// of the opposite shape, and the test reading it would assert nothing while passing.
-	if (!argv.includes(projection)) throw new Error("the issue-list argv no longer spells its projection as one word");
-	return argv.map((word) => (word === projection ? kept : word));
 }
 
 function cliVersion(): string {
