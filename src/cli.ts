@@ -55,7 +55,7 @@ usage: nextup [--include <label>]... [--exclude <label>]... [--limit <n>] [--yes
   --json             emit the answer as JSON rather than the human rendering
   --help, -h         print this
 
-A label may end in "*" to match a prefix. Three exclusions always apply and --exclude adds to them
+A label may end in "*" to match a prefix. These exclusions always apply and --exclude adds to them
 rather than replacing them: 'wayfinder:*', so the planning and delivery tracks cannot compete for
 one ticket; 'needs-triage', because an untriaged ticket is a wrong answer rather than a lower-ranked
 one; and 'spec', so a run never recommends starting work on the specification its own tickets were
@@ -229,8 +229,8 @@ function parse(argv: readonly string[]): Options {
 		}
 	}
 
-	// The default exclusion is a floor, not a starting point a filter flag replaces: `--include backend`
-	// would otherwise hand out a wayfinder ticket labelled `backend`.
+	// The default exclusions are a floor, not a starting point a filter flag replaces: `--include backend`
+	// would otherwise hand out a wayfinder or untriaged ticket labelled `backend`.
 	return { json, yes, printCommand, limit, filter: { include, exclude: [...DEFAULT_LABEL_FILTER.exclude, ...exclude] } };
 }
 
