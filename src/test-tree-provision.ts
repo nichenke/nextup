@@ -228,7 +228,7 @@ export function issueNumber(spec: TestTreeSpec, key: string, runner: Runner): nu
 	}
 	if ((found.assignees.length > 0) !== wanted.claimed) {
 		throw new TestTreeError(
-			`${title} is ${wanted.claimed ? "unclaimed" : "claimed"} in the tree and the spec says otherwise, so run provisioning`,
+			`${title} is ${found.assignees.length > 0 ? "claimed" : "unclaimed"} in the tree and the spec says otherwise, so run provisioning`,
 		);
 	}
 	return found.number;
