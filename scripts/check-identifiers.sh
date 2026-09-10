@@ -47,11 +47,25 @@ if [ "$(git config --get core.sparseCheckout || true)" = "true" ]; then
 	exit 1
 fi
 
-# A tracked file that is there but unreadable is skipped exactly as an absent one is, and the guard passed over
-# a mode-000 file holding an identifier. Measured. Present-and-unreadable is the refusal; absent is not, because
-# an unstaged deletion leaves no content on disk to scan.
+# A tracked file the scan cannot open is skipped exactly as an absent one is, and the scan discards the error.
+# An unstaged deletion is the one shape of that worth tolerating, because it leaves no content on disk. Two
+# questions, because no single test answers both: `[ -e ]` cannot see through an unreadable directory, and git
+# reports a path behind one as deleted.
+#
+# git's own lstat first. A path it cannot examine goes to stderr, where a genuine deletion goes to stdout --
+# measured with a file under a mode-000 directory, which `[ -e ]` called absent and the guard passed over.
+unstattable=$(git ls-files --deleted 2>&1 >/dev/null)
+if [ -n "$unstattable" ]; then
+	printf 'check-identifiers: %s\n' "$unstattable" >&2
+	printf 'check-identifiers: a tracked path cannot be examined, so a scan would cover part of the tree\n' >&2
+	exit 1
+fi
+
+# Then the paths git could examine: a mode-000 file can be stat'ed and not read, so it reaches neither the
+# error above nor the deleted list.
+deleted=$(git ls-files --deleted)
 while IFS= read -r -d '' path; do
-	if [ -e "$path" ] && [ ! -r "$path" ]; then
+	if [ ! -r "$path" ] && ! printf '%s\n' "$deleted" | grep -qxF -- "$path"; then
 		printf 'check-identifiers: %s is tracked but cannot be read, so a scan would cover part of the tree\n' "$path" >&2
 		exit 1
 	fi

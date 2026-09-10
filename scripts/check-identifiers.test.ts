@@ -126,6 +126,17 @@ describe("check-identifiers under a redirected git environment", () => {
 		expect(result.stderr.toString()).toContain("secret.md");
 	});
 
+	// The sibling of the case above, and the one `[ -e ]` could not answer: a path behind an unreadable
+	// directory cannot be stat'ed at all, so it read as absent and was tolerated.
+	test("refuses a tracked file hidden behind a directory it cannot enter", () => {
+		const root = repositoryWith({ "a.md": "clean\n", "sub/b.md": `leak at ${unknownHttpsUrl}\n` });
+		chmodSync(join(root, "sub"), 0o000);
+		const result = guardIn(root);
+		chmodSync(join(root, "sub"), 0o755);
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr.toString()).toContain("cannot be examined");
+	});
+
 	// Deleting a file without staging it is an everyday state, so the scan covers what is there.
 	test("scans a tree with a tracked file deleted but not staged", () => {
 		const root = repositoryWith({ "a.md": "clean\n", "b.md": `leak at ${unknownHttpsUrl}\n` });

@@ -132,10 +132,20 @@ is empty" and "git is broken" are not the same report:
   `core.sparseCheckout` rather than inferred from a file being absent, because an unstaged deletion looks
   identical on disk and refusing that would refuse an everyday tree; a file merely deleted is scanned as the
   absence it is, which `ADR-0006`'s "the files as they stood when it ran" already scopes.
-- a tracked file that is present but unreadable, which the scan skips exactly as it skips an absent one. A
-  mode-000 file holding an identifier passed. Measured, and the sibling of the case above rather than a
-  separate one: the property is that the scan read every tracked file it could have, and the two halves of
-  that are "is it there" and "can it be opened", answered separately because only one of them is a fault.
+- a tracked file the scan cannot open, which it skips exactly as it skips an absent one. A mode-000 file
+  holding an identifier passed, and so did one under a mode-000 *directory*. Both measured.
+
+The property is that the scan read every tracked file it could have, and it took three attempts to state it
+without a hole, which is worth recording as its own lesson. `xargs -0 ls` answered "is the path there", not
+"can it be read", so a mode-000 file passed. `[ -e ] && [ ! -r ]` answered readability but cannot see through
+an unreadable directory, so a path behind one read as absent and was tolerated — the branch deliberately left
+open for an unstaged deletion. Each fix closed the case it was shown and left the sibling of the same property.
+
+It is now asked as two questions, because no single test answers both, and git does the classifying rather
+than a predicate standing in for it: `git ls-files --deleted` puts a path it cannot examine on stderr and a
+genuinely deleted one on stdout, so the first refuses and the second is tolerated. What remains after that is
+a path git could stat, where `[ -r ]` is the whole question — a mode-000 file reaches neither the error nor
+the deleted list.
 
 Separately, the scan now passes `--` to `grep`. A tracked filename may begin with a hyphen, and `git ls-files`
 happily reports one: with a file named `-d`, BSD `grep` rejected its own argument list, `2>/dev/null` ate the

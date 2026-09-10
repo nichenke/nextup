@@ -16,8 +16,10 @@ export type Runner = (argv: string[]) => CommandResult;
  */
 function signalledExitCode(signal: string): number {
 	const numbers: Record<string, number | undefined> = constants.signals;
-	// 128 alone for a name the table does not hold: still non-zero, and the name itself reaches stderr.
-	return 128 + (numbers[signal] ?? 0);
+	const number = numbers[signal];
+	// A name the table does not hold cannot be turned into a shell's code, and 128 alone is git's own fatal
+	// status — unreadable beside it. A plain failure instead, with the signal itself on stderr.
+	return number === undefined ? 1 : 128 + number;
 }
 
 /**
