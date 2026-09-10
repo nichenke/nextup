@@ -1,4 +1,5 @@
 import { withoutBlockingField } from "./command-builders";
+import { collapseFailure } from "./failure-class";
 import { readGitHubTicketSet } from "./github-adapter";
 import type { LiveObservation, LiveObservedBlocker, LiveTracker } from "./live-invariants";
 import type { Runner } from "./runner";
@@ -105,7 +106,7 @@ function blockersOf(input: GitHubLiveInput, key: string, where: string): readonl
 function request(runner: Runner, argv: readonly string[], where: string): readonly Record<string, unknown>[] {
 	const result = runner([...argv]);
 	if (result.code !== 0) {
-		throw new GitHubLiveError(`reading ${where} independently failed with exit ${result.code}: ${result.stderr.trim() || "no stderr"}`);
+		throw new GitHubLiveError(`reading ${where} independently failed with exit ${result.code}: ${collapseFailure(result.stderr) || "no stderr"}`);
 	}
 	let raw: unknown;
 	try {

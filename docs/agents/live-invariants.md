@@ -65,8 +65,10 @@ exercise the check is the more interesting of the two readings.
 - `whole-set-read` failing first explains the rest, and the everyday cause is not a defect: a ticket opened
   or closed between the independent query and the adapter read leaves the two counting different sets. Rerun
   once before investigating. A failure that survives a rerun is a real one.
-- `frontier-agrees` failing while `whole-set-read` holds is the finding worth having. One side has a ticket
-  the other does not, and the line says which side. Read it with the four state checks: a disagreement
+- `frontier-agrees` has two failures that read differently. One naming tickets — "is on the tracker's frontier
+  and not on the adapter's" — is a real disagreement, and while `whole-set-read` holds it is the finding worth
+  having. One saying the frontier "cannot be compared whole" is the check declining to run, because the read came
+  back with unknown blocking; the cause is in `whole-set-read`'s line, not here. Read it with the four state checks: a disagreement
   alongside a failing `claimed-leaves-frontier` points at the claim, alongside a failing
   `closed-blocker-unblocks-its-dependent` at the blocking read.
 - `edges-agree` failing narrows a frontier disagreement to the edge it came from, and can fail where

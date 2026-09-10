@@ -50,11 +50,7 @@ describe("readOnlyRunner", () => {
 		expect(run(["gh", "api", "--paginate", "--slurp", "repos/nichenke/nextup/issues?state=open"])).toEqual(answered);
 	});
 
-	/**
-	 * The separated spellings, the `=`-attached long forms, and — the ones a per-flag match let through — a
-	 * shorthand with its value attached directly and a cluster hiding one behind a boolean. `gh` parses all three
-	 * of the last group; measured on gh 2.100.0.
-	 */
+	/** Separated, `=`-attached, and the two spellings a per-flag match let through: attached shorthand and a cluster. */
 	test.each([
 		["-X", ["gh", "api", "-X", "POST", "repos/nichenke/nextup/issues/26/dependencies/blocked_by"]],
 		["--method", ["gh", "api", "--method", "DELETE", "repos/nichenke/nextup/issues/26"]],

@@ -313,6 +313,27 @@ describe("edges-agree", () => {
 	test("is unexercised where neither side reported an edge at all", () => {
 		expect(verdicts(world([{ key: "1" }, { key: "2" }]))["edges-agree"]).toBe("unexercised");
 	});
+
+	test("counts an edge both sides named once, since that is one edge compared", () => {
+		// Two tickets with one matched edge each: two edges, not the four that adding the two sides' sizes gives.
+		expect(checkNamed(world(), "edges-agree").detail).toBe("2 edges, agreed on both sides");
+	});
+
+	/** The exemption `blockersResolve` and `blockerOutsideTheSet` already make, which this check has to make too. */
+	test("does not fault a blocker the read reported contradicted, whose unknown openness is a reported state", () => {
+		const input = world();
+		const graph = seedGraph([
+			...input.read.tickets.map((ticket) => ({
+				id: ticketId(ticket.ref),
+				parent: null,
+				blockers: ticket.blockers === "unknown" ? ("unknown" as const) : ticket.blockers.map(ticketId),
+				open: true,
+			})),
+			{ id: ticketId(ref("9")), parent: null, blockers: "unknown" as const, open: "unknown" as const },
+		]);
+		const read = { ...input.read, graph, degraded: [{ kind: "contradicted-blocker", refs: [ref("9")] }] as const };
+		expect(checkNamed({ ...input, read }, "edges-agree")).toMatchObject({ verdict: "held" });
+	});
 });
 
 describe("frontier-agrees", () => {
@@ -378,6 +399,18 @@ describe("claimed-leaves-frontier", () => {
 
 	test("is unexercised where nothing in the repository is claimed", () => {
 		expect(verdicts(world([{ key: "1" }, { key: "2" }]))["claimed-leaves-frontier"]).toBe("unexercised");
+	});
+
+	test("is unexercised where the frontier is empty anyway, rather than held over a frontier nothing was kept off", () => {
+		// Every candidate came back unknown-blocking, so `select` consulted the unknown partition and the frontier is
+		// empty for a reason that has nothing to do with the claim.
+		const input = world([{ key: "8", claimed: true }, { key: "1" }]);
+		const tickets = input.read.tickets.map((ticket) => ({ ...ticket, blockers: "unknown" as const }));
+		const graph = seedGraph(
+			tickets.map((ticket) => ({ id: ticketId(ticket.ref), parent: null, blockers: "unknown" as const, open: true })),
+		);
+		const read = { ...input.read, tickets, graph };
+		expect(checkNamed({ ...input, read }, "claimed-leaves-frontier")).toMatchObject({ verdict: "unexercised" });
 	});
 });
 

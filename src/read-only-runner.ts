@@ -17,10 +17,9 @@ const READS: readonly (readonly string[])[] = [
  * flag makes it something else, so admitting two known-inert flags is a smaller thing to get right than
  * enumerating the ones that write.
  *
- * Naming the writers instead was tried and is not sound. `gh` uses pflag, which takes a shorthand's value
- * attached — `gh api -XPOST` and `-fkey=value` both parse, measured on gh 2.100.0 — and clusters boolean
- * shorthands, so `-iXPOST` carries a method too. Matching each writing flag exactly or before an `=` admitted
- * all three.
+ * `gh` uses pflag, so a shorthand carries its value attached and boolean shorthands cluster: `-XPOST`,
+ * `-fkey=value` and `-iXPOST` all parse, measured on gh 2.100.0. ADR-0033 has why naming the writing flags
+ * instead cannot close that.
  */
 const READABLE_API_FLAGS: ReadonlySet<string> = new Set(["--paginate", "--slurp"]);
 

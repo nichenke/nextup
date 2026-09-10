@@ -188,7 +188,7 @@ function referencesParse(input: LiveCheckInput): CheckResult {
 /** That no blocking edge names a ticket the read left with no state at all — criterion one's second clause. */
 function blockersResolve(input: LiveCheckInput): CheckResult {
 	const own = new Set(input.read.tickets.map((ticket) => ticketId(ticket.ref)));
-	const contradicted = new Set(refsOfContradictions(input.read).map(ticketId));
+	const contradicted = contradictedIds(input.read);
 	const faults: string[] = [];
 	let inSet = 0;
 	let outside = 0;
@@ -283,6 +283,7 @@ function nothingBlockedIsRecommended(input: LiveCheckInput, selection: Selection
  */
 function edgesAgree(input: LiveCheckInput): CheckResult {
 	const observed = new Map(input.observations.map((one) => [ticketId(one.ref), one] as const));
+	const contradicted = contradictedIds(input.read);
 	const faults: string[] = [];
 	let compared = 0;
 	for (const ticket of input.read.tickets) {
@@ -299,14 +300,16 @@ function edgesAgree(input: LiveCheckInput): CheckResult {
 				continue;
 			}
 			const openness = input.read.graph.isOpen(id);
-			if (openness !== edge.open) {
+			if (openness !== edge.open && !contradicted.has(id)) {
 				faults.push(`${named}'s blocker ${formatTicketRef(blocker)} is ${openness === "unknown" ? "unknown" : openness ? "open" : "closed"} to the read and ${edge.open ? "open" : "closed"} to the tracker`);
 			}
 		}
 		for (const [id, edge] of tracker) {
 			if (!read.has(id)) faults.push(`the tracker says ${named} is blocked by ${formatTicketRef(edge.ref)} and the read does not`);
 		}
-		compared += read.size + tracker.size;
+		// The union, not the two sizes added: an edge both sides named is one edge compared, and counting it twice
+		// inflates the very number a reader uses to judge whether the pass was vacuous.
+		compared += new Set([...read.keys(), ...tracker.keys()]).size;
 	}
 	return verdictOver("edges-agree", compared, faults, `${compared} edges, agreed on both sides`);
 }
@@ -349,25 +352,32 @@ function frontierAgrees(input: LiveCheckInput, selection: Selection, frontier: r
  * this one.
  */
 function expectedFrontier(input: LiveCheckInput): readonly TicketRef[] {
-	return input.observations
-		.filter((one) => !one.claimed && input.filter.admits(one.labels) && one.blockers.every((blocker) => !blocker.open))
-		.map((one) => one.ref);
+	return input.observations.filter((one) => frontierWorthy(one, input) && !one.claimed).map((one) => one.ref);
+}
+
+/**
+ * Whether the tracker says this ticket belongs on the frontier but for its claim — admitted by the filter and
+ * waiting on nothing still open. One predicate because `expectedFrontier` and `claimedLeavesFrontier` are the two
+ * halves of it, and a claim moving a ticket between them is the thing they exist to check.
+ */
+function frontierWorthy(one: LiveObservation, input: LiveCheckInput): boolean {
+	return input.filter.admits(one.labels) && one.blockers.every((blocker) => !blocker.open);
 }
 
 /** That a claim takes its ticket off the frontier — the first of the four states criterion three names. */
 function claimedLeavesFrontier(input: LiveCheckInput, frontier: readonly TicketRef[]): CheckResult {
 	const onFrontier = new Set(frontier.map(ticketId));
-	const withheld = input.observations.filter(
-		(one) => one.claimed && input.filter.admits(one.labels) && one.blockers.every((blocker) => !blocker.open),
-	);
+	const withheld = input.observations.filter((one) => frontierWorthy(one, input) && one.claimed);
 	const faults = withheld
 		.filter((one) => onFrontier.has(ticketId(one.ref)))
 		.map((one) => `${formatTicketRef(one.ref)} is claimed and is on the frontier anyway`);
+	// An empty frontier makes the absence of these tickets from it prove nothing, whatever emptied it — so the
+	// exercised count needs a frontier to have been kept off, not just a claimed ticket to have existed.
 	return verdictOver(
 		"claimed-leaves-frontier",
-		withheld.length,
+		onFrontier.size === 0 ? 0 : withheld.length,
 		faults,
-		`${withheld.length} claimed tickets that would otherwise be on the frontier, none of them on it`,
+		`${withheld.length} claimed tickets kept off a frontier of ${onFrontier.size}`,
 	);
 }
 
@@ -414,9 +424,7 @@ function admittedByRef(input: LiveCheckInput): ReadonlySet<IssueId> {
 /** That a blocker the read never returned still carries state — the third of the four states criterion three names. */
 function blockerOutsideTheSet(input: LiveCheckInput): CheckResult {
 	const own = new Set(input.read.tickets.map((ticket) => ticketId(ticket.ref)));
-	// Excluded for the reason `blockersResolve` accepts them: a contradicted blocker is seeded unknown deliberately
-	// and is a state the read reported, so faulting on it here would contradict that check in the same report.
-	const contradicted = new Set(refsOfContradictions(input.read).map(ticketId));
+	const contradicted = contradictedIds(input.read);
 	const outside = new Map<IssueId, TicketRef>();
 	for (const { blocker } of edges(input.read.tickets)) {
 		const id = ticketId(blocker);
@@ -429,7 +437,7 @@ function blockerOutsideTheSet(input: LiveCheckInput): CheckResult {
 		"blocker-outside-the-set",
 		outside.size,
 		faults,
-		`${outside.size} blockers outside the read, each still carrying the openness its edge named`,
+		`${outside.size} blockers outside the read, none of them left without a state`,
 	);
 }
 
@@ -483,8 +491,13 @@ function edges(tickets: readonly Ticket[]): readonly { readonly ticket: Ticket; 
 	);
 }
 
-function refsOfContradictions(read: TicketSetRead): readonly TicketRef[] {
-	return read.degraded.flatMap((degrade) => (degrade.kind === "contradicted-blocker" ? degrade.refs : []));
+/**
+ * The blockers the read reported as contradicted, which every check consulting a blocker's openness has to exempt:
+ * the adapter seeds one `"unknown"` deliberately (ADR-0027), so it is a state the read reported rather than one it
+ * failed to. Written once because it is three sites, and the third was missed when it was written twice.
+ */
+function contradictedIds(read: TicketSetRead): ReadonlySet<IssueId> {
+	return new Set(read.degraded.flatMap((degrade) => (degrade.kind === "contradicted-blocker" ? degrade.refs : [])).map(ticketId));
 }
 
 /**
