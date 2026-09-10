@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { type CliDeps, DEFAULT_LIMIT, run } from "./cli";
-import { type Runner, RunnerRefusal } from "./runner";
+import type { Runner } from "./runner";
 import { answeringOrigin, githubRecording, replayRunner, respondingRunner, sentinelLines } from "./test-support";
 import { GITHUB_TEST_TREE, openIssues, shapeTitle } from "./test-tree";
 import { GITHUB_HOST } from "./ticket-ref";
@@ -104,18 +104,8 @@ describe("run, over a ticket set read from GitHub", () => {
 		expect(result.stderr).toContain("a retry will not fix");
 	});
 
-	// The exit code is the point in both of these: an uncaught throw leaves 1, which this command defines as
-	// nothing to recommend, so a run that failed would read to a script as a quiet day.
-	test("reports a runner that refuses to run at all as its recovery path, not as a stack", () => {
-		// What `defaultRunner` does when the environment points git elsewhere — ADR-0026.
-		const refusing: Runner = () => {
-			throw new RunnerRefusal("GIT_DIR is set: unset it and run again");
-		};
-		const result = run([], deps(refusing));
-		expect(result.code).toBe(2);
-		expect(result.stderr).toBe("GIT_DIR is set: unset it and run again\n");
-	});
-
+	// The exit code is the point: an uncaught throw leaves 1, which this command defines as nothing to
+	// recommend, so a run that failed would read to a script as a quiet day.
 	test("still reports a failure nobody classified, keeping the stack that is all it has", () => {
 		const broken: Runner = () => {
 			throw new TypeError("undefined is not a function");

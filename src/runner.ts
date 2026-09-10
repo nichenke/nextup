@@ -32,14 +32,6 @@ function signalledExitCode(signal: string): number {
 }
 
 /**
- * The runner refusing to run anything at all, as against a command that ran and failed. Its own class so a
- * caller can report the recovery path rather than a stack: `cli.ts` prints the stack of an error nobody has
- * classified, and this one is classified. Nothing in this file throws it since ADR-0029 replaced the refusal
- * with a scrub; `cli.ts` still classifies it, so the seam keeps the class for a future one.
- */
-export class RunnerRefusal extends Error {}
-
-/**
  * Removed without the notice the other `GIT_`-prefixed names get. A name belongs here only once measured
  * against the whole command set as changing no answer, and only if ordinary tooling exports it. ADR-0029.
  */
