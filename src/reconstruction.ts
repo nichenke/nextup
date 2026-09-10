@@ -210,27 +210,42 @@ function blockersResolve(input: ReconstructionInput): CheckResult {
 	return verdictOver("blockers-resolve", inSet + outside, faults, `${inSet} blockers inside the set, ${outside} outside it`);
 }
 
-/** That every ticket was accounted for exactly once — criterion one's third clause. */
+/**
+ * That every ticket was accounted for exactly once, and under the placement the tracker's own reading of it calls
+ * for — criterion one's third clause.
+ *
+ * Reconciled against the observations rather than within the answer. `select` is handed `read.tickets` and
+ * `tally` counts one placement per ticket from a `Record` over the kinds, so the totals hold by construction —
+ * asserting them against each other cannot fail, however wrong the claims and labels underneath were read.
+ * `nothingBlockedIsRecommended` gives the same reason for judging blocking from the independent side.
+ *
+ * The order `place` decides in is mirrored here, claim before label, so a claimed ticket the filter would also
+ * reject is counted once and on the same side of the split.
+ */
 function countsReconcile(input: ReconstructionInput, selection: Selection): CheckResult {
 	const counts = selection.counts;
-	const closed = counts.closed === "not-asked" ? 0 : counts.closed;
+	// The tickets that reached `select`, so one held out for paging blockers is absent from both sides here rather
+	// than counted only on the tracker's.
+	const answered = refsById(input.read.tickets.map((ticket) => ticket.ref));
+	const observed = input.observations.filter((one) => answered.has(ticketId(one.ref)));
+	const claimed = observed.filter((one) => one.claimed);
+	const filtered = observed.filter((one) => !one.claimed && !input.filter.admits(one.labels));
+	const candidates = observed.length - claimed.length - filtered.length;
 	const faults: string[] = [];
-	if (counts.tickets !== input.read.tickets.length) {
-		faults.push(`the answer counted ${counts.tickets} tickets where the read returned ${input.read.tickets.length}`);
+	if (counts.claimed !== claimed.length) {
+		faults.push(`the answer counted ${counts.claimed} tickets claimed where the tracker reports ${claimed.length} of them claimed`);
 	}
-	const placed = closed + counts.claimed + counts.filtered + counts.candidates;
-	if (placed !== counts.tickets) {
-		faults.push(`${placed} tickets were placed where ${counts.tickets} were read`);
+	if (counts.filtered !== filtered.length) {
+		faults.push(`the answer held ${counts.filtered} tickets back by label where the tracker's own labels call for ${filtered.length}`);
 	}
-	const partitioned = counts.unblocked + counts.unknown + counts.blocked;
-	if (partitioned !== counts.candidates) {
-		faults.push(`${partitioned} candidates were partitioned where ${counts.candidates} were counted`);
+	if (counts.candidates !== candidates) {
+		faults.push(`the answer counted ${counts.candidates} candidates where the tracker's tickets leave ${candidates}`);
 	}
 	return verdictOver(
 		"counts-reconcile",
-		counts.tickets,
+		observed.length,
 		faults,
-		`${counts.tickets} tickets: ${counts.claimed} claimed, ${counts.filtered} filtered, ${counts.unblocked} unblocked, ${counts.unknown} unknown, ${counts.blocked} blocked`,
+		`${observed.length} tickets: ${counts.claimed} claimed, ${counts.filtered} filtered, ${counts.unblocked} unblocked, ${counts.unknown} unknown, ${counts.blocked} blocked, each placed as the tracker reads it`,
 	);
 }
 

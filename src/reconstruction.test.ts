@@ -281,6 +281,37 @@ describe("blockers-resolve", () => {
 	});
 });
 
+describe("counts-reconcile", () => {
+	test("fails when the answer counted a claim the tracker does not report", () => {
+		const input = world();
+		const tickets = input.read.tickets.map((ticket) => (ticket.ref.key === "8" ? { ...ticket, claim: null } : ticket));
+		expect(checkNamed({ ...input, read: { ...input.read, tickets } }, "counts-reconcile")).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("counted 0 tickets claimed where the tracker reports 1"),
+		});
+	});
+
+	test("fails when the answer held back a different number of tickets than the tracker's labels call for", () => {
+		const input = world();
+		const tickets = input.read.tickets.map((ticket) => (ticket.ref.key === "10" ? { ...ticket, labels: ["enhancement"] } : ticket));
+		expect(checkNamed({ ...input, read: { ...input.read, tickets } }, "counts-reconcile")).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("held 0 tickets back by label where the tracker's own labels call for 1"),
+		});
+	});
+
+	test("leaves a ticket held out for paging blockers to whole-set-read, counting it on neither side", () => {
+		const input = world();
+		const withheld = input.read.tickets.find((ticket) => ticket.ref.key === "8")!;
+		const read = {
+			...input.read,
+			tickets: input.read.tickets.filter((ticket) => ticket.ref.key !== "8"),
+			degraded: [{ kind: "partial-blocking", refs: [withheld.ref] }] as const,
+		};
+		expect(checkNamed({ ...input, read }, "counts-reconcile")).toMatchObject({ verdict: "held" });
+	});
+});
+
 describe("nothing-blocked-is-recommended", () => {
 	test("fails when the tracker says a ranked ticket waits on something still open", () => {
 		const input = world();
