@@ -18,14 +18,25 @@
 # publishing the guard would leak exactly what it protects.
 set -euo pipefail
 
-# An exported GIT_DIR aims the `git ls-files` below at another repository. Removed here rather than routed
-# through the tool's runner, which needs an installed dependency this deliberately runs before. ADR-0029.
+# Removed here rather than through the tool's runner: this runs before any dependency install. ADR-0029.
 unset "${!GIT_@}"
 
-# An empty listing is refused rather than scanned: both pipelines below end in `|| true`, so nothing to scan
-# reads as nothing found and this printed `ok` at exit 0. ADR-0029.
-if [ "$(git ls-files | wc -l | tr -d ' ')" -eq 0 ]; then
+# Both scan pipelines below end in `|| true`, so anything leaving them without input reads as nothing found.
+# One message per cause: "the repository is empty" and "git is broken" are not the same report. ADR-0029.
+if ! tracked=$(git ls-files); then
+	printf 'check-identifiers: git ls-files failed, so no file was scanned\n' >&2
+	exit 1
+fi
+
+if [ -z "$tracked" ]; then
 	printf 'check-identifiers: nothing is tracked here, so a pass would mean nothing\n' >&2
+	exit 1
+fi
+
+# A tracked file the scan cannot read is scanned as absent, so a sparse checkout passes on the subset it
+# materialised. Denied rather than reported on: nothing here needs one, and CI takes the whole tree.
+if ! git ls-files -z | xargs -0 ls >/dev/null 2>&1; then
+	printf 'check-identifiers: a tracked file is not readable, so a scan would cover part of the tree\n' >&2
 	exit 1
 fi
 

@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "bun";
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { defaultRunner } from "../src/runner";
 import { runGuardOn } from "./guard-harness";
 
@@ -58,42 +58,62 @@ describe("runGuardOn", () => {
 });
 
 describe("check-identifiers under a redirected git environment", () => {
-	/** An empty repository for `GIT_DIR` to name; a missing path would fail the listing rather than empty it. */
-	function emptyRepository(): string {
-		const root = mkdtempSync(join(tmpdir(), "nextup-decoy-"));
-		decoys.push(root);
-		expect(defaultRunner(["git", "init", "--quiet", join(root, "decoy")]).code).toBe(0);
-		return join(root, "decoy", ".git");
+	/**
+	 * The guard as CI invokes it, in `cwd`. The environment is passed rather than inherited for the reason
+	 * `runGuardOn` gives, so a case may set a variable and have the guard see it.
+	 */
+	function guardIn(cwd: string) {
+		return spawnSync({ cmd: ["bash", join(import.meta.dir, "check-identifiers.sh")], cwd, env: { ...process.env } });
 	}
 
-	/** The guard as CI invokes it, in `cwd`. ADR-0029 has why an empty listing is refused rather than scanned. */
-	function guardIn(cwd: string): { code: number; stderr: string } {
-		const result = spawnSync({ cmd: ["bash", join(import.meta.dir, "check-identifiers.sh")], cwd });
-		return { code: result.exitCode ?? 1, stderr: result.stderr.toString() };
-	}
-
-	test("refuses a repository with nothing tracked, rather than reporting a pass", () => {
+	/** A throwaway repository at `root`, with `files` committed. Empty when none are given. */
+	function repositoryWith(files: Readonly<Record<string, string>>): string {
 		const root = mkdtempSync(join(tmpdir(), "nextup-decoy-"));
 		decoys.push(root);
 		expect(defaultRunner(["git", "init", "--quiet", root]).code).toBe(0);
-		const { code, stderr } = guardIn(root);
-		expect(code).toBe(1);
-		expect(stderr).toContain("nothing is tracked");
+		for (const [name, contents] of Object.entries(files)) {
+			mkdirSync(join(root, dirname(name)), { recursive: true });
+			writeFileSync(join(root, name), contents);
+		}
+		if (Object.keys(files).length > 0) {
+			const identity = ["-c", "user.email=n@invalid", "-c", "user.name=n"];
+			expect(defaultRunner(["git", "-C", root, "add", "-A"]).code).toBe(0);
+			expect(defaultRunner(["git", "-C", root, ...identity, "commit", "--quiet", "-m", "init"]).code).toBe(0);
+		}
+		return root;
+	}
+
+	// Three ways the scan ends up with less than the tree, each told apart, because "the repository is empty"
+	// and "git is broken" are not the same report.
+	test("refuses a repository with nothing tracked, rather than reporting a pass", () => {
+		const result = guardIn(repositoryWith({}));
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr.toString()).toContain("nothing is tracked");
 	});
 
-	// The other shape of an empty listing: `ls-files` fails rather than returning nothing, and the failure is
-	// swallowed. Both reach the same refusal, and only one of them is a repository.
-	test("refuses a directory that is not a repository at all", () => {
+	test("refuses a directory that is not a repository, naming the listing rather than the contents", () => {
 		const root = mkdtempSync(join(tmpdir(), "nextup-decoy-"));
 		decoys.push(root);
-		const { code, stderr } = guardIn(root);
-		expect(code).toBe(1);
-		expect(stderr).toContain("nothing is tracked");
+		const result = guardIn(root);
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr.toString()).toContain("git ls-files failed");
+	});
+
+	// A sparse checkout lists a tracked file the scan cannot read, so it would pass on the subset it
+	// materialised — with the excluded file carrying the identifier.
+	test("refuses a sparse checkout, rather than scanning the part of the tree it has", () => {
+		const root = repositoryWith({ "keep/a.md": "clean\n", [`drop/b.md`]: `leak at ${unknownHttpsUrl}\n` });
+		expect(defaultRunner(["git", "-C", root, "sparse-checkout", "init", "--cone"]).code).toBe(0);
+		expect(defaultRunner(["git", "-C", root, "sparse-checkout", "set", "keep"]).code).toBe(0);
+		const result = guardIn(root);
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr.toString()).toContain("not readable");
 	});
 
 	test("scans the fixture rather than reporting ok on nothing", () => {
 		const before = process.env.GIT_DIR;
-		process.env.GIT_DIR = emptyRepository();
+		// An empty repository for GIT_DIR to name; a missing path would fail the listing rather than empty it.
+		process.env.GIT_DIR = join(repositoryWith({}), ".git");
 		try {
 			const result = runGuardOn(`Ticket at ${unknownHttpsUrl}\n`);
 			expect(result.exitCode).not.toBe(0);

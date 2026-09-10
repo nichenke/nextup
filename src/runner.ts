@@ -54,24 +54,24 @@ function reportRemovals(names: readonly string[]): void {
 	if (removalsReported || names.length === 0) return;
 	removalsReported = true;
 	const one = names.length === 1;
-	// Not "nothing else changes, so unset them": a `GIT_CONFIG_COUNT` trio can carry a `safe.directory` grant
-	// that is the only reason git works at all, and unsetting that removes the grant rather than the warning.
+	// Deliberately no "unset them" advice: a removed variable may have carried the only configuration that
+	// makes git work here. ADR-0029.
 	process.stderr.write(
 		`${names.join(", ")} ${one ? "was" : "were"} removed from the environment of every git command: this tool names the repository it means on each command, so an inherited GIT_ variable can only answer for a different one. Anything ${one ? "it" : "they"} configured is gone with ${one ? "it" : "them"}.\n`,
 	);
 }
 
 export const defaultRunner: Runner = (argv) => {
-	// `gh`, `glab` and `jira` cross this seam too and authenticate from the environment, so theirs is handed
-	// over whole. ADR-0029.
-	//
-	// The final path segment rather than the whole word, so an absolute path is scrubbed too. ADR-0029 bounds
-	// what that catches and what it does not.
+	// git only: `gh`, `glab` and `jira` cross this seam and authenticate from the environment. The final path
+	// segment rather than the whole word, so an absolute path is scrubbed too. ADR-0029 bounds both.
 	const git = argv[0]?.split("/").at(-1) === "git" ? gitEnvironment(process.env) : undefined;
 	if (git) reportRemovals(git.reportable);
 	try {
-		// Bun reads `env: undefined` as "inherit", the same as omitting it, so one call covers both cases.
-		const result = spawnSync({ cmd: argv, stdout: "pipe", stderr: "pipe", env: git?.env });
+		// Always constructed, never inherited, so `argv[0]` decides only which names are removed. Inheriting
+		// would also decide *when* the environment was read: Bun gives an inherited child the one it started
+		// with, so the two kinds of child would disagree about a variable assigned since.
+		const env = git?.env ?? { ...process.env };
+		const result = spawnSync({ cmd: argv, stdout: "pipe", stderr: "pipe", env });
 		return {
 			code: result.exitCode,
 			stdout: result.stdout.toString(),

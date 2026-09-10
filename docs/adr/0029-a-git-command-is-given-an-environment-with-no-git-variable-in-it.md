@@ -19,6 +19,11 @@ nothing this tool runs needs a `GIT_` variable. That last clause is measured bel
 why 0026 refused rather than stripped. Bun's `spawnSync` takes a per-call `env`, so that argument only ever
 ruled out a *global* scrub; a git-only one leaves their credentials alone.
 
+Every child is given a constructed environment, not an inherited one, so `argv[0]` decides only which names
+are removed. Inheriting for the others would also have made it decide *when* the environment was read: Bun
+hands an inherited child the environment as it stood at startup, so a variable assigned since would reach a
+git child and not a `gh` one — an asymmetry no reader of `Runner` could predict from its signature.
+
 **Identified by the final path segment of `argv[0]`.** `command-builders.ts` writes a bare `git` in all eight
 of its git commands, so matching that word alone would do today — but it is an enumeration of one, and an
 absolute `/usr/bin/git` would have failed open exactly as the variable list did. The segment match costs
@@ -104,12 +109,22 @@ makes it run first in CI, before any dependency install, and that ordering is wo
 seam. Left alone it was the worse bug of the two — `git ls-files` under a redirected `GIT_DIR` listed nothing
 and the guard printed `ok`, so the repository's first check silently checked no files.
 
-It also now refuses an empty listing rather than scanning one, because the redirect was a cause and not the
-class. Both pipelines in that script end in `|| true`, so a failing `ls-files` is swallowed: run in a
-directory that is not a repository at all, it printed `fatal: not a git repository`, then `ok`, and exited 0.
-A checkout that produced no worktree or an image without `git` reaches the same place. The guard now fails
-when nothing is tracked, which makes the `GIT_` removal above a second line of defence rather than the only
-one.
+It also now refuses to report on a scan that saw less than the tree, because the redirect was a cause and not
+the class. Both pipelines in that script end in `|| true`, so anything leaving them without input reads as
+nothing found: run in a directory that is not a repository at all, it printed `fatal: not a git repository`,
+then `ok`, and exited 0. Three causes are now told apart, each with its own message, because "the repository
+is empty" and "git is broken" are not the same report:
+
+- `git ls-files` failing at all, which is where a redirected environment, a missing `git`, or a checkout that
+  produced no worktree lands. Reported as a listing failure rather than as a claim about the contents — under
+  `CLAUDE.md`'s ordering this step runs before any dependency install, so a broken image reaches it first.
+- nothing tracked, where a pass would mean nothing.
+- a tracked file the scan cannot read, which is a sparse checkout. `ls-files` counts it and `grep` skips it,
+  so the guard passed on the subset that was materialised — measured with the identifier in the excluded file.
+  Sparse checkouts are denied rather than reported on: nothing in this repository needs one, CI takes the whole
+  tree, and a guard that cannot read a file cannot vouch for it.
+
+Together these make the `GIT_` removal above a second line of defence rather than the only one.
 
 `scripts/guard-harness.ts` spawns git raw to build a throwaway fixture repository. It asks `src/runner.ts`
 for the scrubbed environment rather than owning a list. It hands the guard script the environment whole, on

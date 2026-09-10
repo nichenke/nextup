@@ -75,12 +75,11 @@ afterEach(() => {
  * Two repositories, each with its own path as `origin`, so an origin read says which one answered. A path
  * rather than a URL because the identifier guard reads this file; `CLAUDE.md` has that.
  *
- * `track` decides whether `afterEach` removes it, so a case needing a repository of its own can have one
- * without taking the shared fixture down with it.
+ * The caller registers what it built, because the two lifetimes here differ: the shared fixture outlives
+ * every case, and a case building its own must not take the shared one down with it.
  */
-function twoRepositories(track: boolean): { root: string; intended: string; other: string } {
+function twoRepositories(): { root: string; intended: string; other: string } {
 	const created = mkdtempSync(join(tmpdir(), "nextup-redirect-"));
-	if (track) perTestRoots.push(created);
 	// Real, because git resolves symlinks in the paths it reports and macOS hands `mkdtemp` a symlinked one.
 	const root = realpathSync(created);
 	for (const name of ["intended", "other"]) {
@@ -93,7 +92,7 @@ function twoRepositories(track: boolean): { root: string; intended: string; othe
 
 // One fixture for every case that only reads, rebuilt for none of them: six identical constructions cost six
 // times the git subprocesses and prove nothing more. `src/recording.test.ts` sets the same precedent.
-const shared = twoRepositories(false);
+const shared = twoRepositories();
 
 afterAll(() => rmSync(shared.root, { recursive: true, force: true }));
 
@@ -176,7 +175,8 @@ describe("a git variable exported before the tool started", () => {
 	test("does not abort a command it aborts unscrubbed", () => {
 		// GIT_REPLACE_REF_BASE without a trailing slash aborts `worktree add` on a `BUG:` assertion, exit 134.
 		// Its own fixture, because this is the one case that writes.
-		const { root, intended } = twoRepositories(true);
+		const { root, intended } = twoRepositories();
+		perTestRoots.push(root);
 		expect(defaultRunner(["git", "-C", intended, "-c", "user.email=n@invalid", "-c", "user.name=n", "commit", "--quiet", "--allow-empty", "-m", "init"]).code).toBe(0);
 		const argv = ["git", "-C", intended, "worktree", "add", join(root, "added"), "-b", "added"];
 		const { stdout } = inChildProcess(`process.stdout.write(String(defaultRunner(${JSON.stringify(argv)}).code));`, {

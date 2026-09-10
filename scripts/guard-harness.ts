@@ -23,13 +23,14 @@ export function runGuardOn(contents: string) {
 	// accumulated 3502 directories and most of a gigabyte of temp space before anyone looked.
 	try {
 		writeFileSync(join(dir, "fixture.md"), contents);
+		// Scrubbed, or an exported GIT_DIR aims `git init` and `git add` at another repository and the fixture
+		// is never staged where the guard looks. `src/runner.ts` owns which names go.
+		const { env } = gitEnvironment(process.env);
 		for (const cmd of [
 			["git", "init", "-q"],
 			["git", "add", "fixture.md"],
 		]) {
-			// Scrubbed, or an exported GIT_DIR aims `git init` and `git add` at another repository and the
-			// fixture is never staged where the guard looks. `src/runner.ts` owns which names go.
-			const setup = spawnSync({ cmd, cwd: dir, env: gitEnvironment(process.env).env });
+			const setup = spawnSync({ cmd, cwd: dir, env });
 			if (setup.exitCode !== 0) {
 				throw new Error(`fixture setup failed: ${cmd.join(" ")}`);
 			}
