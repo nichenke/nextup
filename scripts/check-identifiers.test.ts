@@ -97,6 +97,16 @@ describe("check-identifiers under a redirected git environment", () => {
 		expect(result.stderr.toString()).toContain("git ls-files failed");
 	});
 
+	// git honours any of its boolean spellings here, so the guard reads the value as a boolean rather than
+	// comparing it to the one spelling `sparse-checkout init` happens to write.
+	test("refuses a sparse checkout configured with another of git's boolean spellings", () => {
+		const root = repositoryWith({ "a.md": `leak at ${unknownHttpsUrl}\n` });
+		expect(defaultRunner(["git", "-C", root, "config", "core.sparseCheckout", "yes"]).code).toBe(0);
+		const result = guardIn(root);
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr.toString()).toContain("sparse checkout");
+	});
+
 	test("refuses a sparse checkout, rather than scanning the part of the tree it has", () => {
 		const root = repositoryWith({ "keep/a.md": "clean\n", "drop/b.md": `leak at ${unknownHttpsUrl}\n` });
 		expect(defaultRunner(["git", "-C", root, "sparse-checkout", "init", "--cone"]).code).toBe(0);

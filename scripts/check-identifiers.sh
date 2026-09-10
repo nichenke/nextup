@@ -36,7 +36,10 @@ fi
 # A sparse checkout keeps tracked files out of the worktree, so the scan reads a subset and passes -- measured
 # with the identifier in the excluded file. Asked of git rather than inferred from a file being absent, because
 # an unstaged deletion looks identical on disk and is an everyday state, not a reason to refuse.
-if [ "$(git config --get core.sparseCheckout || true)" = "true" ]; then
+# `--bool` rather than a literal comparison: git accepts `yes`, `on`, `1` and `TRUE` for a boolean and honours
+# them, while `--get` returns whatever the file says -- so comparing the raw value misses a sparse checkout
+# spelled any of those ways. Measured: a config holding `yes` reads back as `yes` raw and `true` as a bool.
+if [ "$(git config --bool --get core.sparseCheckout || true)" = "true" ]; then
 	printf 'check-identifiers: this is a sparse checkout, so a scan would cover part of the tree\n' >&2
 	exit 1
 fi
