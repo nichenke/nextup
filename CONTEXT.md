@@ -93,9 +93,9 @@ _Avoid_: runner, executor, starter
 
 **Runner**:
 The injected seam every external process call passes through, and therefore the only thing a test has to
-substitute. The one place the tool touches anything outside itself, with two audited exceptions under
-`scripts/` that run before a dependency is installed and so cannot import it — ADR-0029 names them and what
-each does instead.
+substitute. The one place the tool touches anything outside itself, with two audited exceptions under `scripts/` that
+ADR-0029 names: the identifier guard, which CI runs before any dependency install and so cannot import this,
+and the guard's own test harness, which needs a working directory this seam does not carry.
 _Avoid_: shell, executor, spawner
 
 **Ensure**:

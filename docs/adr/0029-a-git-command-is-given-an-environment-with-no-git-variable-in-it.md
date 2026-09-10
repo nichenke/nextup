@@ -8,7 +8,8 @@ whose body stands as written.
 ## The decision
 
 `defaultRunner` gives a git child `process.env` with every `GIT_`-prefixed name removed, whatever its value.
-Nothing is refused, and no other command's environment is touched.
+Nothing is refused. Another command's environment is passed on whole, though still constructed rather than
+inherited, for the reason two paragraphs below.
 
 **By prefix, not by a list of the ones that redirect.** An enumerated list fails open: a variable nobody
 measured is permitted, which is how this has now been wrong twice. Removing by prefix fails closed against
@@ -38,8 +39,8 @@ nothing to be wrong about: a program merely *named* `git` loses variables it doe
 git reached through another program — `env git`, `sudo git`, `sh -c "git …"` — or a wrapper under a different
 name. None of those shapes exists in the tool, and this is the bound to widen if one is added.
 
-**Reported once per run**, on stderr, naming every variable removed and saying that whatever they configured
-went with them. It does not advise unsetting them, for the reason "Consequences" gives. Once per run rather
+**Reported once per run**, on stderr, naming the variables removed — bar the two suppressed below — and saying
+that whatever they configured went with them. It does not advise unsetting them, for the reason "Consequences" gives. Once per run rather
 than once per name, because the environment does not change while the process lives, so the second call has
 nothing new to name.
 

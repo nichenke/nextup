@@ -36,7 +36,8 @@ export function runGuardOn(contents: string) {
 			}
 		}
 		// Explicitly, or a case that sets a variable cannot reach the guard — `src/runner.test.ts` has why an
-		// inherited child cannot see one. Whole, for the reason in ADR-0029.
+		// inherited child cannot see one. Whole, because whether the guard removes what it must is what its
+		// own tests assert.
 		return spawnSync({ cmd: ["bash", script], cwd: dir, env: { ...process.env } });
 	} finally {
 		rmSync(dir, { recursive: true, force: true });

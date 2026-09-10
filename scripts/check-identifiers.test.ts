@@ -83,7 +83,6 @@ describe("check-identifiers under a redirected git environment", () => {
 		return root;
 	}
 
-	// The ways the scan ends up with less than the tree, each told apart rather than reported as one. ADR-0029.
 	test("refuses a repository with nothing tracked, rather than reporting a pass", () => {
 		const result = guardIn(repositoryWith({}));
 		expect(result.exitCode).toBe(1);

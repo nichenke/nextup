@@ -10,16 +10,25 @@ export interface CommandResult {
 export type Runner = (argv: string[]) => CommandResult;
 
 /**
- * The exit code a shell reports for a child killed by `signal`, which is the convention every caller already
- * reads that way — 134 for `SIGABRT`, the code ADR-0029 measured `git worktree add` aborting with. Taken from
- * the platform's own table rather than a list here, so an unlisted signal cannot come out as a wrong number.
+ * Stands in for an outcome that cannot be classified. Neither 0 nor 1: `branchExists` in `worktree.ts` reads
+ * those two as answers — present, absent — and throws on everything else, which is where an unclassifiable
+ * result belongs. 128 is also the floor a shell reports for a death by signal.
+ */
+const UNCLASSIFIED = 128;
+
+/**
+ * The exit code a shell reports for a child killed by `signal` — 134 for `SIGABRT`, the code ADR-0029 measured
+ * `git worktree add` aborting with. Taken from the platform's own table rather than a list here, so an unlisted
+ * signal cannot come out as a wrong number.
+ *
+ * Callers here compare against 0, with one exception that decides what the fallback may be: `branchExists` in
+ * `worktree.ts` reads 1 as "the branch is not there" and throws on anything else. So a signal death must never
+ * arrive as 1, which would answer a question instead of failing.
  */
 function signalledExitCode(signal: string): number {
 	const numbers: Record<string, number | undefined> = constants.signals;
 	const number = numbers[signal];
-	// A name the table does not hold cannot be turned into a shell's code, and 128 alone is git's own fatal
-	// status — unreadable beside it. A plain failure instead, with the signal itself on stderr.
-	return number === undefined ? 1 : 128 + number;
+	return number === undefined ? UNCLASSIFIED : 128 + number;
 }
 
 /**
@@ -62,7 +71,6 @@ export function gitEnvironment(source: Readonly<Record<string, string | undefine
 	return { env, reportable: reportable.sort() };
 }
 
-/** Whether this has been said already, so a redirected shell hears it once rather than once per command. */
 let removalsReported = false;
 
 function reportRemovals(names: readonly string[]): void {
@@ -88,13 +96,11 @@ export const defaultRunner: Runner = (argv) => {
 		// with, so the two kinds of child would disagree about a variable assigned since.
 		const env = scrubbed?.env ?? { ...process.env };
 		const result = spawnSync({ cmd: argv, stdout: "pipe", stderr: "pipe", env });
-		// A child killed by a signal has no exit code, and `code` is a number: `worktree.ts` renders it into
-		// the message a user reads, where `null` names nothing. The signal goes to stderr so neither is lost.
+		// A child killed by a signal has no exit code, and `code` is a number callers switch on — `branchExists`
+		// turns it into a boolean. The signal goes to stderr, so what killed the command is not lost either.
 		const signal = result.signalCode;
 		return {
-			// `?? 1`, never `?? 0`: an exit status neither reported nor explained by a signal is a command whose
-			// outcome is unknown, and reporting that as success is the one reading that cannot be recovered from.
-			code: signal ? signalledExitCode(signal) : (result.exitCode ?? 1),
+			code: signal ? signalledExitCode(signal) : (result.exitCode ?? UNCLASSIFIED),
 			stdout: result.stdout.toString(),
 			stderr: signal ? `${result.stderr.toString()}killed by ${signal}\n` : result.stderr.toString(),
 		};

@@ -18,11 +18,9 @@ describe("defaultRunner", () => {
 		expect(result.stderr).not.toBe("");
 	});
 
-	// A signal-killed child has no exit code, and `code` is a number — `worktree.ts` puts it in front of a
-	// user. SIGABRT rather than any signal because that is how git dies on a `BUG:` assertion.
+	// SIGABRT rather than any signal because that is how git dies on a `BUG:` assertion.
 	test("gives a signal-killed command the code a shell would, and names the signal", () => {
 		const result = defaultRunner(["bash", "-c", "kill -ABRT $$"]);
-		// 134, not a sentinel: git's own fatal exit is 128, so a stand-in there would be unreadable beside it.
 		expect(result.code).toBe(134);
 		expect(result.stderr).toContain("SIGABRT");
 	});
@@ -102,8 +100,7 @@ function twoRepositories(): { root: string; intended: string; other: string } {
 let sharedRepositories: ReturnType<typeof twoRepositories> | undefined;
 
 /**
- * One fixture for every case that only reads, rebuilt for none of them: six identical constructions cost six
- * times the git subprocesses and prove nothing more.
+ * One fixture for every case that only reads, rebuilt for none of them.
  *
  * Built on first use rather than at import, because a run whose tests are all filtered out would otherwise
  * build it, assert inside it outside any test, and leave it behind — measured as one stray directory, of the
@@ -119,7 +116,8 @@ afterAll(() => {
 });
 
 /**
- * Runs `body` against this module in a child process whose environment is `overrides` and nothing else.
+ * Runs `body` against this module in a child process whose environment is `overrides` plus the `PATH` and
+ * `HOME` Bun needs to start at all.
  *
  * A child rather than a call, because Bun hands an inherited child the environment as it stood at *startup*:
  * a variable assigned into `process.env` mid-run never reaches a git process, so a case setting one that way

@@ -22,7 +22,7 @@ set -euo pipefail
 unset "${!GIT_@}"
 
 # Both scan pipelines below end in `|| true`, so anything leaving them without input reads as nothing found.
-# One message per cause: "the repository is empty" and "git is broken" are not the same report. ADR-0029.
+# ADR-0029 has why each cause gets its own message.
 if ! tracked=$(git ls-files); then
 	printf 'check-identifiers: git ls-files failed, so no file was scanned\n' >&2
 	exit 1
