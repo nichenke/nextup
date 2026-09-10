@@ -131,7 +131,7 @@ function degradedLine(reason: string): string {
  * the end for that reason: a list would leave the last edge, the one that makes it a loop, unstated.
  */
 function deadlockLine(deadlock: Deadlock): string {
-	const chain = [...deadlock.cycle, deadlock.cycle[0]].map(formatTicketRef).join(" blocked by ");
+	const chain = refList([...deadlock.cycle, deadlock.cycle[0]], " blocked by ");
 	return `${DEADLOCK_PREFIX}${chain}, so nothing in it can ever unblock`;
 }
 
@@ -159,8 +159,8 @@ function readDegradeReason(degrade: ReadDegrade): string {
 	}
 }
 
-function refList(refs: readonly TicketRef[]): string {
-	return refs.map(formatTicketRef).join(", ");
+function refList(refs: readonly TicketRef[], separator = ", "): string {
+	return refs.map(formatTicketRef).join(separator);
 }
 
 export function renderSelection(selection: Selection): string {
