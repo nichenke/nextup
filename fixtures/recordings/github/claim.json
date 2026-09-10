@@ -1,0 +1,18 @@
+{
+	"description": "The claim landing on the tree's write target, which is the whole write path: one call, whose exit status is the entire verdict.",
+	"cli": "gh version 2.100.0 (2026-09-03)",
+	"argv": [
+		"gh",
+		"issue",
+		"edit",
+		"--repo",
+		"nichenke/nextup-test-tree-github",
+		"--add-assignee",
+		"@me",
+		"--",
+		"22"
+	],
+	"code": 0,
+	"stdout": "github-test-tree/nichenke/nextup-test-tree-github/issues/22\n",
+	"stderr": ""
+}

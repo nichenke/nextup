@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { classifyFailure } from "./failure-class";
+import { classifyFailure, collapseFailure } from "./failure-class";
 import { loadRecording, recordingsDir } from "./recording";
 
 function stderrOf(name: string): string {
@@ -56,5 +56,23 @@ describe("classifyFailure", () => {
 	test("reads a failure it cannot place as a defect, never as an outage", () => {
 		expect(classifyFailure("")).toBe("defect");
 		expect(classifyFailure("something nobody has seen before")).toBe("defect");
+	});
+});
+
+describe("collapseFailure", () => {
+	test("turns the several lines gh really printed into one", () => {
+		const collapsed = collapseFailure(stderrOf("claim-outage"));
+		expect(stderrOf("claim-outage")).toContain("\n");
+		expect(collapsed).not.toContain("\n");
+		expect(collapsed).toBe("error connecting to nextup-outage.invalid check your internet connection or github-test-tree");
+	});
+
+	test("leaves nothing at either end, so a message never reads as ending early", () => {
+		expect(collapseFailure("  padded  ")).toBe("padded");
+		expect(collapseFailure("\n\n")).toBe("");
+	});
+
+	test("collapses a tab and a carriage return too, which a CLI on another platform will send", () => {
+		expect(collapseFailure("one\r\ntwo\tthree")).toBe("one two three");
 	});
 });

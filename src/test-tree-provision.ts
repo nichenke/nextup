@@ -1,5 +1,5 @@
 import type { Runner } from "./runner";
-import { type TestTreeIssue, type TestTreeSpec, TestTreeError, validateTestTree } from "./test-tree";
+import { type TestTreeIssue, type TestTreeSpec, TestTreeError, shapeOf, validateTestTree } from "./test-tree";
 
 /**
  * High enough that the tree never fills it, so a full page is evidence of truncation rather than of a
@@ -196,6 +196,42 @@ export function requirePrivate(spec: TestTreeSpec, runner: Runner): void {
 			`${spec.repo} is ${visibility || "of unknown visibility"}, and ADR-0023 requires it to be private`,
 		);
 	}
+}
+
+/**
+ * The number one shape carries in the tree right now. Exported for a capture that has to *name* an issue —
+ * the write captures do, where every read capture names only the repository.
+ *
+ * Found by title, the tree's identity, rather than taken from a number written down anywhere: a rebuilt tree
+ * renumbers, which ADR-0023 is the decision behind.
+ *
+ * The issue also has to match the spec on being open and on being claimed, because the caller is about to write
+ * to it and neither disagreement is visible in what a write returns. A claim left behind by an interrupted run
+ * makes `gh issue edit --add-assignee` exit 0 with nothing to show for it, and a closed shape drops out of a
+ * read that asks `--state open` — so both would be captured as a corpus that no longer matches the spec, and
+ * surface later as a read-path test failing for no local reason.
+ *
+ * @throws TestTreeError when `key` names no shape, when the tree holds no issue under that shape's title, or
+ * when that issue's state or claim disagrees with the spec.
+ */
+export function issueNumber(spec: TestTreeSpec, key: string, runner: Runner): number {
+	const wanted = shapeOf(spec, key);
+	const title = wanted.title;
+	const found = listIssues(spec, runner).find((issue) => issue.title === title);
+	if (found === undefined) {
+		throw new TestTreeError(`the tree holds no issue titled ${title}, so run provisioning before asking for its number`);
+	}
+	if ((found.state === "CLOSED") !== wanted.closed) {
+		throw new TestTreeError(
+			`${title} is ${found.state.toLowerCase()} in the tree and the spec says it should not be, so run provisioning`,
+		);
+	}
+	if ((found.assignees.length > 0) !== wanted.claimed) {
+		throw new TestTreeError(
+			`${title} is ${wanted.claimed ? "unclaimed" : "claimed"} in the tree and the spec says otherwise, so run provisioning`,
+		);
+	}
+	return found.number;
 }
 
 function listIssues(spec: TestTreeSpec, runner: Runner): readonly ExistingIssue[] {

@@ -8,6 +8,7 @@ import {
 	defaultBranchCommand,
 	formatCommand,
 	gitCommonDirCommand,
+	githubClaimCommand,
 	githubIssueListCommand,
 	jiraIdentityCommand,
 	originRemoteCommand,
@@ -135,6 +136,12 @@ const CASES: readonly Case[] = [
 		input: { repo: "example/repo", rows: 31 },
 		build: () => githubIssueListCommand({ repo: "example/repo", rows: 31 }),
 	},
+	{
+		name: "github-claim",
+		description: "The one write that claims a GitHub ticket, assigning whoever the CLI is authenticated as.",
+		input: { repo: "example/repo", key: "1" },
+		build: () => githubClaimCommand({ repo: "example/repo", key: "1" }),
+	},
 ];
 
 describe("the command-builder golden files", () => {
@@ -190,6 +197,34 @@ describe("githubIssueListCommand", () => {
 	test("refuses a row count no read could use, rather than letting the CLI reject it", () => {
 		expect(() => githubIssueListCommand({ repo: "example/repo", rows: 0 })).toThrow(/above zero/);
 		expect(() => githubIssueListCommand({ repo: "example/repo", rows: 1.5 })).toThrow(/whole number/);
+	});
+});
+
+describe("githubClaimCommand", () => {
+	test("names the authenticated account rather than a login, so the write is the only call", () => {
+		const argv = githubClaimCommand({ repo: "example/repo", key: "7" });
+		expect(argv[argv.indexOf("--add-assignee") + 1]).toBe("@me");
+	});
+
+
+	// ADR-0030: refused here rather than sent, because the command exits 0 having claimed nothing.
+	test("refuses a key the CLI would read as a flag instead of an issue", () => {
+		expect(() => githubClaimCommand({ repo: "example/repo", key: "--help" })).toThrow(/issue number/);
+		expect(() => githubClaimCommand({ repo: "example/repo", key: "-h" })).toThrow(/issue number/);
+	});
+
+	test("refuses a key that is not one issue number, rather than letting the CLI reject it", () => {
+		expect(() => githubClaimCommand({ repo: "example/repo", key: "" })).toThrow(/issue number/);
+		expect(() => githubClaimCommand({ repo: "example/repo", key: "7 8" })).toThrow(/issue number/);
+		expect(() => githubClaimCommand({ repo: "example/repo", key: "ABC-7" })).toThrow(/issue number/);
+	});
+
+	// `gh` reads 037 as issue 37 while `compareTicketRefs` calls 037 and 37 different tickets, so a padded key
+	// claims an issue the reference does not name and exits 0. The separator cannot catch this one.
+	test("refuses a zero-padded key, which the CLI would silently resolve to a different issue", () => {
+		expect(() => githubClaimCommand({ repo: "example/repo", key: "037" })).toThrow(/canonical/);
+		expect(() => githubClaimCommand({ repo: "example/repo", key: "07" })).toThrow(/canonical/);
+		expect(() => githubClaimCommand({ repo: "example/repo", key: "0" })).toThrow(/canonical/);
 	});
 });
 
