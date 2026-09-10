@@ -142,21 +142,31 @@ interface Options {
 	readonly filter: LabelFilterSpec;
 }
 
-/** Must list exactly the cases below that call `value`; `asksForHelp` reads it to skip value positions. */
-const VALUE_FLAGS: ReadonlySet<string> = new Set(["--include", "--exclude", "--limit"]);
+/**
+ * What each value-taking flag could actually use as its value, asked per flag rather than in general: a label
+ * may be spelled almost anything, including `-h`, while a limit is only ever digits. Must hold exactly the
+ * cases below that call `value`.
+ */
+const VALUE_FLAGS: ReadonlyMap<string, (word: string) => boolean> = new Map([
+	["--include", canBeValue],
+	["--exclude", canBeValue],
+	["--limit", isTicketCount],
+]);
 
 /**
  * Whether the line asks for help, answered before the rest of it is judged: help is what a person reaches
  * for *after* getting a flag wrong, so `nextup --limit --help` must not come back a usage error.
  *
- * A word standing in as a flag's value is skipped, because `-h` is a label a repository may really carry and
- * `--include -h` is then a read rather than a request for help. `--help` in that position still asks for
- * help: `canBeValue` refuses it as a value, so no read could have used it either way.
+ * A word the preceding flag could really use is skipped, so `--include -h` is a read of a repository whose
+ * label is spelled `-h`. The question is per flag and not just "is this a flag": `-h` cannot be a limit, so
+ * `--limit -h` is a help request beside a mistyped value rather than a value.
  */
 function asksForHelp(argv: readonly string[]): boolean {
 	for (let i = 0; i < argv.length; i++) {
 		const word = argv[i]!;
-		if (VALUE_FLAGS.has(word) && canBeValue(argv[i + 1])) {
+		const usable = VALUE_FLAGS.get(word);
+		const next = argv[i + 1];
+		if (usable !== undefined && next !== undefined && usable(next)) {
 			i++;
 			continue;
 		}
@@ -167,6 +177,11 @@ function asksForHelp(argv: readonly string[]): boolean {
 
 function canBeValue(word: string | undefined): word is string {
 	return word !== undefined && !word.startsWith("--");
+}
+
+/** Digits only, which is what `tickets` accepts, so the two cannot disagree about what a limit looks like. */
+function isTicketCount(word: string): boolean {
+	return /^[0-9]+$/.test(word);
 }
 
 function parse(argv: readonly string[]): Options {
@@ -217,7 +232,7 @@ function parse(argv: readonly string[]): Options {
  * saying so.
  */
 function tickets(given: string, flag: string): number {
-	const limit = /^[0-9]+$/.test(given) ? Number(given) : Number.NaN;
+	const limit = isTicketCount(given) ? Number(given) : Number.NaN;
 	if (!isReadableLimit(limit)) {
 		throw new CliError(`${flag} takes a whole number of tickets above zero, and ${given} is not one`);
 	}

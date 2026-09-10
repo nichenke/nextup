@@ -185,6 +185,21 @@ describe("the command line itself", () => {
 		expect(result.code).toBe(1);
 	});
 
+	// The same word after a flag that could never use it. A limit is digits, so `-h` there is the help request
+	// it looks like rather than a value, and skipping it made this the one bad-flag case help did not answer.
+	test("answers help after a flag whose value it could not have been", () => {
+		const result = run(["--limit", "-h"], deps());
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain("usage: nextup");
+	});
+
+	// The guard against over-correcting: a bad limit that is not a help request is still a usage error.
+	test("refuses a mistyped limit that asks for nothing", () => {
+		const result = run(["--limit", "abc"], deps());
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("--limit");
+	});
+
 	test("refuses a limit no read could use, before any read happens", () => {
 		expect(run(["--limit", "0"], deps()).code).toBe(2);
 		expect(run(["--limit", "2.5"], deps()).stderr).toContain("--limit");
