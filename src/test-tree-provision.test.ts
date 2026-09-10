@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { CommandResult, Runner } from "./runner";
 import { GITHUB_PLACEHOLDER_HOST } from "./recording-identifiers";
-import { GITHUB_TEST_TREE, type TestTreeSpec, TestTreeError } from "./test-tree";
-import { provisionTestTree } from "./test-tree-provision";
+import { GITHUB_TEST_TREE, type TestTreeSpec, TestTreeError, shapeTitle } from "./test-tree";
+import { issueNumber, provisionTestTree } from "./test-tree-provision";
 
 interface FakeIssue {
 	number: number;
@@ -127,6 +127,44 @@ function fakeTracker(seed: FakeIssue[] = []) {
 
 	return { runner, issues, calls };
 }
+
+describe("issueNumber", () => {
+	const WRITE_TARGET = shapeTitle(GITHUB_TEST_TREE, "write-target");
+
+	test("answers with whatever number the tree gave that shape, not one written down anywhere", () => {
+		const tracker = fakeTracker([
+			{ number: 4242, title: WRITE_TARGET, labels: ["P2"], assignees: [], state: "OPEN", blockedBy: [] },
+		]);
+		expect(issueNumber(GITHUB_TEST_TREE, "write-target", tracker.runner)).toBe(4242);
+	});
+
+	test("refuses a shape the tree does not hold, rather than answering with another issue's number", () => {
+		const tracker = fakeTracker([
+			{ number: 7, title: "Something else entirely", labels: [], assignees: [], state: "OPEN", blockedBy: [] },
+		]);
+		expect(() => issueNumber(GITHUB_TEST_TREE, "write-target", tracker.runner)).toThrow(TestTreeError);
+	});
+
+	test("refuses a key the spec never declares", () => {
+		const tracker = fakeTracker();
+		expect(() => issueNumber(GITHUB_TEST_TREE, "no-such-shape", tracker.runner)).toThrow(TestTreeError);
+	});
+
+	test("refuses a shape the tree has claimed when the spec says it is unclaimed", () => {
+		const tracker = fakeTracker([
+			{ number: 22, title: WRITE_TARGET, labels: ["P2"], assignees: [{ login: "someone" }], state: "OPEN", blockedBy: [] },
+		]);
+		expect(() => issueNumber(GITHUB_TEST_TREE, "write-target", tracker.runner)).toThrow(/claimed/);
+	});
+
+	// Distinct from the undescribed-title case above, because the title is one the spec does describe.
+	test("refuses a shape the tree has closed when the spec says it is open", () => {
+		const tracker = fakeTracker([
+			{ number: 22, title: WRITE_TARGET, labels: ["P2"], assignees: [], state: "CLOSED", blockedBy: [] },
+		]);
+		expect(() => issueNumber(GITHUB_TEST_TREE, "write-target", tracker.runner)).toThrow(/closed/);
+	});
+});
 
 describe("provisionTestTree", () => {
 	test("builds the whole tree from an empty tracker", () => {

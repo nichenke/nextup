@@ -216,6 +216,34 @@ export function githubIssueListCommand(input: GitHubIssueListInput): readonly st
 	];
 }
 
+export interface GitHubClaimCommandInput {
+	readonly repo: string;
+	readonly key: string;
+}
+
+/**
+ * The one write that claims a GitHub ticket.
+ *
+ * `@me` rather than a login looked up first, so the identity is resolved by the same call that writes.
+ * ADR-0018 requires the claim be a single call, and a separate `gh api user` would be a second one whose
+ * answer nothing here is allowed to compare against.
+ *
+ * The key goes last, after `--`, so that no spelling of it can be read as a flag rather than as the issue.
+ *
+ * @throws CommandBuilderError when `key` is not a canonical issue number — leading zeros and a bare `0` are
+ * refused, not merely non-digits. `gh` normalizes `037` to issue 37 while `compareTicketRefs` treats the two as
+ * different tickets, so a padded key would claim one issue for a reference naming another and exit 0. `--` does
+ * not help: it stops flag parsing, not number normalization. ADR-0032 has both measurements.
+ */
+export function githubClaimCommand(input: GitHubClaimCommandInput): readonly string[] {
+	if (!/^[1-9][0-9]*$/.test(input.key)) {
+		throw new CommandBuilderError(
+			`${input.key} is not a canonical issue number, so the issue it claims would not be the one it names`,
+		);
+	}
+	return ["gh", "issue", "edit", "--repo", input.repo, "--add-assignee", "@me", "--", input.key];
+}
+
 /**
  * Argv as one line a POSIX shell parses back into the same words, for a human to read or paste. It is
  * never what the tool executes — the runner takes argv — so this cannot become the path by which a

@@ -26,3 +26,15 @@ const OUTAGE =
 export function classifyFailure(stderr: string): FailureClass {
 	return OUTAGE.test(stderr) ? "outage" : "defect";
 }
+
+/**
+ * One failed call's stderr as a single line. `gh` writes an error over several, while a degrade or an abort is
+ * one event, so every consumer would otherwise have to remember to collapse it again — which is how a newline
+ * reached the human rendering while `--json` still carried the raw text.
+ *
+ * Lives beside `classifyFailure` because the two are always reached together: a caller that classifies a
+ * failure is about to report it.
+ */
+export function collapseFailure(stderr: string): string {
+	return stderr.trim().replace(/\s+/g, " ");
+}

@@ -1,0 +1,18 @@
+{
+	"description": "The one write that claims a GitHub ticket, assigning whoever the CLI is authenticated as.",
+	"input": {
+		"repo": "example/repo",
+		"key": "1"
+	},
+	"argv": [
+		"gh",
+		"issue",
+		"edit",
+		"--repo",
+		"example/repo",
+		"--add-assignee",
+		"@me",
+		"--",
+		"1"
+	]
+}

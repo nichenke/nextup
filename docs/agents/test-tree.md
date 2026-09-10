@@ -56,11 +56,29 @@ there is no invocation of it that reads a real project repository.
 Run it after changing what the adapter asks for, and read the diff: a recording that changed without the
 query changing is the CLI's projection moving under us, which is what the stored version line is for.
 
-Two of the five captures are failures rather than tree reads — an unresolvable host for the wording an
-outage is recognised by, and a repository that does not exist for the wording of a request that is itself
-wrong. Each is refused if it stops failing, so a name that later becomes a real repository is never stored.
+Three of the eight captures write rather than read: the claim landing on `write-target`, a claim naming an
+issue the tree does not have, and a claim against an unresolvable host. They come last, and the run releases
+`write-target` on the way out, including out of a capture that threw, because every read capture above recorded
+it unassigned. A release that itself fails says so **and fails the run**, so a stray claim cannot be mistaken
+for a clean capture.
 
-Do not read those two as evidence that redaction covers a host anywhere it appears. It rewrote the host in
+Interrupting the run is the gap: a `finally` does not cover Ctrl-C or a kill. An interrupted run cannot quietly
+become a bad corpus, though: the next capture refuses to start against a `write-target` the tree has claimed or
+closed, and the release itself checks rather than trusting its own exit status, since removing an assignee
+somebody else holds also exits 0.
+
+Provisioning releases a stray claim on any issue the spec describes, not only `write-target` — `reconcileClaim`
+runs over every spec issue. The one claim it cannot clear is one landed on an issue the spec describes no shape
+for, because `listIssues` refuses an undescribed title before any release happens. Only the failing write capture
+could produce that, which is why it names a number the tree cannot reach.
+
+Four captures are failures rather than successful exchanges: an unresolvable host, for the wording an outage
+is recognised by, and a request that is itself wrong, for a defect's — each in a read form and a write form.
+Each is refused if it stops failing, so neither a repository nor an issue number that later comes into
+existence is ever stored as a success. For the write forms that refusal fires after the call, so it protects
+the corpus rather than the tree — which is why the failing claim names a number inside the tree itself.
+
+Do not read the unresolvable ones as evidence that redaction covers a host anywhere it appears. It rewrote the host in
 `read-outage.json`'s argv, where a `/` follows it, and left the same host standing in the stderr beside it,
 where nothing does — `BARE_HOST` in `src/recording-identifiers.ts` needs that following separator. What makes
 the stored copy harmless is the name itself: it is under `.invalid`, which RFC 2606 reserves so that it can
@@ -74,16 +92,18 @@ that. The repository path is not rewritten at all — redaction rewrites hosts.
   control, not a preference: public means anyone can open an issue under a known spec title or comment on an
   existing one, and provisioning adopts by title while never reconciling bodies, labels or comments. ADR-0023
   has the path and what would have to replace the control.
-- **`write-target` is the only issue a test may assign and unassign.** Every other issue's claim is a
-  captured shape. If a run leaves a stray claim behind, `bun run provision:test-tree` releases it.
+- **`write-target` is the only issue a test or a capture may assign and unassign.** Every other issue's claim
+  is a captured shape. If a run leaves a stray claim behind, `bun run provision:test-tree` releases it.
 - **Never capture from a real repository** — ADR-0019 is the rule and `CLAUDE.md` carries it into every
   session.
 - **Redact before storing**, with `redactRecordingIdentifiers` in `src/recording-identifiers.ts`. ADR-0024
   has why, and why a recording that trips the identifier guard means extending redaction rather than
   allowlisting.
-- **Capture `--json` surfaces, not the human-readable views.** Plain `gh issue view` prints its blockers as
-  `owner/repo` and a number, which redaction cannot rewrite and the guard rejects; the `--json` form of the
-  same query carries no such shape. ADR-0024 has the measurement.
+- **Capture `--json` surfaces where a query has one, not the human-readable views.** Plain `gh issue view`
+  prints its blockers as `owner/repo` and a number, which redaction cannot rewrite and the guard rejects; the
+  `--json` form of the same query carries no such shape. ADR-0024 has the measurement. The write captures are
+  the exception, because `gh issue edit` has no `--json`: `claim.json` stores the issue address it prints, whose
+  host redaction does rewrite.
 - **Keep issue bodies free of file references** — a dotted filename followed by a colon and a line number,
   or by a slash. Redaction rewrites those to the placeholder because the guard flags them, and measured
   tracker output contains none, so a body is the only way one reaches a recording.

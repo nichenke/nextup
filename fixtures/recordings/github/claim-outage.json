@@ -1,0 +1,18 @@
+{
+	"description": "A claim against a host that cannot resolve, for the connectivity wording a failed write is read as an outage by.",
+	"cli": "gh version 2.100.0 (2026-09-03)",
+	"argv": [
+		"gh",
+		"issue",
+		"edit",
+		"--repo",
+		"github-test-tree/nichenke/unreachable",
+		"--add-assignee",
+		"@me",
+		"--",
+		"22"
+	],
+	"code": 1,
+	"stdout": "",
+	"stderr": "error connecting to nextup-outage.invalid\ncheck your internet connection or github-test-tree\n"
+}

@@ -47,9 +47,19 @@ export function openIssues(spec: TestTreeSpec): readonly TestTreeIssue[] {
  * @throws TestTreeError when no shape carries that key.
  */
 export function shapeTitle(spec: TestTreeSpec, key: string): string {
+	return shapeOf(spec, key).title;
+}
+
+/**
+ * One whole shape by key, for a caller that needs more of the spec than the title — what the tree should say
+ * about the issue, to compare against what it does say.
+ *
+ * @throws TestTreeError when no shape carries that key.
+ */
+export function shapeOf(spec: TestTreeSpec, key: string): TestTreeIssue {
 	const issue = spec.issues.find((one) => one.key === key);
 	if (issue === undefined) throw new TestTreeError(`${key} is not a shape the tree carries`);
-	return issue.title;
+	return issue;
 }
 
 export interface TestTreeSpec {

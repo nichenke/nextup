@@ -1,6 +1,6 @@
 import { GITHUB_TICKET_STATE, githubIssueListCommand } from "./command-builders";
 import type { DependencyGraph, IssueId } from "./effective-blockedness";
-import { classifyFailure } from "./failure-class";
+import { classifyFailure, collapseFailure } from "./failure-class";
 import { resolveOriginRemote } from "./git-remote";
 import { type GraphSeed, seedGraph } from "./graph-store";
 import type { Runner } from "./runner";
@@ -126,10 +126,8 @@ function requireEveryRowOpen(readings: readonly RowReading[], repo: string): voi
  * @throws GitHubAdapterError when the failure is a defect.
  */
 function failedRead(repo: string, stderr: string): TicketSetRead {
-	// Collapsed here rather than at a render boundary, so `ReadDegrade.detail` is one line by construction:
-	// `gh` writes an error over several, and every consumer would otherwise have to remember to collapse it
-	// again — which is how a newline reached the human rendering while `--json` still carried the raw text.
-	const detail = stderr.trim().replace(/\s+/g, " ");
+	// Collapsed rather than left to a render boundary, so `ReadDegrade.detail` is one line by construction.
+	const detail = collapseFailure(stderr);
 	if (classifyFailure(stderr) === "defect") {
 		// Not "the request is wrong": a missing or unauthenticated `gh` lands here too, and the fix is neither the
 		// query nor a retry.
