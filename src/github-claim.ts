@@ -54,7 +54,6 @@ function requireClaimable(ref: TicketRef): GitHubClaimCommandInput {
 }
 
 function failedClaim(ref: TicketRef, result: CommandResult): GitHubClaimError {
-	// This message is the operator's whole evidence: the run stops here, having already made a worktree.
 	const detail = failureDetail(result);
 	const what = formatTicketRef(ref);
 	// Not "the request is wrong": a missing or unauthenticated `gh`, and a repository we cannot write to, both

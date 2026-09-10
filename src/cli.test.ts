@@ -372,8 +372,8 @@ describe("the confirmation gate", () => {
 
 	/**
 	 * Having nobody to ask is decidable from the invocation, so it is settled before the host is contacted. Asked
-	 * in the other order, an unattended run against a stopped host blamed the host and said to run it again —
-	 * which refuses identically, for the reason that message never named.
+	 * in the other order, an unattended run against a stopped host would blame the host and say to run it again —
+	 * which refuses identically, for a reason that message never names.
 	 */
 	test("blames the missing terminal rather than the host, and does not contact the host at all", () => {
 		const { runner, of } = startSequence((argv) =>

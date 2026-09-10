@@ -51,8 +51,7 @@ export function sessionCommand(input: SessionCommandInput): Argv {
 /**
  * The workspace host a session is started in.
  *
- * Not a parameter, for the reason `SESSION_BINARY` is not. There is no second host: one that does not
- * answer is refused rather than fallen back from — ADR-0035.
+ * Not a parameter, for the reason `SESSION_BINARY` is not.
  */
 const WORKSPACE_HOST = "cmux";
 

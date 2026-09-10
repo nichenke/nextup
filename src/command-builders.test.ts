@@ -149,7 +149,7 @@ const CASES: readonly Case[] = [
 	},
 	{
 		name: "workspace-host-alive",
-		description: "Whether the workspace host is running, asked before the worktree and the claim rather than after.",
+		description: "Whether the workspace host is running.",
 		input: {},
 		build: () => workspaceHostAliveCommand(),
 	},
@@ -276,7 +276,7 @@ describe("workspaceCommand", () => {
 		expect(argv[argv.indexOf("--focus") + 1]).toBe("true");
 	});
 
-	test("carries no fallback host and no second attempt, which is the whole argv contract here", () => {
+	test("asks the same program the liveness probe does, so one host answers both", () => {
 		const argv = workspaceCommand({ name: "reader-8", cwd: WORKTREE_PATH, command: SESSION });
 		expect(argv[0]).toBe(workspaceHostAliveCommand()[0]);
 	});
@@ -302,7 +302,7 @@ describe("formatCommand", () => {
 	/**
 	 * Against a real shell, because `workspaceCommand` hands its output to a host that types it into one — so the
 	 * quoting is executed rather than only read, and an assertion on the rendered string cannot tell a correct
-	 * escape from a plausible one. This is the guard against the tempting edit: three other callers render for a
+	 * escape from a plausible one. This is the guard against the tempting edit: every other caller renders for a
 	 * human, and prettifying their output by quoting less would weaken this path with nothing else failing.
 	 *
 	 * `printf '%s\n'` repeats its format once per argument, so each word the shell parsed comes back on its own

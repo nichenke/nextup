@@ -29,9 +29,9 @@ export interface CliDeps {
 	/**
 	 * The checkout the command was invoked in, which the worktree step resolves the primary one from.
 	 *
-	 * Must be where the process itself is standing. The read resolves its repository from `origin`, and
-	 * `originRemoteCommand` carries no `-C`, so git answers about the process's own directory — a `cwd` naming
-	 * anywhere else would claim a ticket in one repository and build the worktree in another.
+	 * Must be where the process itself is standing. The read resolves its repository from the process's own
+	 * directory, per ADR-0029 — so a `cwd` naming anywhere else would claim a ticket in one repository and build
+	 * the worktree in another.
 	 */
 	readonly cwd: string;
 }
@@ -189,16 +189,14 @@ export type StartOutcome =
 	  };
 
 /**
- * Starting work on the pick: the workspace host, then the gate, then the worktree, the claim and the session.
+ * Starting work on the pick: the two refusals, then the gate, then the worktree, the claim and the session.
  *
  * Every refusal comes before any of the three writes, so a run that stops at one leaves the repository and the
  * tracker as they were. ADR-0016 orders the first two writes and requires that nothing here unwinds them;
  * ADR-0035 puts the session after both, and is why the host is asked before a person is.
  *
- * The refusals are ordered cheapest-and-most-certain first. Having nobody to ask is decidable from the
- * invocation alone, so it is settled before the host is contacted: asked in the other order, an unattended run
- * against a stopped host reported the host and told the operator to run it again — which would refuse
- * identically, for a reason that message never named.
+ * The refusals are ordered cheapest-and-most-certain first: having nobody to ask is decidable from the
+ * invocation, so it is settled before the host is contacted. `cli.test.ts` asserts that order.
  *
  * @throws StartError where there is nobody to confirm with, and where the claim or the session failed —
  * carrying the worktree, and saying which recovery the failure actually leaves open.

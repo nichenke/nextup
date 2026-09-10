@@ -115,9 +115,7 @@ _Avoid_: session, pane, tab, window
 
 **Workspace host**:
 The program that creates workspaces, which the launcher drives as a subprocess like any tracker CLI.
-Its absence is a refusal rather than something to work around — ADR-0035. Named as a role rather than
-as the program because it is the launcher's one dependency worth talking about separately, but it is
-not a parameter: which host runs the work is a property of this tool.
+Required rather than optional: one that does not answer fails the run — ADR-0035.
 _Avoid_: terminal, multiplexer, backend, fallback host
 
 ### Testing against real trackers

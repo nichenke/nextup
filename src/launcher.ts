@@ -10,10 +10,7 @@ import { failureDetail } from "./failure-class";
 import type { Runner } from "./runner";
 import { type TicketRef, formatTicketRef } from "./ticket-ref";
 
-/**
- * Why no session was started. One class rather than an outage-and-defect pair: both answers here are the
- * same, because a launch has nothing to degrade to and nothing to retry past — ADR-0035.
- */
+/** Why no session was started. One class rather than an outage-and-defect pair — ADR-0035. */
 export class LaunchError extends Error {}
 
 export interface LaunchPlanInput {
@@ -63,8 +60,7 @@ export interface LaunchInput {
  * Starts a session on one ticket, in the worktree already made for it.
  *
  * One call, whose exit status is the whole verdict, so there is nothing to return: it started or it threw.
- * No rollback, no retry, and no second host to try — ADR-0016 has why nothing here unwinds, and ADR-0035 why
- * a host that will not serve is a refusal rather than something to work around.
+ * Nothing here unwinds — ADR-0016.
  *
  * The failure names the ticket and what the host said, and stops there. What to do about it depends on how
  * much had already been written, which only the caller knows; `startedNothing` in `cli.ts` is where that is
