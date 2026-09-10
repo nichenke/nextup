@@ -369,6 +369,22 @@ describe("the confirmation gate", () => {
 		expect(result.stderr).toContain("--yes");
 		expect(of("worktree", "add")).toEqual([]);
 	});
+
+	/**
+	 * Having nobody to ask is decidable from the invocation, so it is settled before the host is contacted. Asked
+	 * in the other order, an unattended run against a stopped host blamed the host and said to run it again —
+	 * which refuses identically, for the reason that message never named.
+	 */
+	test("blames the missing terminal rather than the host, and does not contact the host at all", () => {
+		const { runner, of } = startSequence((argv) =>
+			argv[1] === "ping" ? { code: 1, stdout: "", stderr: "connect: no such file or directory" } : null,
+		);
+		const result = run(LIMIT, { runner, confirm: null, cwd: PRIMARY });
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("--yes");
+		expect(result.stderr).not.toContain("workspace host");
+		expect(of("ping")).toEqual([]);
+	});
 });
 
 describe("--print-command", () => {
@@ -379,7 +395,7 @@ describe("--print-command", () => {
 		const result = run([...LIMIT, "--print-command"], deps(runner));
 		expect(result.code).toBe(0);
 		expect(result.stdout).toContain(`claude '${DEFAULT_SLASH_COMMAND} `);
-		expect(calls.filter((argv) => argv[0] !== "git" && argv[1] !== "list")).toHaveLength(1);
+		expect(calls.filter((argv) => argv[0] !== "git")).toHaveLength(1);
 	});
 
 	// The sandbox-safe path per ADR-0002, which it would not be if it needed the host it cannot reach.

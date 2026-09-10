@@ -141,12 +141,16 @@ const DEGRADE_REASON: Record<Degrade["kind"], string> = {
 };
 
 /**
- * Every caveat one answer carries, unprefixed and one to a line.
+ * One answer's degrades, both lists, unprefixed and one to a line — every reason that would reach a reader on a
+ * `degraded: ` line, and nothing else.
  *
- * For the confirmation gate, which cannot reach the `degraded: ` lines any other way: `run` returns its
- * rendering rather than writing it, so those lines arrive after the operator has already answered. Sharing
- * the wording rather than summarising it keeps the gate from describing an answer differently than the
- * rendering does — the same reason `blockingPhrase` is shared.
+ * For the confirmation gate, which cannot reach those lines any other way: `run` returns its rendering rather
+ * than writing it, so they arrive after the operator has already answered. Sharing the wording rather than
+ * summarising it keeps the gate from describing an answer differently than the rendering does — the same reason
+ * `blockingPhrase` is shared.
+ *
+ * Deadlocks are not degrades and are not here; ADR-0030 has why they are a different kind of thing, and
+ * `approved` in `cli.ts` why the gate does not want them.
  */
 export function answerCaveats(answer: Answer): readonly string[] {
 	return [

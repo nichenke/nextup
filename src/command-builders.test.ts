@@ -298,4 +298,22 @@ describe("formatCommand", () => {
 	test("quotes a leading word a shell would read as an assignment rather than a command", () => {
 		expect(formatCommand(["a=b", "--flag=value"])).toBe("'a=b' --flag=value");
 	});
+
+	/**
+	 * Against a real shell, because `workspaceCommand` hands its output to a host that types it into one — so the
+	 * quoting is executed rather than only read, and an assertion on the rendered string cannot tell a correct
+	 * escape from a plausible one. This is the guard against the tempting edit: three other callers render for a
+	 * human, and prettifying their output by quoting less would weaken this path with nothing else failing.
+	 *
+	 * `printf '%s\n'` repeats its format once per argument, so each word the shell parsed comes back on its own
+	 * line and the comparison is against what the shell actually produced.
+	 */
+	test("renders words a real shell parses back to exactly those words", () => {
+		const words = ["plain", "with space", "it's", "$(id)", "`id`", "a;b", "*", "back\\slash", "", "--flag=v"];
+		const line = formatCommand(["printf", "%s\n", ...words]);
+		const shell = Bun.spawnSync({ cmd: ["sh", "-c", line], stdout: "pipe", stderr: "pipe" });
+
+		expect(shell.exitCode).toBe(0);
+		expect(shell.stdout.toString().split("\n").slice(0, -1)).toEqual(words);
+	});
 });

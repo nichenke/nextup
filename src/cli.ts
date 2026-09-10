@@ -1,4 +1,4 @@
-import { type Argv, CommandBuilderError, DEFAULT_SLASH_COMMAND, formatCommand, isSlashCommand } from "./command-builders";
+import { type Argv, DEFAULT_SLASH_COMMAND, formatCommand, isSlashCommand } from "./command-builders";
 import { GitHubAdapterError, isReadableLimit, readGitHubTicketSet } from "./github-adapter";
 import { GitHubClaimError, claimGitHubTicket } from "./github-claim";
 import {
@@ -27,8 +27,11 @@ export interface CliDeps {
 	/** `null` where there is nobody to ask — a pipe, a cron entry, a sandbox with no terminal. */
 	readonly confirm: Confirm | null;
 	/**
-	 * The checkout the command was invoked in, which the worktree step resolves the primary one from. The read
-	 * finds its repository through `origin` instead, so this is the one place a filesystem path is needed.
+	 * The checkout the command was invoked in, which the worktree step resolves the primary one from.
+	 *
+	 * Must be where the process itself is standing. The read resolves its repository from `origin`, and
+	 * `originRemoteCommand` carries no `-C`, so git answers about the process's own directory — a `cwd` naming
+	 * anywhere else would claim a ticket in one repository and build the worktree in another.
 	 */
 	readonly cwd: string;
 }
@@ -95,7 +98,8 @@ unattended run. With neither a terminal to ask on nor --yes, the run is refused 
 your behalf. --print-command never asks, because it starts nothing.
 
 There is no fallback when the workspace host is not running: the run is refused, before the worktree and
-the claim. Start the host and run again, or use --print-command and start the session yourself.
+the claim. Start the host and run again. --print-command gives the session command instead, but it makes no
+worktree, so it is not the same thing as having started the work.
 
 Only open tickets are read, so the limit is spent on tickets a pick can come from. The window is the most
 recently created of them, so a repository with more open tickets than the limit never considers its oldest
@@ -106,9 +110,10 @@ to retry rather than to change anything.
 
 Exit status: 0 the command did what was asked — a session started, a command printed, or a pick you were
 shown and declined; 1 nothing to recommend; 2 something needing a person — a repository that cannot be
-resolved, a read that is itself wrong, a bad invocation, no way to confirm and no --yes, a workspace host
-that is not running, a worktree that cannot be made, or a claim that would not land. A tracker that could
-not be reached is reported as a degraded answer with nothing to recommend, which is 1.
+resolved, a read that is itself wrong, a bad invocation, no way to confirm and no --yes, a workspace host that
+is not running, a worktree that cannot be made, a claim that would not land, or a session that could not be
+started. A tracker that could not be reached is reported as a degraded answer with nothing to recommend,
+which is 1.
 
 Declining is 0 rather than a status of its own. A script that needs to know whether a session started passes
 --yes, which never declines, and reads the "start" object under --json.
@@ -187,16 +192,23 @@ export type StartOutcome =
 /**
  * Starting work on the pick: the workspace host, then the gate, then the worktree, the claim and the session.
  *
- * Both refusals come before any of the three writes, so a run that stops at either leaves the repository and
- * the tracker as they were. ADR-0016 orders the first two writes and requires that nothing here unwinds them;
- * ADR-0035 puts the session after both, and is why the host is asked before the gate rather than after.
+ * Every refusal comes before any of the three writes, so a run that stops at one leaves the repository and the
+ * tracker as they were. ADR-0016 orders the first two writes and requires that nothing here unwinds them;
+ * ADR-0035 puts the session after both, and is why the host is asked before a person is.
+ *
+ * The refusals are ordered cheapest-and-most-certain first. Having nobody to ask is decidable from the
+ * invocation alone, so it is settled before the host is contacted: asked in the other order, an unattended run
+ * against a stopped host reported the host and told the operator to run it again — which would refuse
+ * identically, for a reason that message never named.
  *
  * @throws StartError where there is nobody to confirm with, and where the claim or the session failed —
  * carrying the worktree, and saying which recovery the failure actually leaves open.
  * @throws WorktreeError from the worktree step, and LaunchError from the host check. Not from the session
  * itself: `startedNothing` has why that one arrives as a `StartError` instead.
- * @throws CommandBuilderError unwrapped, before anything is asked or written, where `--slash-command` named
- * something `sessionCommand` will not build. Parsing already refused that, so this is a backstop.
+ * @throws CommandBuilderError unwrapped, from either of its two raise sites: `--slash-command` naming
+ * something `sessionCommand` will not build, which parsing already refused and this backstops, before anything
+ * is written; and a claim whose key is not a canonical issue number, which is after the worktree exists.
+ * `startedNothing` has why it stays unwrapped there rather than gaining the worktree path.
  */
 function startWork(answer: Answer, options: Options, deps: CliDeps): StartOutcome {
 	const pick = answer.selection.pick;
@@ -205,6 +217,7 @@ function startWork(answer: Answer, options: Options, deps: CliDeps): StartOutcom
 	const { command } = planLaunch({ ref: pick.ref, slashCommand: options.slashCommand });
 	if (options.printCommand) return { kind: "printed", command };
 
+	requireSomeoneToAsk(options, deps);
 	requireWorkspaceHost(deps.runner);
 	if (!approved(answer, pick, options, deps)) return { kind: "declined", ref: pick.ref };
 
@@ -219,24 +232,40 @@ function startWork(answer: Answer, options: Options, deps: CliDeps): StartOutcom
 }
 
 /**
- * Whether to go ahead. `--yes` answers in advance; otherwise the person at the terminal is asked.
+ * Refuses a run that will need an answer and has nowhere to get one.
  *
- * The question restates the pick, for the reason `Confirm` gives, and carries every caveat the answer holds,
- * because none of them have been printed when it is asked. `blockingPhrase` is why the blocking state is one
- * of them; the rest follow the same reasoning, since a pick from a truncated read is one a better candidate
- * may beat and the operator would learn that only after claiming it. Both wordings come from the rendering
- * rather than being restated here.
+ * Separate from `approved`, and called before the workspace host, for the reason `startWork` gives: this is
+ * decidable from the invocation, so it must not wait behind a question about the world.
  *
  * @throws StartError where there is nobody to ask. Refused rather than assumed in either direction: assuming
- * yes claims a ticket and starts a session nobody saw, and assuming no makes an unattended run a silent
- * no-op that still reports success.
+ * yes claims a ticket and starts a session nobody saw, and assuming no makes an unattended run a silent no-op
+ * that still reports success.
+ */
+function requireSomeoneToAsk(options: Options, deps: CliDeps): void {
+	if (options.yes || deps.confirm !== null) return;
+	throw new StartError(
+		"there is no terminal to confirm on, so nothing was started — pass --yes to answer in advance, or --print-command to get the command without starting anything",
+	);
+}
+
+/**
+ * Whether to go ahead. `--yes` answers in advance; otherwise the person at the terminal is asked.
+ *
+ * The question restates the pick, for the reason `Confirm` gives, and carries the answer's degrades, because
+ * none of them have been printed when it is asked. `blockingPhrase` is why the blocking state is one of them;
+ * the rest follow the same reasoning, since a pick from a truncated read is one a better candidate may beat and
+ * the operator would learn that only after claiming it. Both wordings come from the rendering rather than
+ * being restated here.
+ *
+ * A deadlock is deliberately not among them, though it is reported beside the answer: it names tickets that
+ * block each other, which is a fact about that cycle rather than about whether this pick can be started, and
+ * `USAGE` says why it never decides the exit status either.
  */
 function approved(answer: Answer, pick: Candidate, options: Options, deps: CliDeps): boolean {
 	if (options.yes) return true;
 	if (deps.confirm === null) {
-		throw new StartError(
-			"there is no terminal to confirm on, so nothing was started — pass --yes to answer in advance, or --print-command to get the command without starting anything",
-		);
+		// `requireSomeoneToAsk` already refused this, so reaching it means the two disagree about the same inputs.
+		throw new StartError("there is no terminal to confirm on, so nothing was started");
 	}
 	const lines = [
 		`start ${formatTicketRef(pick.ref)} — ${pick.title}`,
