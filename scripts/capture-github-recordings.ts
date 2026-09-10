@@ -9,11 +9,11 @@ import { GITHUB_TICKET_FIELDS, githubIssueListCommand } from "../src/command-bui
 import { GITHUB_PLACEHOLDER_HOST, redactRecordingIdentifiers } from "../src/recording-identifiers";
 import { type Recording, recordingsDir } from "../src/recording";
 import { defaultRunner } from "../src/runner";
-import { GITHUB_TEST_TREE } from "../src/test-tree";
+import { GITHUB_TEST_TREE, openIssues } from "../src/test-tree";
 import { requirePrivate } from "../src/test-tree-provision";
 
-/** One more than the tree holds, so the whole tree arrives and the over-fetched row does not. */
-const WHOLE_TREE_ROWS = GITHUB_TEST_TREE.issues.length + 1;
+/** One more than the tree's open issues, so every row a read returns arrives and the extra one does not. */
+const WHOLE_TREE_ROWS = openIssues(GITHUB_TEST_TREE).length + 1;
 
 /** Under the tree's size, so the over-fetched row arrives and the read reports itself truncated. */
 const TRUNCATING_ROWS = 4;

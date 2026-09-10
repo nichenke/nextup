@@ -1,6 +1,7 @@
 import type { LabelFilterSpec } from "./label-filter";
 import type { Candidate, Degrade, Rung, Selection, SelectionCounts } from "./selector";
-import { formatTicketRef } from "./ticket-ref";
+import { type TicketRef, formatTicketRef } from "./ticket-ref";
+import type { ReadDegrade } from "./ticket-set-read";
 
 /**
  * The prefix a degraded answer's every reason line carries, so that a caller can test for a degrade
@@ -51,10 +52,94 @@ function candidateJson(candidate: Candidate): CandidateJson {
 	return { ...candidate, ref: formatTicketRef(candidate.ref) };
 }
 
+/**
+ * One run's whole answer. The two degrade lists stay apart because `Degrade` is a conclusion about the
+ * ticket set and `ReadDegrade` a fact about the read that produced it.
+ */
+export interface Answer {
+	readonly selection: Selection;
+	readonly readDegraded: readonly ReadDegrade[];
+}
+
+/**
+ * `ReadDegrade` with every reference in its short form, which is how `CandidateJson` carries one too.
+ *
+ * Each kind is named rather than matched on carrying a `refs` field. Keyed on the field name, a kind added
+ * later with a reference under any other name — `ref`, or a `root` beside its `refs` — fell through
+ * unconverted and put a raw `{tracker, repo, host, key}` in the output, with no type error and no failing
+ * fixture. Named, a new kind is absent from this union instead, and `readDegradeJson` stops compiling.
+ */
+export type ReadDegradeJson =
+	| Extract<ReadDegrade, { readonly kind: "outage" | "unreadable-blocking" }>
+	| ShortRefs<"partial-blocking">
+	| ShortRefs<"contradicted-blocker">;
+
+/** One kind's JSON form, its own fields carried over so that a field added to it reaches the output. */
+type ShortRefs<K extends ReadDegrade["kind"]> = Omit<Extract<ReadDegrade, { readonly kind: K }>, "refs"> & {
+	readonly refs: readonly string[];
+};
+
+export interface AnswerJson {
+	readonly selection: SelectionJson;
+	readonly readDegraded: readonly ReadDegradeJson[];
+}
+
+export function answerJson(answer: Answer): AnswerJson {
+	return { selection: selectionJson(answer.selection), readDegraded: answer.readDegraded.map(readDegradeJson) };
+}
+
+function readDegradeJson(degrade: ReadDegrade): ReadDegradeJson {
+	switch (degrade.kind) {
+		case "outage":
+		case "unreadable-blocking":
+			return degrade;
+		case "partial-blocking":
+		case "contradicted-blocker":
+			return { ...degrade, refs: degrade.refs.map(formatTicketRef) };
+	}
+}
+
+export function renderAnswer(answer: Answer): string {
+	const read = answer.readDegraded.map((degrade) => `${degradedLine(readDegradeReason(degrade))}\n`);
+	return `${renderSelection(answer.selection)}${read.join("")}`;
+}
+
+/**
+ * One reason line. Whitespace inside the reason is collapsed because a reason can carry a tracker's own
+ * message and `gh` writes those over several lines: left alone, the second line reaches the caller with no
+ * prefix on it, which is the one thing `DEGRADED_PREFIX` promises cannot happen.
+ */
+function degradedLine(reason: string): string {
+	return `${DEGRADED_PREFIX}${reason.replace(/\s+/g, " ").trim()}`;
+}
+
 const DEGRADE_REASON: Record<Degrade["kind"], string> = {
 	truncated: "the ticket set was truncated, so a better candidate may not have been read",
 	"unknown-blocking": "no candidate's blockers could be confirmed closed, so this pick may be blocked",
 };
+
+/**
+ * `DEGRADE_REASON`'s sibling for the kinds a read reports, which `ticket-set-read.ts` leaves as kinds for
+ * exactly this boundary to word.
+ */
+function readDegradeReason(degrade: ReadDegrade): string {
+	switch (degrade.kind) {
+		case "outage":
+			return `the ticket set could not be read, so nothing was considered: ${degrade.detail}`;
+		case "unreadable-blocking":
+			// "of the rows read" rather than "of tickets", which the counts line above uses for a narrower
+			// population: a ticket held back for partial blocking is a row that was read and is not a ticket.
+			return `${degrade.tickets} of ${degrade.of} rows read did not report their blockers, so nothing confirms them unblocked`;
+		case "partial-blocking":
+			return `held out of the answer, because only a page of their blockers arrived: ${refList(degrade.refs)}`;
+		case "contradicted-blocker":
+			return `read as unknown blockers, because the edges naming them disagreed about their state: ${refList(degrade.refs)}`;
+	}
+}
+
+function refList(refs: readonly TicketRef[]): string {
+	return refs.map(formatTicketRef).join(", ");
+}
 
 export function renderSelection(selection: Selection): string {
 	const lines: string[] = [];
@@ -70,7 +155,7 @@ export function renderSelection(selection: Selection): string {
 
 	lines.push("");
 	lines.push(renderCounts(selection.counts));
-	for (const degrade of selection.degraded) lines.push(`${DEGRADED_PREFIX}${DEGRADE_REASON[degrade.kind]}`);
+	for (const degrade of selection.degraded) lines.push(degradedLine(DEGRADE_REASON[degrade.kind]));
 
 	return `${lines.join("\n")}\n`;
 }
@@ -114,7 +199,7 @@ function renderPriority(candidate: Candidate): string {
 
 function renderCounts(counts: SelectionCounts): string {
 	const aside = [
-		`${counts.closed} closed`,
+		counts.closed === "not-asked" ? "closed not asked" : `${counts.closed} closed`,
 		`${counts.claimed} claimed`,
 		`${counts.filtered} filtered out`,
 		`${counts.candidates} candidates (${counts.unblocked} unblocked, ${counts.unknown} unknown, ${counts.blocked} blocked)`,

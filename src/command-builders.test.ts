@@ -182,8 +182,9 @@ describe("authStatusCommand", () => {
 });
 
 describe("githubIssueListCommand", () => {
-	test("reads every state, so a closed blocker is in the answer", () => {
-		expect(githubIssueListCommand({ repo: "example/repo", rows: 2 })).toContain("all");
+	test("reads open tickets only, so the row limit is spent on tickets a pick can come from", () => {
+		const argv = githubIssueListCommand({ repo: "example/repo", rows: 2 });
+		expect(argv[argv.indexOf("--state") + 1]).toBe("open");
 	});
 
 	test("refuses a row count no read could use, rather than letting the CLI reject it", () => {

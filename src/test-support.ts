@@ -1,5 +1,26 @@
-import { type Recording, RecordingError } from "./recording";
+import { join } from "node:path";
+import { type Recording, RecordingError, loadRecording, recordingsDir } from "./recording";
 import type { CommandResult, Runner } from "./runner";
+import { DEGRADED_PREFIX } from "./selection-output";
+
+/** One stored GitHub recording by name, so no test spells the corpus layout for itself. */
+export function githubRecording(name: string): Recording {
+	return loadRecording(join(recordingsDir("github"), `${name}.json`));
+}
+
+/**
+ * A runner answering the origin-remote question with `remote`, and every other call from `answer`. One
+ * definition of how that call is faked, so a change to the argv a read resolves its repository through
+ * cannot leave some tests answering the old shape.
+ */
+export function answeringOrigin(remote: string, answer: Runner): Runner {
+	return (argv) => (argv[0] === "git" ? { code: 0, stdout: `${remote}\n`, stderr: "" } : answer(argv));
+}
+
+/** The sentinel lines of a rendering, which is the contract `DEGRADED_PREFIX` exists to be tested through. */
+export function sentinelLines(text: string): string[] {
+	return text.split("\n").filter((line) => line.startsWith(DEGRADED_PREFIX));
+}
 
 export function fakeRunner(result: CommandResult): Runner {
 	return () => result;

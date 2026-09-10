@@ -19,7 +19,7 @@ export interface Scenario {
 export function loadScenario(path: string): Scenario {
 	const raw = parseJson(path);
 	const file = object(raw, path, "the scenario");
-	keys(file, ["description", "truncated", "filter", "tickets"], path, "the scenario");
+	keys(file, ["description", "truncated", "openOnly", "filter", "tickets"], path, "the scenario");
 
 	const tickets = array(file.tickets, path, "tickets").map((entry, index) =>
 		readTicket(entry, path, `tickets[${index}]`),
@@ -43,6 +43,7 @@ export function loadScenario(path: string): Scenario {
 			graph,
 			filter: compileLabelFilter(readFilter(file.filter, path)),
 			truncated: boolean(file.truncated, path, "truncated"),
+			openOnly: boolean(file.openOnly, path, "openOnly"),
 		},
 	};
 }

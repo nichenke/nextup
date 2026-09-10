@@ -2,7 +2,7 @@ import { type BlockedState, type DependencyGraph, type IssueId, deriveEffectiveB
 import type { LabelFilter, LabelFilterSpec } from "./label-filter";
 import { type PriorityReading, readPriority } from "./priority";
 import { type Ticket, ticketId } from "./ticket";
-import { type TicketRef, compareTicketRefs } from "./ticket-ref";
+import { type TicketRef, compareTicketRefs, formatTicketRef } from "./ticket-ref";
 
 export class SelectionError extends Error {}
 
@@ -23,6 +23,12 @@ export interface SelectionInput {
 	 * large ticket set gets presented as the complete one.
 	 */
 	readonly truncated: boolean;
+	/**
+	 * Whether the read that produced `tickets` asked for open tickets only. Required for the same reason
+	 * `truncated` is — so that an adapter has to state it rather than have it assumed. It decides
+	 * `SelectionCounts.closed`, and ADR-0028 is why the read asks that way.
+	 */
+	readonly openOnly: boolean;
 }
 
 /** One rung of the ladder, fixed in code and in this order per ADR-0003. */
@@ -60,11 +66,14 @@ export type Degrade = { readonly kind: "truncated" } | { readonly kind: "unknown
 
 /**
  * Where every ticket went. `closed + claimed + filtered + candidates === tickets` and
- * `unblocked + unknown + blocked === candidates`, both by construction — see `tally`.
+ * `unblocked + unknown + blocked === candidates`, both by construction — see `tally`. Under
+ * `"not-asked"` the first still holds with nothing for `closed` to contribute, because a set read as
+ * open tickets only holds no closed ticket at all and `select` refuses one that does.
  */
 export interface SelectionCounts {
 	readonly tickets: number;
-	readonly closed: number;
+	/** `"not-asked"` where the read never requested closed tickets; ADR-0028 has why that is not a zero. */
+	readonly closed: number | "not-asked";
 	readonly claimed: number;
 	readonly filtered: number;
 	readonly candidates: number;
@@ -87,6 +96,7 @@ export interface Selection {
 
 export function select(input: SelectionInput): Selection {
 	const ids = identify(input.tickets);
+	requireNoClosedTicketUnderOpenOnly(input);
 	const unblocks = countUnblocks(input.tickets, ids, input.graph);
 	const placements = input.tickets.map((ticket) => place(ticket, ids.get(ticket)!, unblocks, input));
 
@@ -106,7 +116,7 @@ export function select(input: SelectionInput): Selection {
 		decision: decisionOf(ranked),
 		consulted,
 		ranked,
-		counts: tally(placements),
+		counts: tally(placements, input.openOnly),
 		degraded: degradesOf({ truncated: input.truncated, unknownBlocking: consulted === "unknown" }),
 		filter: input.filter.spec,
 	};
@@ -150,7 +160,7 @@ function place(
  * A `Record` keyed on the placement kinds rather than a switch: a kind added to `Placement` without a
  * bucket here fails to compile, so the totals cannot quietly stop accounting for every ticket.
  */
-function tally(placements: readonly Placement[]): SelectionCounts {
+function tally(placements: readonly Placement[], openOnly: boolean): SelectionCounts {
 	const counts: Record<Placement["kind"], number> = {
 		closed: 0,
 		claimed: 0,
@@ -162,7 +172,7 @@ function tally(placements: readonly Placement[]): SelectionCounts {
 	for (const placement of placements) counts[placement.kind]++;
 	return {
 		tickets: placements.length,
-		closed: counts.closed,
+		closed: openOnly ? "not-asked" : counts.closed,
 		claimed: counts.claimed,
 		filtered: counts.filtered,
 		candidates: counts.blocked + counts.unblocked + counts.unknown,
@@ -189,6 +199,16 @@ function identify(tickets: readonly Ticket[]): Map<Ticket, IssueId> {
 		ids.set(ticket, id);
 	}
 	return ids;
+}
+
+function requireNoClosedTicketUnderOpenOnly(input: SelectionInput): void {
+	if (!input.openOnly) return;
+	const closed = input.tickets.find((ticket) => ticket.state === "closed");
+	if (closed !== undefined) {
+		throw new SelectionError(
+			`${formatTicketRef(closed.ref)} is closed in a ticket set read as open tickets only, so the read contradicts what it asked for`,
+		);
+	}
 }
 
 /** How many open tickets each ticket unblocks — the second rung. ADR-0011 says what that counts. */

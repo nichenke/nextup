@@ -8,7 +8,7 @@
 		"--repo",
 		"nichenke/nextup-test-tree-github",
 		"--state",
-		"all",
+		"open",
 		"--limit",
 		"4",
 		"--json",

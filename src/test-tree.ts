@@ -35,6 +35,23 @@ export interface TestTreeIssue {
 	readonly closed: boolean;
 }
 
+/** The issues an open-only read of a tree returns, which is every row one comes back with — ADR-0028. */
+export function openIssues(spec: TestTreeSpec): readonly TestTreeIssue[] {
+	return spec.issues.filter((issue) => !issue.closed);
+}
+
+/**
+ * One shape's title, which is how a test or a capture finds the issue carrying it: a rebuilt tree renumbers,
+ * so the key is the stable name and the number is not — ADR-0023.
+ *
+ * @throws TestTreeError when no shape carries that key.
+ */
+export function shapeTitle(spec: TestTreeSpec, key: string): string {
+	const issue = spec.issues.find((one) => one.key === key);
+	if (issue === undefined) throw new TestTreeError(`${key} is not a shape the tree carries`);
+	return issue.title;
+}
+
 export interface TestTreeSpec {
 	/** `owner/repo`. Carries no host, so the identifier guard has nothing to match — see ADR-0024. */
 	readonly repo: string;

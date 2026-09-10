@@ -181,8 +181,19 @@ export interface GitHubIssueListInput {
 }
 
 /**
- * One read of a GitHub ticket set. `--state all` because a closed ticket is its own authority on being
- * closed, where the same ticket known only from another ticket's blocking edge is that ticket's copy of it.
+ * The states one read asks for, exported so that an adapter reports what was asked rather than restating it:
+ * `TicketSetRead.openOnly` is derived from this, so changing it here changes what the counts may claim.
+ *
+ * Declared as the pair rather than inferred as the one value it holds, so that deriving a boolean from it
+ * stays a comparison. Inferred, `GITHUB_TICKET_STATE === "open"` has no overlap to compare and changing this
+ * line fails the build in `github-adapter.ts` instead of flipping the flag it advertises.
+ */
+export const GITHUB_TICKET_STATE: "open" | "all" = "open";
+
+/**
+ * One read of a GitHub ticket set. `--state open` rather than every state: a closed blocker's own state
+ * arrives on its dependent's edge, so nothing needs it as a row. ADR-0028 has why that is worth the row
+ * limit it buys back, and what the counts may claim in exchange.
  *
  * @throws CommandBuilderError when `rows` is not a positive whole number.
  */
@@ -197,7 +208,7 @@ export function githubIssueListCommand(input: GitHubIssueListInput): readonly st
 		"--repo",
 		input.repo,
 		"--state",
-		"all",
+		GITHUB_TICKET_STATE,
 		"--limit",
 		String(input.rows),
 		"--json",

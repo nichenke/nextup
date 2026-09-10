@@ -8,9 +8,9 @@
 		"--repo",
 		"nichenke/nextup-nope-does-not-exist",
 		"--state",
-		"all",
+		"open",
 		"--limit",
-		"19",
+		"18",
 		"--json",
 		"number,title,state,assignees,labels,url,blockedBy"
 	],

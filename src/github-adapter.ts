@@ -1,59 +1,28 @@
-import { githubIssueListCommand } from "./command-builders";
+import { GITHUB_TICKET_STATE, githubIssueListCommand } from "./command-builders";
 import type { DependencyGraph, IssueId } from "./effective-blockedness";
 import { classifyFailure } from "./failure-class";
 import { resolveOriginRemote } from "./git-remote";
 import { type GraphSeed, seedGraph } from "./graph-store";
 import type { Runner } from "./runner";
 import { type Claim, type Ticket, ticketId } from "./ticket";
-import { GITHUB_HOST, type TicketRef, isGitHubHost, isValidRepoPath } from "./ticket-ref";
+import type { ReadDegrade, TicketSetRead } from "./ticket-set-read";
+import { GITHUB_HOST, type TicketRef, formatTicketRef, isGitHubHost, isValidRepoPath } from "./ticket-ref";
 
 export class GitHubAdapterError extends Error {}
 
-/**
- * A way one read answered with less than it was asked. Kinds rather than sentences, following how `Degrade` and
- * `DEGRADE_REASON` divide the same job: a caller decides on the kind, and only a render boundary writes prose.
- * A test asserting wording instead pins text `selection-output.ts` declares free to change.
- *
- * No render boundary reads these yet — `DEGRADE_REASON` is keyed on the selector's own union — so a caller
- * wiring this adapter to the command has to add the sibling mapping. Nothing outside this module consumes a
- * `TicketSetRead` today.
- *
- * `outage` is the only one named for a failure of the call. The other two are the tracker answering, with less
- * than one answer in it — which is why neither is filed under a word `failure-class.ts` reserves for
- * connectivity and the tracker erroring.
- */
-export type ReadDegrade =
-	| { readonly kind: "outage"; readonly detail: string }
-	| { readonly kind: "unreadable-blocking"; readonly tickets: number; readonly of: number }
-	/** Tickets held out of the answer because only a page of their blockers arrived — never recommended. */
-	| { readonly kind: "partial-blocking"; readonly refs: readonly TicketRef[] }
-	| { readonly kind: "contradicted-blocker"; readonly refs: readonly TicketRef[] };
+/** Read off the query rather than asserted beside it, so the two cannot come to disagree. */
+const OPEN_ONLY = GITHUB_TICKET_STATE === "open";
 
 /**
- * One read of a ticket set: the tickets, the blocking graph over them, and what the read could not answer.
+ * Whether a limit is one this read can use: a whole number above zero whose over-fetched row is still a safe
+ * integer, since the read asks for `limit + 1` to tell a capped page from an exactly-full one.
  *
- * `truncated` is separate from `degraded` because it calls for a different response — a narrower query rather
- * than a look at the tracker — and because a read can be both. Neither implies the other: an outage reports
- * both, while a read whose blocking nothing could confirm is degraded and complete. So a caller has to consult
- * both, and `truncated === false` is not a claim that the answer is whole.
+ * Exported because `cli.ts` refuses a bad `--limit` before the read, so that a mistyped flag reads as a bad
+ * invocation rather than as a tracker read that would not run. A second copy of this bound there would be a
+ * promise nothing enforces — the two would drift with no compiler error.
  */
-export interface TicketSetRead {
-	readonly tickets: readonly Ticket[];
-	/**
-	 * Spans every row the read returned, plus every blocker named by an edge it could read — including blockers
-	 * outside `tickets`, since one the read stopped short of still gates its dependent, on the openness its own
-	 * edge carried. A row whose blocking field did not answer contributes no edges, so nothing is seeded for
-	 * blockers only it would have named.
-	 */
-	readonly graph: DependencyGraph;
-	/** Whether the read stopped short of the whole ticket set. */
-	readonly truncated: boolean;
-	/**
-	 * Every way this read answered with less than it was asked, each already reflected as `"unknown"` in
-	 * `tickets` or in `graph`, or as an empty set. Empty for a read that answered everything. A defect never
-	 * reaches here — it throws.
-	 */
-	readonly degraded: readonly ReadDegrade[];
+export function isReadableLimit(limit: number): boolean {
+	return Number.isSafeInteger(limit) && limit >= 1 && Number.isSafeInteger(limit + 1);
 }
 
 export interface GitHubReadInput {
@@ -77,15 +46,11 @@ export interface GitHubReadInput {
  * one and ADR-0020 argues from.
  *
  * @throws GitHubAdapterError on a defect — a limit that is not a positive whole number, a repository that is
- * not `owner/repo` or that no remote resolves to, a request the tracker rejects, or a response whose shape
- * cannot be read. An outage is flagged and continued past instead.
- * @throws Error from `seedGraph` when the read holds one issue twice, which is an identity failure rather
- * than a tracker one — `graph-store.ts` says why that refuses instead of taking the last write.
+ * not `owner/repo` or that no remote resolves to, a request the tracker rejects, a response whose shape
+ * cannot be read, or one holding two rows for one issue. An outage is flagged and continued past instead.
  */
 export function readGitHubTicketSet(input: GitHubReadInput): TicketSetRead {
-	// The over-fetched row is bounded here rather than left to the command builder: past the safe-integer range
-	// `limit + 1` is refused there instead, with the wrong error class for a caller reading this contract.
-	if (!Number.isSafeInteger(input.limit) || input.limit < 1 || !Number.isSafeInteger(input.limit + 1)) {
+	if (!isReadableLimit(input.limit)) {
 		throw new GitHubAdapterError(`${input.limit} is not a number of tickets to read: it must be a whole number above zero`);
 	}
 	const repo = resolveRepo(input);
@@ -95,17 +60,19 @@ export function readGitHubTicketSet(input: GitHubReadInput): TicketSetRead {
 	const rows = readRows(result.stdout, repo);
 	const readings = rows.map((row, index) => readRow(row, `${repo} row ${index}`));
 	requireOneRepository(readings, repo);
-
-	// Every row seeds the graph, including the probe row and any ticket held back below: a row is its own
-	// authority on being open, and dropping one from the graph leaves a dependent's edge — a copy, which can be
-	// stale — to answer for it instead. Seeding all of them and narrowing only what may be recommended is what
-	// keeps the row-over-edge precedence from depending on where the page happened to end.
-	const { graph, contradicted } = graphFor(readings);
+	requireOneRowPerIssue(readings, repo);
+	requireEveryRowOpen(readings, repo);
 
 	// Truncation is decided on the raw read; `limit` then bounds what comes back, because a row fetched only to
 	// detect a cap must not become the recommendation.
 	const truncated = rows.length > input.limit;
 	const considered = readings.slice(0, input.limit);
+
+	// Every row seeds the graph, including the probe row and any ticket held back below: a row is its own
+	// authority on being open, and dropping one from the graph leaves a dependent's edge — a copy, which can be
+	// stale — to answer for it instead. Seeding all of them and narrowing only what may be recommended is what
+	// keeps the row-over-edge precedence from depending on where the page happened to end.
+	const { graph, contradicted } = graphFor(readings, considered);
 	const partial = considered.filter((reading) => reading.edges === "partial").map((reading) => reading.ticket.ref);
 	const tickets = considered.filter((reading) => reading.edges !== "partial").map((reading) => reading.ticket);
 	// Counted from the edges rather than from the tickets' `blockers`, which mirror them: the graph is seeded
@@ -117,7 +84,39 @@ export function readGitHubTicketSet(input: GitHubReadInput): TicketSetRead {
 	if (partial.length > 0) degraded.push({ kind: "partial-blocking", refs: partial });
 	if (contradicted.length > 0) degraded.push({ kind: "contradicted-blocker", refs: contradicted });
 
-	return { tickets, graph, truncated, degraded };
+	return { tickets, graph, truncated, openOnly: OPEN_ONLY, degraded };
+}
+
+/**
+ * Refuses a response holding one issue twice, which `seedGraph` would refuse a moment later with a plain
+ * `Error` no caller can classify. Checked rather than caught: catching there would relabel a genuine bug in
+ * graph construction as a bad tracker response, and cost it the stack `cli.ts` keeps for exactly that.
+ */
+function requireOneRowPerIssue(readings: readonly RowReading[], repo: string): void {
+	const seen = new Set<IssueId>();
+	for (const { ticket } of readings) {
+		const id = ticketId(ticket.ref);
+		if (seen.has(id)) {
+			throw new GitHubAdapterError(`reading ${repo} returned more than one row for ${formatTicketRef(ticket.ref)}`);
+		}
+		seen.add(id);
+	}
+}
+
+/**
+ * Refuses a closed row when the query asked for open tickets only, over every row the response held rather
+ * than over what is handed back. `select` refuses the same thing, but only sees the narrowed set: a closed row
+ * held out for partial blocking, or sliced off past the limit, never reaches it — and the answer then reports
+ * `closed not asked` over a response that contained a closed ticket, which is the reading ADR-0028 forbids.
+ */
+function requireEveryRowOpen(readings: readonly RowReading[], repo: string): void {
+	if (!OPEN_ONLY) return;
+	const closed = readings.find((reading) => reading.ticket.state === "closed");
+	if (closed !== undefined) {
+		throw new GitHubAdapterError(
+			`reading ${repo} answered with ${formatTicketRef(closed.ticket.ref)} closed, though it asked for open tickets only`,
+		);
+	}
 }
 
 /**
@@ -127,13 +126,16 @@ export function readGitHubTicketSet(input: GitHubReadInput): TicketSetRead {
  * @throws GitHubAdapterError when the failure is a defect.
  */
 function failedRead(repo: string, stderr: string): TicketSetRead {
-	const detail = stderr.trim();
+	// Collapsed here rather than at a render boundary, so `ReadDegrade.detail` is one line by construction:
+	// `gh` writes an error over several, and every consumer would otherwise have to remember to collapse it
+	// again — which is how a newline reached the human rendering while `--json` still carried the raw text.
+	const detail = stderr.trim().replace(/\s+/g, " ");
 	if (classifyFailure(stderr) === "defect") {
 		// Not "the request is wrong": a missing or unauthenticated `gh` lands here too, and the fix is neither the
 		// query nor a retry.
 		throw new GitHubAdapterError(`reading ${repo} failed with something a retry will not fix: ${detail}`);
 	}
-	return { tickets: [], graph: seedGraph([]), truncated: true, degraded: [{ kind: "outage", detail }] };
+	return { tickets: [], graph: seedGraph([]), truncated: true, openOnly: OPEN_ONLY, degraded: [{ kind: "outage", detail }] };
 }
 
 /**
@@ -205,7 +207,7 @@ interface GraphReading {
  * group a blocker outside the read has no openness at all, so the traversal degrades its dependent to
  * `"unknown"` — and the edge already carried the answer.
  */
-function graphFor(readings: readonly RowReading[]): GraphReading {
+function graphFor(readings: readonly RowReading[], considered: readonly RowReading[]): GraphReading {
 	const seeds: GraphSeed[] = [];
 	const own = new Set<IssueId>();
 	for (const { ticket } of readings) {
@@ -221,8 +223,12 @@ function graphFor(readings: readonly RowReading[]): GraphReading {
 		});
 	}
 
+	// From `considered` rather than from every row: the over-fetched probe row exists to reveal a cap, and its
+	// edges are one more dependent's copy of some third ticket's state. Let them vote and the row fetched only
+	// to detect truncation decides the answer — a probe whose edge disagreed with a considered ticket's edge
+	// seeded that blocker `"unknown"`, demoted the ticket off the confirmed partition, and changed the pick.
 	const outside = new Map<IssueId, { readonly ref: TicketRef; readonly open: boolean | "unknown" }>();
-	for (const { edges } of readings) {
+	for (const { edges } of considered) {
 		if (typeof edges === "string") continue;
 		for (const edge of edges) {
 			const id = ticketId(edge.ref);

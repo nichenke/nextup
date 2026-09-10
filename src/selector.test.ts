@@ -34,7 +34,7 @@ function ticketOf(spec: Spec): Ticket {
 
 function inputOf(
 	specs: readonly Spec[],
-	options: { filter?: LabelFilterSpec; truncated?: boolean } = {},
+	options: { filter?: LabelFilterSpec; truncated?: boolean; openOnly?: boolean } = {},
 ): SelectionInput {
 	const graph = seedGraph(
 		specs.map((spec) => ({
@@ -49,6 +49,7 @@ function inputOf(
 		graph,
 		filter: compileLabelFilter(options.filter ?? { include: [], exclude: [] }),
 		truncated: options.truncated ?? false,
+		openOnly: options.openOnly ?? false,
 	};
 }
 
@@ -256,8 +257,27 @@ describe("what the selection reports", () => {
 			unknown: 1,
 			blocked: 1,
 		});
+		// Refuses the sentinel rather than defaulting it to zero, which is a total that means something else.
+		if (counts.closed === "not-asked") throw new Error("a set read with closed tickets must report a count");
 		expect(counts.closed + counts.claimed + counts.filtered + counts.candidates).toBe(counts.tickets);
 		expect(counts.unblocked + counts.unknown + counts.blocked).toBe(counts.candidates);
+	});
+
+	test("says the closed count was not asked for, rather than reporting a zero as a count", () => {
+		const counts = select(inputOf([{ key: "1" }, { key: "2", claim: { by: "octocat" } }], { openOnly: true })).counts;
+		expect(counts.closed).toBe("not-asked");
+		expect(counts.tickets).toBe(2);
+		expect(counts.claimed).toBe(1);
+		// The same identity in the form this read shape admits, with nothing for `closed` to contribute.
+		expect(counts.claimed + counts.filtered + counts.candidates).toBe(counts.tickets);
+	});
+
+	test("still counts the closed tickets of a set that was read with them", () => {
+		expect(select(inputOf([{ key: "1", state: "closed" }, { key: "2" }])).counts.closed).toBe(1);
+	});
+
+	test("refuses a closed ticket in a set read as open tickets only, rather than denying it in the counts", () => {
+		expect(() => select(inputOf([{ key: "1", state: "closed" }], { openOnly: true }))).toThrow(SelectionError);
 	});
 
 	test("ranks the whole consulted set, not only the winner", () => {

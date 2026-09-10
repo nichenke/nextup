@@ -1,6 +1,7 @@
 {
 	"description": "One startable ticket in a project where everything else is waiting on a ticket somebody is already working — the ordinary mid-sprint shape on any tracker with blocking edges. The pick is the only candidate the ladder ranked, while the counts still report the blocked ones as candidates, so the two readings of \"candidate\" have to stay apart.",
 	"truncated": false,
+	"openOnly": false,
 	"filter": { "include": [], "exclude": ["wayfinder:*"] },
 	"tickets": [
 		{ "ref": "gh:example/repo#1", "title": "Update the changelog", "state": "open", "blockers": [], "labels": [] },

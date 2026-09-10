@@ -1,6 +1,7 @@
 {
 	"description": "A blocker closed as a wontfix unblocks what waited on it, exactly as a completed one would. The reason a ticket closed is not read: ADR-0021 has why, and the dependent lands in the confirmed set rather than the unknown one.",
 	"truncated": false,
+	"openOnly": false,
 	"filter": { "include": [], "exclude": ["wayfinder:*"] },
 	"tickets": [
 		{ "ref": "gh:example/repo#1", "title": "Support the legacy format", "state": "closed", "blockers": [], "labels": [] },

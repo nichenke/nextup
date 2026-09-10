@@ -12,24 +12,42 @@ treated as unblocked.
 
 ## Status
 
-The selector, the ranking ladder, and the worktree step are built and tested, and GitHub can be read: the
-adapter normalizes a ticket set and its blocking edges, driven in CI by recordings captured from a test
-tree. Nothing wires that read to the command yet, and no adapter writes, so a run still has nothing to
-claim or start a session on: of the invocations below, only `--help` and `-h` do anything today, and every
-other one exits 2. The worktree step has no live caller for the same reason — it is reached by its own
-tests and nothing else. What follows describes the command surface those flags will drive.
+The command reads and recommends: run it inside a GitHub checkout and it reads the repository the origin
+remote points at, ranks the candidates, and reports the pick. Nothing writes yet, so there is nothing to
+claim or start a session on — `--yes` and `--print-command` are accepted and change nothing until the claim
+and launch steps land, and the worktree step has no live caller for the same reason. What follows describes
+the whole command surface, including the flags those steps will drive.
 
 ```sh
-bun bin/nextup.ts                   # show the pick, ask, and claim it if you agree
+bun bin/nextup.ts                   # show the pick — today it stops there
+bun bin/nextup.ts --limit 50        # consider 50 open tickets rather than the default 199
+bun bin/nextup.ts --json            # the selection, and what the read could not answer, as JSON
 bun bin/nextup.ts --yes             # claim without asking, for an unattended run
 bun bin/nextup.ts --print-command   # the same answer, claiming nothing and asking nothing
-bun bin/nextup.ts --json            # the selection, the claim, and the command, as JSON
 bun bin/nextup.ts --help            # every flag
 ```
 
-`--help` has the label-filter semantics and the exit codes. A degraded answer — a truncated fetch, or a pick whose
-blockers nothing could confirm — carries one `degraded: ` line per reason, which is the sentinel to
-grep for.
+Only open tickets are read, and the counts line says `closed not asked` rather than reporting a zero as a
+count. The window is the most recently created open tickets, so a backlog larger than `--limit` never
+considers its oldest — the truncation sentinel is what says so.
+[ADR-0028](./docs/adr/0028-the-read-asks-for-open-tickets-and-the-closed-count-says-so.md) has the
+measurement that makes that safe for blocking, and what the default limit claims.
+
+`--help` has the label-filter semantics and the exit codes. A degraded answer carries one `degraded: ` line
+per reason, which is the sentinel to grep for — a truncated read, a pick whose blockers nothing could
+confirm, a tracker that could not be reached, rows that did not report their blockers, tickets held back
+because only part of their blockers arrived, and blockers two edges disagreed about. Each is one line
+whatever the tracker's own message did, so the prefix is a reliable filter.
+
+A tracker that could not be reached is a degraded answer with nothing to recommend rather than a failure:
+the request was fine, so a retry is the response. Exit 2 is for what needs a person — a bad invocation, an
+origin that is not GitHub, a request the tracker rejects, a response that cannot be read, and any failure
+nothing classified.
+
+`--json` carries the reasons as two lists, and a consumer has to read both: `selection.degraded` is what the
+selector concluded about the ticket set, and `readDegraded` is what the read itself could not do. An outage
+appears in the second while also setting the first to `truncated`, since nothing was read — so a wrapper
+keyed only on `truncated` would answer a network outage by widening a window that was never opened.
 
 Nothing is claimed without an answer. The gate asks on the controlling terminal rather than through
 stdin and stdout, so it still works when either is redirected. `--print-command` neither claims nor asks: it prints the
