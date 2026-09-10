@@ -176,7 +176,7 @@ export function renderSelection(selection: Selection): string {
 	}
 
 	lines.push("");
-	lines.push(renderCounts(selection.counts));
+	lines.push(renderCounts(selection.counts, selection.filter));
 	for (const deadlock of selection.deadlocks) lines.push(deadlockLine(deadlock));
 	for (const degrade of selection.degraded) lines.push(degradedLine(DEGRADE_REASON[degrade.kind]));
 
@@ -220,12 +220,21 @@ function renderPriority(candidate: Candidate): string {
 	return `${rank} (unread: ${candidate.unreadPriority.join(", ")})`;
 }
 
-function renderCounts(counts: SelectionCounts): string {
+function renderCounts(counts: SelectionCounts, filter: LabelFilterSpec): string {
 	const aside = [
 		counts.closed === "not-asked" ? "closed not asked" : `${counts.closed} closed`,
 		`${counts.claimed} claimed`,
-		`${counts.filtered} filtered out`,
+		`${counts.filtered} filtered out${renderExclusions(filter)}`,
 		`${counts.candidates} candidates (${counts.unblocked} unblocked, ${counts.unknown} unknown, ${counts.blocked} blocked)`,
 	];
 	return `${counts.tickets} tickets: ${aside.join(", ")}`;
+}
+
+/**
+ * The patterns that did the filtering, beside the count of what they dropped. A count alone leaves a user whose
+ * ticket is missing with nothing to look up: the exclusions are a floor a flag never mentioned, so the run has
+ * to say which ones it applied. Printed whether or not anything was dropped, so the line keeps one shape.
+ */
+function renderExclusions(filter: LabelFilterSpec): string {
+	return filter.exclude.length === 0 ? "" : ` (${filter.exclude.join(", ")})`;
 }

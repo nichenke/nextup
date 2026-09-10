@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { seedGraph } from "./graph-store";
-import { DEFAULT_LABEL_FILTER, compileLabelFilter } from "./label-filter";
+import { DEFAULT_LABEL_FILTER, type LabelFilterSpec, compileLabelFilter } from "./label-filter";
 import { DEGRADED_PREFIX, type Answer, answerJson, renderAnswer, renderSelection, selectionJson } from "./selection-output";
 import { type Selection, select } from "./selector";
 import { deadlockLines, sentinelLines } from "./test-support";
@@ -21,7 +21,12 @@ function refOf(key: string): TicketRef {
 	return { tracker: "github", repo: "example/repo", host: null, key };
 }
 
-function selectionOf(specs: readonly Spec[], truncated = false, openOnly = false): Selection {
+function selectionOf(
+	specs: readonly Spec[],
+	truncated = false,
+	openOnly = false,
+	filter: LabelFilterSpec = DEFAULT_LABEL_FILTER,
+): Selection {
 	const tickets: Ticket[] = specs.map((spec) => ({
 		ref: refOf(spec.key),
 		title: spec.title ?? `Ticket ${spec.key}`,
@@ -39,7 +44,7 @@ function selectionOf(specs: readonly Spec[], truncated = false, openOnly = false
 			open: (spec.state ?? "open") === "open",
 		})),
 	);
-	return select({ tickets, graph, filter: compileLabelFilter(DEFAULT_LABEL_FILTER), truncated, openOnly });
+	return select({ tickets, graph, filter: compileLabelFilter(filter), truncated, openOnly });
 }
 
 describe("selectionJson", () => {
@@ -202,6 +207,18 @@ describe("renderSelection", () => {
 
 	test("ends with a newline, so it composes with anything reading it a line at a time", () => {
 		expect(renderSelection(selectionOf([{ key: "1" }]))).toEndWith("\n");
+	});
+
+	// A count on its own leaves a user whose ticket is missing nothing to look up, and the exclusions are a
+	// floor no flag mentioned, so the run has to name the ones it applied.
+	test("names the exclusions beside the count of what they dropped", () => {
+		const text = renderSelection(selectionOf([{ key: "1" }, { key: "2", labels: ["needs-triage"] }]));
+		expect(text).toContain("1 filtered out (wayfinder:*, needs-triage, spec)");
+	});
+
+	test("says nothing about exclusions where the filter carries none", () => {
+		const text = renderSelection(selectionOf([{ key: "1" }], false, false, { include: [], exclude: [] }));
+		expect(text).toContain("0 filtered out,");
 	});
 
 	test("counts the closed tickets of a set that was read with them", () => {
