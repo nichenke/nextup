@@ -1,5 +1,8 @@
 # The expected answer comes from a different surface, and has no fixture
 
+> Amended by ADR-0034 on two points: what `whole-set-read` compares, and what the adapter reads a short node
+> list as. The argument below is otherwise unchanged.
+
 The reconstruction (`CONTEXT.md`) derives its expected frontier from a tracker surface the adapter does not read, with
 code the adapter does not share. That independent reader has no stored recording behind it, and no test
 asserting a successful observation. Its correctness is established by the comparison it takes part in, not by a
