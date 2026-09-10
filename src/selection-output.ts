@@ -141,6 +141,21 @@ const DEGRADE_REASON: Record<Degrade["kind"], string> = {
 };
 
 /**
+ * Every caveat one answer carries, unprefixed and one to a line.
+ *
+ * For the confirmation gate, which cannot reach the `degraded: ` lines any other way: `run` returns its
+ * rendering rather than writing it, so those lines arrive after the operator has already answered. Sharing
+ * the wording rather than summarising it keeps the gate from describing an answer differently than the
+ * rendering does — the same reason `blockingPhrase` is shared.
+ */
+export function answerCaveats(answer: Answer): readonly string[] {
+	return [
+		...answer.selection.degraded.map((degrade) => DEGRADE_REASON[degrade.kind]),
+		...answer.readDegraded.map(readDegradeReason),
+	];
+}
+
+/**
  * `DEGRADE_REASON`'s sibling for the kinds a read reports, which `ticket-set-read.ts` leaves as kinds for
  * exactly this boundary to word.
  */
@@ -201,11 +216,21 @@ function heldBackCount(selection: Selection): number {
 	return selection.counts.candidates - selection.ranked.length;
 }
 
+/**
+ * How a candidate's blocking state reads. Exported because the confirmation gate has to say it too, and
+ * `CONTEXT.md` forbids `Unknown` being collapsed into either of the other two states — a gate that phrased
+ * an unknown pick like a confirmed one would be that collapse, at the one place a person decides. Shared
+ * rather than written twice, so the two cannot come to describe one ticket differently.
+ *
+ * Not "blocking confirmed", the only string here a reader could take to mean confirmed *blocked* — on the
+ * line recommending the ticket, above a counts line that says how many are.
+ */
+export function blockingPhrase(candidate: Pick<Candidate, "blocked">): string {
+	return candidate.blocked === "unblocked" ? "blockers confirmed closed" : "blockers unknown";
+}
+
 function renderSignals(candidate: Candidate): string {
-	// Not "blocking confirmed", the only string here a reader could take to mean confirmed *blocked* —
-	// on the line recommending the ticket, above a counts line that says how many are.
-	const blocking = candidate.blocked === "unblocked" ? "blockers confirmed closed" : "blockers unknown";
-	return `${renderPriority(candidate)}, unblocks ${candidate.unblocks}, ${blocking}`;
+	return `${renderPriority(candidate)}, unblocks ${candidate.unblocks}, ${blockingPhrase(candidate)}`;
 }
 
 /**

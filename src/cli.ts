@@ -1,4 +1,4 @@
-import { CommandBuilderError, DEFAULT_SLASH_COMMAND, formatCommand } from "./command-builders";
+import { type Argv, CommandBuilderError, DEFAULT_SLASH_COMMAND, formatCommand } from "./command-builders";
 import { GitHubAdapterError, isReadableLimit, readGitHubTicketSet } from "./github-adapter";
 import { GitHubClaimError, claimGitHubTicket } from "./github-claim";
 import {
@@ -10,7 +10,7 @@ import {
 } from "./label-filter";
 import { LaunchError, launch, planLaunch, requireWorkspaceHost } from "./launcher";
 import type { Runner } from "./runner";
-import { type Answer, answerJson, renderAnswer } from "./selection-output";
+import { type Answer, answerCaveats, answerJson, blockingPhrase, renderAnswer } from "./selection-output";
 import { type Candidate, SelectionError, select } from "./selector";
 import { type TicketRef, formatTicketRef } from "./ticket-ref";
 import { WorktreeError, type WorktreeOutcome, ensure } from "./worktree";
@@ -27,9 +27,8 @@ export interface CliDeps {
 	/** `null` where there is nobody to ask — a pipe, a cron entry, a sandbox with no terminal. */
 	readonly confirm: Confirm | null;
 	/**
-	 * The checkout the command was invoked in, which the worktree step resolves the primary one from. The
-	 * read finds its repository through `origin` instead, so this is the one place a filesystem path is
-	 * needed and it is passed rather than taken from the process, so a test can name somewhere it is not.
+	 * The checkout the command was invoked in, which the worktree step resolves the primary one from. The read
+	 * finds its repository through `origin` instead, so this is the one place a filesystem path is needed.
 	 */
 	readonly cwd: string;
 }
@@ -84,16 +83,15 @@ and one holding a cycle does not until a person breaks it.
 
 Starting work writes in three places, in this order: the ticket's worktree, then the claim, then the
 session. Nothing unwinds. A step that fails leaves what the steps before it did, and running the command
-again continues from there rather than starting over — so the leftover of a failure is a directory you
-can see rather than your name parked on work nobody is doing.
+again continues from there rather than starting over.
 
-The confirmation gate is on by default, and names the pick as it asks. --yes answers it in advance for an
+The confirmation gate is on by default. It names the pick and its blocking state, since a pick whose
+blockers nothing could confirm is worth knowing about before you claim it. --yes answers in advance for an
 unattended run. With neither a terminal to ask on nor --yes, the run is refused rather than answered on
 your behalf. --print-command never asks, because it starts nothing.
 
-There is no fallback when the workspace host is not running. The run is refused, and refused before the
-worktree and the claim, so nothing is left behind for a session that was never going to start. Start the
-host and run again, or use --print-command and start the session yourself.
+There is no fallback when the workspace host is not running: the run is refused, before the worktree and
+the claim. Start the host and run again, or use --print-command and start the session yourself.
 
 Only open tickets are read, so the limit is spent on tickets a pick can come from. The window is the most
 recently created of them, so a repository with more open tickets than the limit never considers its oldest
@@ -108,8 +106,8 @@ resolved, a read that is itself wrong, a bad invocation, no way to confirm and n
 that is not running, a worktree that cannot be made, or a claim that would not land. A tracker that could
 not be reached is reported as a degraded answer with nothing to recommend, which is 1.
 
-Declining is 0 rather than a status of its own, because the gate did its job. A script that needs to know
-whether a session started passes --yes, which never declines, and reads the "start" object under --json.
+Declining is 0 rather than a status of its own. A script that needs to know whether a session started passes
+--yes, which never declines, and reads the "start" object under --json.
 
 A deadlock never decides the status. Whether the answer is 0 or 1 is only whether there was a pick, so a
 cycle reported beside one is still 0, and a set with nothing to recommend is 1 whether its candidates are
@@ -150,7 +148,7 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 
 	let start: StartOutcome;
 	try {
-		start = startWork(answer.selection.pick, options, deps);
+		start = startWork(answer, options, deps);
 	} catch (cause) {
 		return failedStart(cause);
 	}
@@ -173,36 +171,38 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
  */
 export type StartOutcome =
 	| { readonly kind: "nothing-to-start" }
-	| { readonly kind: "printed"; readonly command: readonly string[] }
+	| { readonly kind: "printed"; readonly command: Argv }
 	| { readonly kind: "declined"; readonly ref: TicketRef }
 	| {
 			readonly kind: "started";
 			readonly ref: TicketRef;
 			readonly worktree: WorktreeOutcome;
-			readonly command: readonly string[];
-			readonly workspace: readonly string[];
+			readonly command: Argv;
+			readonly workspace: Argv;
 	  };
 
 /**
- * Starting work on the pick: the workspace host first, then the gate, then the worktree, the claim and the
- * session.
+ * Starting work on the pick: the workspace host, then the gate, then the worktree, the claim and the session.
  *
- * The host is asked before anything is written and the gate is asked before that too, so the two refusals a
- * person meets most often both leave the repository and the tracker as they were. ADR-0016 fixes the order
- * of the three writes and requires that nothing here unwinds any of them.
+ * Both refusals come before any of the three writes, so a run that stops at either leaves the repository and
+ * the tracker as they were. ADR-0016 orders the first two writes and requires that nothing here unwinds them;
+ * ADR-0035 puts the session after both, and is why the host is asked before the gate rather than after.
  *
- * @throws StartError where there is nobody to confirm with, and where a step after the worktree failed —
+ * @throws StartError where there is nobody to confirm with, and where the claim or the session failed —
  * carrying the worktree, so the abort says what re-running would continue from.
- * @throws WorktreeError, GitHubClaimError, LaunchError from the steps themselves.
+ * @throws WorktreeError from the worktree step, and LaunchError from the host check. Not from the session
+ * itself: `startedNothing` has why that one arrives as a `StartError` instead.
+ * @throws CommandBuilderError unwrapped, from a claim whose key is not a canonical issue number.
  */
-function startWork(pick: Candidate | null, options: Options, deps: CliDeps): StartOutcome {
+function startWork(answer: Answer, options: Options, deps: CliDeps): StartOutcome {
+	const pick = answer.selection.pick;
 	if (pick === null) return { kind: "nothing-to-start" };
 	if (options.printCommand) {
 		return { kind: "printed", command: planLaunch({ ref: pick.ref, slashCommand: options.slashCommand }).command };
 	}
 
 	requireWorkspaceHost(deps.runner);
-	if (!approved(pick, options, deps)) return { kind: "declined", ref: pick.ref };
+	if (!approved(answer, pick, options, deps)) return { kind: "declined", ref: pick.ref };
 
 	const worktree = ensure({ runner: deps.runner, repo: deps.cwd, ticket: pick });
 	try {
@@ -220,22 +220,33 @@ function startWork(pick: Candidate | null, options: Options, deps: CliDeps): Sta
 }
 
 /**
- * Whether to go ahead. `--yes` answers in advance; otherwise the person at the terminal is asked, and the
- * question names the pick because `run` returns its output rather than writing it, so the rendering the
- * question is about has not been printed yet.
+ * Whether to go ahead. `--yes` answers in advance; otherwise the person at the terminal is asked.
+ *
+ * The question restates the pick, for the reason `Confirm` gives, and carries every caveat the answer holds,
+ * because none of them have been printed when it is asked. The blocking state is the one that must be there:
+ * an `Unknown` pick asked about without it reads exactly like a confirmed-unblocked one, which is the collapse
+ * `CONTEXT.md` forbids, at the only place a person decides. The rest are there because the same reasoning
+ * covers them — a pick from a truncated read is one a better candidate may beat, and the operator would learn
+ * that only after claiming it. Both wordings are shared with the rendering rather than restated.
  *
  * @throws StartError where there is nobody to ask. Refused rather than assumed in either direction: assuming
  * yes claims a ticket and starts a session nobody saw, and assuming no makes an unattended run a silent
  * no-op that still reports success.
  */
-function approved(pick: Candidate, options: Options, deps: CliDeps): boolean {
+function approved(answer: Answer, pick: Candidate, options: Options, deps: CliDeps): boolean {
 	if (options.yes) return true;
 	if (deps.confirm === null) {
 		throw new StartError(
 			"there is no terminal to confirm on, so nothing was started — pass --yes to answer in advance, or --print-command to get the command without starting anything",
 		);
 	}
-	return deps.confirm(`start ${formatTicketRef(pick.ref)} — ${pick.title} — in its own worktree, claiming it first? [y/N]`);
+	const lines = [
+		`start ${formatTicketRef(pick.ref)} — ${pick.title}`,
+		`  ${blockingPhrase(pick)}`,
+		...answerCaveats(answer).map((caveat) => `  ${caveat}`),
+		"claim it and start a session in its own worktree? [y/N]",
+	];
+	return deps.confirm(lines.join("\n"));
 }
 
 /** Why the run started nothing, where that is a thing for a person rather than a mistake on the command line. */
@@ -245,13 +256,15 @@ class StartError extends Error {}
  * A failure after the worktree was made, told with the worktree beside it.
  *
  * ADR-0016 makes re-running the recovery path rather than a separate one, and an operator who is not told a
- * worktree is already there has no reason to believe that. A failure of a class nobody has classified is
- * returned untouched instead, because wrapping it would cost the stack that is all it has.
+ * worktree is already there has no reason to believe that.
+ *
+ * `CommandBuilderError` is deliberately not wrapped, though the claim can raise one for a key that is not a
+ * canonical issue number. `github-claim.ts` leaves it unwrapped so that a stack naming the builder survives,
+ * per ADR-0032, and re-wrapping it here to add a worktree path would spend exactly that. Anything else
+ * unclassified is returned untouched for the same reason.
  */
 function startedNothing(cause: unknown, worktree: WorktreeOutcome): unknown {
-	if (!(cause instanceof GitHubClaimError || cause instanceof LaunchError || cause instanceof CommandBuilderError)) {
-		return cause;
-	}
+	if (!(cause instanceof GitHubClaimError || cause instanceof LaunchError)) return cause;
 	return new StartError(
 		`${cause.message}\n${worktree.path} is in place on ${worktree.branch}, so running this again continues from there rather than starting over.`,
 	);
@@ -261,14 +274,13 @@ function startedNothing(cause: unknown, worktree: WorktreeOutcome): unknown {
  * Whatever refused to start the work, as something for a person to fix. Every class here is a refusal this
  * code wrote, so the message is the whole report; anything else keeps its stack, for the reason
  * `failedAnswer` gives.
+ *
+ * `GitHubClaimError` is absent because it cannot arrive: `startedNothing` turns the claim's own failure into
+ * a `StartError` carrying the worktree. `CommandBuilderError` is absent deliberately rather than by omission
+ * — it is the one failure here whose stack says more than its message, so it takes the unclassified path.
  */
 function failedStart(cause: unknown): CliResult {
-	if (
-		cause instanceof StartError ||
-		cause instanceof WorktreeError ||
-		cause instanceof GitHubClaimError ||
-		cause instanceof LaunchError
-	) {
+	if (cause instanceof StartError || cause instanceof WorktreeError || cause instanceof LaunchError) {
 		return { code: 2, stdout: "", stderr: `${cause.message}\n` };
 	}
 	return failedAnswer(cause);

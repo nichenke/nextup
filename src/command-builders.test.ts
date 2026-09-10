@@ -271,8 +271,6 @@ describe("workspaceCommand", () => {
 		expect(argv[argv.indexOf("--command") + 1]).toBe(formatCommand(SESSION));
 	});
 
-	// The host defaults this to false, so leaving it off creates the workspace behind the current one and the
-	// run that was asked to start work reports having started it while nothing is on screen.
 	test("asks for the workspace to be focused, which the host does not do by default", () => {
 		const argv = workspaceCommand({ name: "reader-8", cwd: WORKTREE_PATH, command: SESSION });
 		expect(argv[argv.indexOf("--focus") + 1]).toBe("true");

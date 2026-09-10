@@ -58,10 +58,10 @@ describe("run, over a ticket set read from GitHub", () => {
 	const TREE = openIssues(GITHUB_TEST_TREE).length;
 
 	/**
-	 * Every test here asserts the answer rather than the start, so each stops the run once the pick is
-	 * reported. Without it a run that picked something goes on to ask a workspace host, make a worktree and
-	 * claim a ticket, and these blocks would all have to fake those to assert a rendering. Starting has its
-	 * own blocks below.
+	 * Stops a run once the pick is reported, for the tests here that reach a pick at all — the rest are
+	 * refused or find nothing to recommend, and never get that far. Without it a run that picked something
+	 * goes on to ask a workspace host, make a worktree and claim a ticket, so a test asserting a rendering
+	 * would have to fake all three.
 	 */
 	const REPORT_ONLY = "--print-command";
 
@@ -190,11 +190,11 @@ describe("run, over a ticket set read from GitHub", () => {
 /**
  * Every call the start sequence makes, answered by shape rather than by exact argv.
  *
- * By shape because the branch, and so most of these argv, are derived from the pick's own title and key —
- * and ADR-0023 forbids a test writing that key down. `replayRunner` is still what asserts the *read*'s argv;
+ * By shape because the branch, and so most of these argv, are derived from the pick's own title and issue
+ * number, which ADR-0023 says why a test may not claim. `replayRunner` is still what asserts the *read*'s argv;
  * what these tests assert is the sequence of writes, per the spec's one-injected-seam testing decision.
  */
-function startSequence(over: (argv: string[]) => CommandResult | null = () => null) {
+function startSequence(over: (argv: string[]) => CommandResult | null = () => null, read = "ticket-set") {
 	const calls: string[][] = [];
 	const runner: Runner = (argv) => {
 		calls.push(argv);
@@ -202,7 +202,7 @@ function startSequence(over: (argv: string[]) => CommandResult | null = () => nu
 		if (overridden !== null) return overridden;
 		if (argv[0] === "cmux") return { code: 0, stdout: argv[1] === "ping" ? "PONG\n" : "", stderr: "" };
 		if (argv[0] === "gh" && argv[1] === "issue" && argv[2] === "edit") return { code: 0, stdout: "", stderr: "" };
-		if (argv[0] === "gh") return respondingRunner(githubRecording("ticket-set"))(argv);
+		if (argv[0] === "gh") return respondingRunner(githubRecording(read))(argv);
 		if (argv[0] !== "git") throw new Error(`nothing answers ${argv.join(" ")}`);
 		if (argv.includes("get-url")) return { code: 0, stdout: `git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo}.git\n`, stderr: "" };
 		if (argv.includes("list")) return { code: 0, stdout: `worktree ${PRIMARY}\0branch refs/heads/main\0\0`, stderr: "" };
@@ -286,6 +286,35 @@ describe("the confirmation gate", () => {
 		expect(result.code).toBe(0);
 	});
 
+	/**
+	 * `CONTEXT.md` forbids `Unknown` being collapsed into blocked or unblocked, and the gate is where that is
+	 * easiest to do by accident: the rendering carrying the state is returned rather than written, so it
+	 * reaches the operator only after they have answered. Asserted on both states, because a phrase present
+	 * only for one would make its absence the signal — which is the collapse again, spelled the other way.
+	 */
+	test("names the pick's blocking state in the question, whichever state it is", () => {
+		const confirmed = terminal();
+		run(LIMIT, { runner: startSequence().runner, confirm: confirmed.confirm, cwd: PRIMARY });
+		expect(confirmed.questions[0]).toContain("blockers confirmed closed");
+
+		const blind = terminal();
+		const { runner } = startSequence(() => null, "ticket-set-without-blockers");
+		run(LIMIT, { runner, confirm: blind.confirm, cwd: PRIMARY });
+		expect(blind.questions).toHaveLength(1);
+		expect(blind.questions[0]).toContain("blockers unknown");
+		expect(blind.questions[0]).not.toContain("blockers confirmed closed");
+	});
+
+	// The same property one caveat over: a pick from a capped read may be beaten by a ticket nobody looked at,
+	// and the operator would learn that from a line printed after they had already claimed it.
+	test("carries the answer's other caveats too, not only the blocking state", () => {
+		const asked = terminal();
+		const { runner } = startSequence(() => null, "ticket-set-truncated");
+		run(["--limit", "3"], { runner, confirm: asked.confirm, cwd: PRIMARY });
+		expect(asked.questions).toHaveLength(1);
+		expect(asked.questions[0]).toContain("truncated");
+	});
+
 	test("writes nothing when the answer is no, and says so", () => {
 		const { runner, of } = startSequence();
 		const result = run(LIMIT, { runner, confirm: terminal(false).confirm, cwd: PRIMARY });
@@ -303,8 +332,6 @@ describe("the confirmation gate", () => {
 		expect(asked.questions).toEqual([]);
 	});
 
-	// Neither direction may be assumed: yes would start a session nobody saw, no would make an unattended run
-	// a silent no-op reporting success.
 	test("refuses a run with nobody to ask and no --yes", () => {
 		const { runner, of } = startSequence();
 		const result = run(LIMIT, { runner, confirm: null, cwd: PRIMARY });
@@ -349,8 +376,6 @@ describe("a start that could not finish", () => {
 		expect(of("issue", "edit")).toEqual([]);
 	});
 
-	// ADR-0016 makes re-running the recovery path, which an operator has no reason to believe unless the abort
-	// says the worktree is already there.
 	test("names the worktree it left behind when the claim will not land", () => {
 		const { runner, of } = startSequence((argv) =>
 			argv[2] === "edit" ? { code: 1, stdout: "", stderr: "HTTP 403: Resource not accessible" } : null,

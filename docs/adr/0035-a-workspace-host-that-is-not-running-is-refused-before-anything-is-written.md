@@ -22,11 +22,15 @@ impossible; it was not worth buying, because what it buys is the case above.
 
 ## Why the refusal happens before the worktree and the claim
 
-[0016](./0016-the-worktree-is-created-before-the-claim.md) orders the worktree before the claim so that a
-failure leaves a directory on disk rather than an operator's name parked on work nobody is doing. It says
-nothing about a failure *after* the claim, and starting a session is exactly that. So a workspace host
-that is not running would leave both a worktree and a claim — the leftover 0016 rejected, reached by the
-step 0016 did not consider.
+[0016](./0016-the-worktree-is-created-before-the-claim.md) orders the worktree before the claim, and it is
+explicit that the deciding argument is which order needs no recovery code rather than which leftover is more
+visible: claim-first has to release the claim when a later step fails, and that release is itself a network
+call that can fail. Its Consequences then require what the leftover must be — a worktree, which
+`git worktree list` reports and the next attempt reuses, rather than a claim advertising work nobody is doing.
+
+0016 orders two writes. Starting a session is a third, and 0016 says nothing about a failure after the claim
+— so a workspace host that is not running would leave both a worktree and a claim behind a session that
+never started, which is the leftover its Consequences reject, reached by a step it did not consider.
 
 Asking the host whether it is there, before either write, turns the one cause of a failed launch that a
 person can act on into a refusal that has written nothing.

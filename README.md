@@ -26,19 +26,10 @@ bun bin/nextup.ts --print-command       # print the session command, starting no
 bun bin/nextup.ts --help                # every flag
 ```
 
-Starting writes in three places, in this order: the worktree, then the claim, then the session. Nothing
-unwinds, so a step that fails leaves what the steps before it did and running the command again continues
-from there.
-[ADR-0016](./docs/adr/0016-the-worktree-is-created-before-the-claim.md) has why that order needs no
-recovery code, and why the leftover of a failure should be a directory rather than your name on work
-nobody is doing.
-
-The session runs in a cmux workspace, and there is no fallback: a workspace host that is not running is
-refused *before* the worktree and the claim, so a run that could never have started a session writes
-nothing at all.
-[ADR-0035](./docs/adr/0035-a-workspace-host-that-is-not-running-is-refused-before-anything-is-written.md)
-has why the two available fallbacks were both worse than the refusal, and why the check cannot close the
-window it narrows.
+The session runs in a cmux workspace. Starting writes in three places — the worktree, the claim, then the
+session — and nothing unwinds, so running the command again continues from wherever a failure stopped. A
+workspace host that is not running is refused before any of them, with no fallback. "Design in one screen"
+below has both, and the decisions behind them.
 
 Only open tickets are read, and the counts line says `closed not asked` rather than reporting a zero as a
 count. The window is the most recently created open tickets, so a backlog larger than `--limit` never
@@ -110,11 +101,11 @@ idempotent. There is no release path and no rollback. The leftover on failure is
 `git worktree list` reports and the next attempt reuses, rather than a claim advertising work nobody is
 doing.
 
-The one failure that ordering cannot help is a workspace host that is not running, which would strand both
-a worktree and a claim behind a session that never started. So the host is asked before either, and a host
-that does not answer is refused rather than fallen back from —
+That ordering covers a failed claim, and not a session that cannot start: a dead workspace host would strand
+both a worktree and a claim behind it. So the host is asked before either write, and a host that does not
+answer is refused rather than fallen back from —
 [ADR-0035](./docs/adr/0035-a-workspace-host-that-is-not-running-is-refused-before-anything-is-written.md)
-has why, and why that check narrows the window rather than closing it.
+has why both available fallbacks were worse, and why that check narrows the window rather than closing it.
 
 Ensuring the worktree is one of three things, and the outcome says which: the branch and the worktree
 both created, a worktree made for a branch that already existed, or an attach to the worktree already

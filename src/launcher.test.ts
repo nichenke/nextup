@@ -42,8 +42,7 @@ describe("requireWorkspaceHost", () => {
 		expect(calls).toEqual([[...workspaceHostAliveCommand()]]);
 	});
 
-	// The refusal is the whole feature: there is no fallback host and no new terminal, so the message has to
-	// leave a person with something to do rather than only naming what failed.
+	// ADR-0035: there is no fallback, so the message is all a person gets.
 	test("refuses a host that does not answer, and says what to do instead", () => {
 		const dead = fakeRunner({ code: 1, stdout: "", stderr: "connect: no such file or directory" });
 		expect(() => requireWorkspaceHost(dead)).toThrow(LaunchError);
@@ -80,8 +79,6 @@ describe("launch", () => {
 		expect(calls[0]![calls[0]!.indexOf("--command") + 1]).toContain("/triage");
 	});
 
-	// ADR-0016: there is nothing to unwind, so a failed creation must not try a second host or retry — one
-	// call, and its exit status is the verdict.
 	test("aborts on a workspace that could not be created, having tried nothing else", () => {
 		const { runner, calls } = recording({ code: 1, stdout: "", stderr: "no window to create a workspace in" });
 		expect(() => launch({ runner, ref: REF, slashCommand: DEFAULT_SLASH_COMMAND, worktree: WORKTREE })).toThrow(

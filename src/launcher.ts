@@ -23,7 +23,7 @@ export interface LaunchPlanInput {
 
 /** Everything the launcher would do, worked out without doing any of it. */
 export interface LaunchPlan {
-	readonly command: readonly string[];
+	readonly command: Argv;
 }
 
 /**
@@ -37,13 +37,9 @@ export function planLaunch(input: LaunchPlanInput): LaunchPlan {
 /**
  * Refuses the run unless the workspace host is there to start a session in.
  *
- * Asked before the worktree and the claim, which is the whole reason it is a separate call. ADR-0016
- * orders the worktree first so a failure leaves a directory rather than an operator's name parked on work
- * nobody is doing — but a launch happens after both, so its failure leaves exactly that. Asking first
- * turns the one cause a person can act on into a refusal that has written nothing.
- *
- * It narrows that window rather than closing it: the host can still go away between here and `launch`,
- * where the creation's own exit status is the verdict. ADR-0035 has both halves.
+ * Asked before the worktree and the claim, which is the whole reason it is a separate call rather than part
+ * of `launch`. It narrows that window and does not close it: the host can still go away before `launch`,
+ * where the creation's own exit status is the verdict. ADR-0035 has why, and why there is no fallback.
  *
  * @throws LaunchError when the host does not answer.
  */
@@ -66,7 +62,7 @@ export interface LaunchInput {
 
 export interface Launch {
 	/** The session argv the workspace was told to run, so a caller reports what started rather than restating it. */
-	readonly command: readonly string[];
+	readonly command: Argv;
 	readonly workspace: Argv;
 }
 
@@ -78,8 +74,8 @@ export interface Launch {
  * than something to work around.
  *
  * @throws LaunchError when the workspace could not be created.
- * @throws CommandBuilderError when `slashCommand` is not a single `/`-prefixed word, which is refused
- * before anything is created.
+ * @throws CommandBuilderError when `slashCommand` is not a single `/`-prefixed word — by which point the
+ * caller has already made the worktree and the claim, so this is not a refusal that left nothing behind.
  */
 export function launch(input: LaunchInput): Launch {
 	const command = sessionCommand(input);

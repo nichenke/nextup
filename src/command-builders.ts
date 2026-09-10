@@ -32,7 +32,7 @@ export interface SessionCommandInput {
  *
  * @throws CommandBuilderError when `slashCommand` is not a single `/`-prefixed word.
  */
-export function sessionCommand(input: SessionCommandInput): readonly string[] {
+export function sessionCommand(input: SessionCommandInput): Argv {
 	if (!/^\/\S+$/.test(input.slashCommand)) {
 		throw new CommandBuilderError(`${input.slashCommand} is not a slash command: it must be "/" and one word`);
 	}
@@ -42,9 +42,8 @@ export function sessionCommand(input: SessionCommandInput): readonly string[] {
 /**
  * The workspace host a session is started in.
  *
- * Not a parameter, for the reason `SESSION_BINARY` is not. There is no second host either: a host that
- * does not answer is refused rather than fallen back from, and ADR-0035 has why the two fallbacks
- * available were worse than the refusal.
+ * Not a parameter, for the reason `SESSION_BINARY` is not. There is no second host: one that does not
+ * answer is refused rather than fallen back from — ADR-0035.
  */
 const WORKSPACE_HOST = "cmux";
 
@@ -58,7 +57,7 @@ export interface WorkspaceCommandInput {
 	readonly name: string;
 	/** The worktree the session runs in. */
 	readonly cwd: string;
-	readonly command: readonly string[];
+	readonly command: Argv;
 }
 
 /**
