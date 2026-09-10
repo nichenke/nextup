@@ -132,6 +132,10 @@ is empty" and "git is broken" are not the same report:
   `core.sparseCheckout` rather than inferred from a file being absent, because an unstaged deletion looks
   identical on disk and refusing that would refuse an everyday tree; a file merely deleted is scanned as the
   absence it is, which `ADR-0006`'s "the files as they stood when it ran" already scopes.
+- a tracked file that is present but unreadable, which the scan skips exactly as it skips an absent one. A
+  mode-000 file holding an identifier passed. Measured, and the sibling of the case above rather than a
+  separate one: the property is that the scan read every tracked file it could have, and the two halves of
+  that are "is it there" and "can it be opened", answered separately because only one of them is a fault.
 
 Separately, the scan now passes `--` to `grep`. A tracked filename may begin with a hyphen, and `git ls-files`
 happily reports one: with a file named `-d`, BSD `grep` rejected its own argument list, `2>/dev/null` ate the

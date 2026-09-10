@@ -78,13 +78,13 @@ function reportRemovals(names: readonly string[]): void {
 export const defaultRunner: Runner = (argv) => {
 	// git only: `gh`, `glab` and `jira` cross this seam and authenticate from the environment. The final path
 	// segment rather than the whole word, so an absolute path is scrubbed too. ADR-0029 bounds both.
-	const git = argv[0]?.split("/").at(-1) === "git" ? gitEnvironment(process.env) : undefined;
-	if (git) reportRemovals(git.reportable);
+	const scrubbed = argv[0]?.split("/").at(-1) === "git" ? gitEnvironment(process.env) : undefined;
+	if (scrubbed) reportRemovals(scrubbed.reportable);
 	try {
 		// Always constructed, never inherited, so `argv[0]` decides only which names are removed. Inheriting
 		// would also decide *when* the environment was read: Bun gives an inherited child the one it started
 		// with, so the two kinds of child would disagree about a variable assigned since.
-		const env = git?.env ?? { ...process.env };
+		const env = scrubbed?.env ?? { ...process.env };
 		const result = spawnSync({ cmd: argv, stdout: "pipe", stderr: "pipe", env });
 		// A child killed by a signal has no exit code, and `code` is a number: `worktree.ts` renders it into
 		// the message a user reads, where `null` names nothing. The signal goes to stderr so neither is lost.

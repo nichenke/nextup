@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "bun";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { defaultRunner } from "../src/runner";
@@ -83,8 +83,7 @@ describe("check-identifiers under a redirected git environment", () => {
 		return root;
 	}
 
-	// Three ways the scan ends up with less than the tree, each told apart, because "the repository is empty"
-	// and "git is broken" are not the same report.
+	// The ways the scan ends up with less than the tree, each told apart rather than reported as one. ADR-0029.
 	test("refuses a repository with nothing tracked, rather than reporting a pass", () => {
 		const result = guardIn(repositoryWith({}));
 		expect(result.exitCode).toBe(1);
@@ -108,8 +107,6 @@ describe("check-identifiers under a redirected git environment", () => {
 		expect(result.stderr.toString()).toContain("internal.corp.test");
 	});
 
-	// A sparse checkout keeps a tracked file out of the worktree, so the scan would pass on the subset it
-	// materialised — with the excluded file carrying the identifier.
 	test("refuses a sparse checkout, rather than scanning the part of the tree it has", () => {
 		const root = repositoryWith({ "keep/a.md": "clean\n", "drop/b.md": `leak at ${unknownHttpsUrl}\n` });
 		expect(defaultRunner(["git", "-C", root, "sparse-checkout", "init", "--cone"]).code).toBe(0);
@@ -119,8 +116,17 @@ describe("check-identifiers under a redirected git environment", () => {
 		expect(result.stderr.toString()).toContain("sparse checkout");
 	});
 
-	// A tracked file absent from the worktree is indistinguishable from a sparse one on disk, and deleting a
-	// file without staging it is an everyday state. The scan covers what is there rather than refusing.
+	// Present but unreadable is skipped by the scan exactly as absent is, and only one of the two is a state
+	// worth refusing. Root would bypass the mode bits, which `src/test-preload.ts` refuses the suite under.
+	test("refuses a tracked file it cannot read, naming the file", () => {
+		const root = repositoryWith({ "a.md": "clean\n", "secret.md": `leak at ${unknownHttpsUrl}\n` });
+		chmodSync(join(root, "secret.md"), 0o000);
+		const result = guardIn(root);
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr.toString()).toContain("secret.md");
+	});
+
+	// Deleting a file without staging it is an everyday state, so the scan covers what is there.
 	test("scans a tree with a tracked file deleted but not staged", () => {
 		const root = repositoryWith({ "a.md": "clean\n", "b.md": `leak at ${unknownHttpsUrl}\n` });
 		rmSync(join(root, "a.md"));

@@ -47,6 +47,16 @@ if [ "$(git config --get core.sparseCheckout || true)" = "true" ]; then
 	exit 1
 fi
 
+# A tracked file that is there but unreadable is skipped exactly as an absent one is, and the guard passed over
+# a mode-000 file holding an identifier. Measured. Present-and-unreadable is the refusal; absent is not, because
+# an unstaged deletion leaves no content on disk to scan.
+while IFS= read -r -d '' path; do
+	if [ -e "$path" ] && [ ! -r "$path" ]; then
+		printf 'check-identifiers: %s is tracked but cannot be read, so a scan would cover part of the tree\n' "$path" >&2
+		exit 1
+	fi
+done < <(git ls-files -z)
+
 ALLOWED='
 https://anthropic.com/claude-code/marketplace.schema.json
 https://github.com/nichenke/nextup
