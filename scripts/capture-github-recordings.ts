@@ -152,12 +152,27 @@ function capture(one: Capture, cli: string): Recording {
  * 2.100.0 — so there is no state to check first and get wrong.
  */
 function release(writeTarget: string): void {
-	const argv = ["gh", "issue", "edit", writeTarget, "--repo", GITHUB_TEST_TREE.repo, "--remove-assignee", "@me"];
+	// `--` for the reason ADR-0030 gives the claim: the issue is a positional word wherever it is spelled.
+	const argv = ["gh", "issue", "edit", "--repo", GITHUB_TEST_TREE.repo, "--remove-assignee", "@me", "--", writeTarget];
 	const result = defaultRunner(argv);
 	if (result.code !== 0) {
 		process.exitCode = 1;
 		process.stderr.write(`could not release ${writeTarget}, so run provision:test-tree: ${result.stderr.trim()}\n`);
+		return;
 	}
+	// Exit 0 is not evidence the issue is now unassigned: `--remove-assignee @me` also exits 0 against an issue
+	// somebody *else* holds, so a sibling session's claim, or a claim made under another account, survives a
+	// release that reported success. Asked rather than assumed, by the same check that guards the start of a run.
+	try {
+		issueNumber(GITHUB_TEST_TREE, "write-target", defaultRunner);
+	} catch (cause) {
+		process.exitCode = 1;
+		process.stderr.write(`${writeTarget} is not back to its spec'd state, so run provision:test-tree: ${message(cause)}\n`);
+	}
+}
+
+function message(cause: unknown): string {
+	return cause instanceof Error ? cause.message : String(cause);
 }
 
 requirePrivate(GITHUB_TEST_TREE, defaultRunner);

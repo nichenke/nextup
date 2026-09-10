@@ -1,6 +1,6 @@
 import { type GitHubClaimCommandInput, githubClaimCommand } from "./command-builders";
 import { classifyFailure, collapseFailure } from "./failure-class";
-import type { Runner } from "./runner";
+import type { CommandResult, Runner } from "./runner";
 import { GITHUB_HOST, type TicketRef, formatTicketRef, isGitHubHost, isValidRepoPath } from "./ticket-ref";
 
 export class GitHubClaimError extends Error {}
@@ -18,9 +18,8 @@ export interface GitHubClaimInput {
  * attempt is made to decide whether two starts of this ticket raced — ADR-0018 has why no sequence of tracker
  * calls could, and why building the partial check anyway would imply a guarantee that does not exist.
  *
- * There is no release path and no rollback either: the worktree is created first (ADR-0016), so a failure here
- * leaves a worktree that `git worktree list` shows and the next attempt reuses, rather than a claim parked on
- * work nobody is doing.
+ * There is no release path and no rollback either, and a caller must not add one: ADR-0016 has why the ordering
+ * makes recovery the ordinary path.
  *
  * @throws GitHubClaimError when the reference is not a claimable GitHub one, or when the write fails. Both
  * failure classes throw, because a failed claim aborts either way; which one it was is what the message says.
@@ -30,7 +29,7 @@ export interface GitHubClaimInput {
 export function claimGitHubTicket(input: GitHubClaimInput): void {
 	const argv = githubClaimCommand(requireClaimable(input.ref));
 	const result = input.runner([...argv]);
-	if (result.code !== 0) throw failedClaim(input.ref, result.stderr);
+	if (result.code !== 0) throw failedClaim(input.ref, result);
 }
 
 /**
@@ -52,12 +51,16 @@ function requireClaimable(ref: TicketRef): GitHubClaimCommandInput {
 	return { repo: ref.repo, key: ref.key };
 }
 
-function failedClaim(ref: TicketRef, stderr: string): GitHubClaimError {
-	const detail = collapseFailure(stderr);
+function failedClaim(ref: TicketRef, result: CommandResult): GitHubClaimError {
+	// stdout is the fallback because this message is the operator's whole evidence: the run stops here, having
+	// already made a worktree, and a failure that wrote nothing to stderr would abort on a bare colon. `run` in
+	// `test-tree-provision.ts` reads a failed call the same way. Classification still asks stderr only, which is
+	// what it was measured against, so a diagnostic on stdout alone falls through to the loud class.
+	const detail = collapseFailure(result.stderr) || collapseFailure(result.stdout);
 	const what = formatTicketRef(ref);
 	// Not "the request is wrong": a missing or unauthenticated `gh`, and a repository we cannot write to, both
 	// land here, and none of the three is fixed by editing the request or by trying again.
-	return classifyFailure(stderr) === "defect"
+	return classifyFailure(result.stderr) === "defect"
 		? new GitHubClaimError(`claiming ${what} failed with something a retry will not fix: ${detail}`)
 		: new GitHubClaimError(`claiming ${what} failed because the tracker could not be reached: ${detail}`);
 }

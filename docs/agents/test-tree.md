@@ -64,13 +64,13 @@ for a clean capture.
 
 Interrupting the run is the gap: a `finally` does not cover Ctrl-C or a kill, and the window where a claim is
 outstanding includes a DNS timeout against `.invalid`, which is the slowest call and the likeliest moment to
-lose patience. If you interrupt a capture, run `bun run provision:test-tree`, which releases a stray claim on
-`write-target`. The next capture also refuses to start against a `write-target` the tree has claimed or closed,
-so an interrupted run cannot quietly become a bad corpus.
+lose patience. An interrupted run cannot quietly become a bad corpus, though: the next capture refuses to start
+against a `write-target` the tree has claimed or closed, and the release itself checks rather than trusting its
+own exit status, since removing an assignee somebody else holds also exits 0.
 
-Provisioning is the recovery for `write-target` only. A claim landed on any other issue has to be removed by
-hand, because provisioning refuses a tree holding an issue the spec does not describe rather than tidying it —
-so it would throw before reaching the release.
+Recovery is the Rules bullet below, and it reaches `write-target` only. A claim landed on any other issue has to
+be removed by hand, because provisioning refuses a tree holding an issue the spec does not describe rather than
+tidying it — so it would throw before reaching the release.
 
 Four captures are failures rather than successful exchanges: an unresolvable host, for the wording an outage
 is recognised by, and a request that is itself wrong, for a defect's — each in a read form and a write form.
@@ -99,9 +99,11 @@ that. The repository path is not rewritten at all — redaction rewrites hosts.
 - **Redact before storing**, with `redactRecordingIdentifiers` in `src/recording-identifiers.ts`. ADR-0024
   has why, and why a recording that trips the identifier guard means extending redaction rather than
   allowlisting.
-- **Capture `--json` surfaces, not the human-readable views.** Plain `gh issue view` prints its blockers as
-  `owner/repo` and a number, which redaction cannot rewrite and the guard rejects; the `--json` form of the
-  same query carries no such shape. ADR-0024 has the measurement.
+- **Capture `--json` surfaces where a query has one, not the human-readable views.** Plain `gh issue view`
+  prints its blockers as `owner/repo` and a number, which redaction cannot rewrite and the guard rejects; the
+  `--json` form of the same query carries no such shape. ADR-0024 has the measurement. The write captures are
+  the exception, because `gh issue edit` has no `--json`: `claim.json` stores the issue address it prints, whose
+  host redaction does rewrite.
 - **Keep issue bodies free of file references** — a dotted filename followed by a colon and a line number,
   or by a slash. Redaction rewrites those to the placeholder because the guard flags them, and measured
   tracker output contains none, so a body is the only way one reaches a recording.

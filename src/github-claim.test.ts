@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { CommandBuilderError, githubClaimCommand } from "./command-builders";
 import { GitHubClaimError, claimGitHubTicket } from "./github-claim";
 import type { Runner } from "./runner";
-import { githubRecording, replayRunner, respondingRunner } from "./test-support";
+import { fakeRunner, githubRecording, replayRunner, respondingRunner } from "./test-support";
 import { GITHUB_TEST_TREE } from "./test-tree";
-import { GITHUB_HOST, type TicketRef } from "./ticket-ref";
+import { GITHUB_HOST, type TicketRef, formatTicketRef } from "./ticket-ref";
 
 const REPO = GITHUB_TEST_TREE.repo;
 
@@ -92,10 +92,23 @@ describe("claimGitHubTicket, when the write fails", () => {
 		expect(() => claimGitHubTicket({ runner: outageRunner(), ref: githubRef() })).toThrow(/error connecting to/);
 	});
 
+	// A literal rather than a built pattern: the repository path is interpolated from the tree spec, and a `.` in
+	// a renamed tree would become a wildcard that passes on a message naming a different repository.
 	test("names the ticket it failed to claim, since the run stops here and nothing downstream will", () => {
-		expect(() => claimGitHubTicket({ runner: outageRunner(), ref: githubRef() })).toThrow(
-			new RegExp(`gh:${REPO}#${WRITE_TARGET}`),
-		);
+		try {
+			claimGitHubTicket({ runner: outageRunner(), ref: githubRef() });
+			throw new Error("the claim was expected to abort");
+		} catch (cause) {
+			expect(cause).toBeInstanceOf(GitHubClaimError);
+			expect((cause as GitHubClaimError).message).toContain(formatTicketRef(githubRef()));
+		}
+	});
+
+	// A non-zero exit that wrote its diagnostic to stdout instead. The message is the operator's whole evidence
+	// here, since the run halts with a worktree already made, so it must not abort on a bare colon.
+	test("falls back to stdout when a failure wrote nothing to stderr", () => {
+		const runner = fakeRunner({ code: 1, stdout: "could not write to that repository\n", stderr: "" });
+		expect(() => claimGitHubTicket({ runner, ref: githubRef() })).toThrow(/could not write to that repository/);
 	});
 
 	test("collapses a multi-line failure, so one abort is one line", () => {
