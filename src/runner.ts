@@ -77,7 +77,43 @@ function reportRemovals(names: readonly string[]): void {
 	);
 }
 
+export class RunnerError extends Error {}
+
+/**
+ * The one `gh` variable that chooses which server a command reaches. `gh` documents it as supplying the hostname
+ * "for commands where a hostname has not been provided", and every command this tool issues leaves the host off.
+ */
+const REDIRECTING_GH_VARIABLE = "GH_HOST";
+
+/**
+ * Refuses a `gh` command when the environment names a host for it.
+ *
+ * Refused rather than accommodated, because GitHub Enterprise is out of scope: the read adapter already turns away
+ * an origin remote on any other host, so a set `GH_HOST` is either redundant or points somewhere this tool does not
+ * work. Accommodating it instead means carrying a host into every repository argument — the preflight, the reads,
+ * the write, the release and its verification — and one missed call site puts a write on the wrong server at exit 0.
+ *
+ * Refused whatever it names, including GitHub's own host. Comparing it would need `isGitHubHost`, which lives with
+ * the reference types that import this module, so the check would have to move away from the seam it protects to
+ * buy a value nothing here needs.
+ *
+ * `GH_REPO` is the other variable that could redirect and does not: an explicit `--repo` overrides it, measured on
+ * gh 2.100.0, and every command this tool issues passes one. `GH_CONFIG_DIR` is not covered — it selects a config
+ * whose default host this cannot see — so this closes the documented redirect, not every conceivable one.
+ *
+ * @throws RunnerError when the command is `gh` and the variable is set to anything.
+ */
+export function refuseRedirectedGitHub(argv: readonly string[], source: Readonly<Record<string, string | undefined>>): void {
+	if (argv[0]?.split("/").at(-1) !== "gh") return;
+	const named = source[REDIRECTING_GH_VARIABLE];
+	if (named === undefined || named === "") return;
+	throw new RunnerError(
+		`${REDIRECTING_GH_VARIABLE} is set to ${named}, and this tool works on GitHub's own host only — unset it for this command rather than letting it decide which server the tool reads and writes.`,
+	);
+}
+
 export const defaultRunner: Runner = (argv) => {
+	refuseRedirectedGitHub(argv, process.env);
 	// git only: `gh`, `glab` and `jira` cross this seam and authenticate from the environment. The final path
 	// segment rather than the whole word, so an absolute path is scrubbed too. ADR-0029 bounds both.
 	const scrubbed = argv[0]?.split("/").at(-1) === "git" ? gitEnvironment(process.env) : undefined;

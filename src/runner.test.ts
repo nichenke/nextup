@@ -3,7 +3,7 @@ import { spawnSync } from "bun";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defaultRunner, gitEnvironment } from "./runner";
+import { RunnerError, defaultRunner, gitEnvironment, refuseRedirectedGitHub } from "./runner";
 
 describe("defaultRunner", () => {
 	test("runs a real command and captures its output", () => {
@@ -240,5 +240,35 @@ describe("the removal notice", () => {
 	test("stays silent for a command that is not git, whose environment was not touched", () => {
 		const { stderr } = inChildProcess(`defaultRunner(["printenv", "GIT_DIR"]);`, { GIT_DIR: "/elsewhere/.git" });
 		expect(stderr).not.toContain("was removed");
+	});
+});
+
+describe("refuseRedirectedGitHub", () => {
+	const GH = ["gh", "issue", "list", "--repo", "example/repo"];
+
+	test("refuses a gh command when the environment names a host for it", () => {
+		expect(() => refuseRedirectedGitHub(GH, { GH_HOST: "github.example.test" })).toThrow(RunnerError);
+		expect(() => refuseRedirectedGitHub(GH, { GH_HOST: "github.example.test" })).toThrow(/GH_HOST/);
+	});
+
+	// Refused rather than compared, so the rule needs no host parsing at a seam that cannot import it.
+	test("refuses GitHub's own host too, since nothing here needs the variable", () => {
+		expect(() => refuseRedirectedGitHub(GH, { GH_HOST: "github.com" })).toThrow(RunnerError);
+	});
+
+	test("allows an absent or empty variable, which is every ordinary environment", () => {
+		expect(() => refuseRedirectedGitHub(GH, {})).not.toThrow();
+		expect(() => refuseRedirectedGitHub(GH, { GH_HOST: undefined })).not.toThrow();
+		expect(() => refuseRedirectedGitHub(GH, { GH_HOST: "" })).not.toThrow();
+	});
+
+	// git carries its own redirection rules, and `glab` and `jira` are not this rule's business.
+	test("leaves a command that is not gh alone", () => {
+		expect(() => refuseRedirectedGitHub(["git", "status"], { GH_HOST: "github.example.test" })).not.toThrow();
+		expect(() => refuseRedirectedGitHub(["glab", "issue", "list"], { GH_HOST: "github.example.test" })).not.toThrow();
+	});
+
+	test("reads the binary's final path segment, so an absolute path is covered", () => {
+		expect(() => refuseRedirectedGitHub(["/opt/homebrew/bin/gh", "issue", "list"], { GH_HOST: "x" })).toThrow(RunnerError);
 	});
 });

@@ -1,9 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { CommandBuilderError } from "./command-builders";
+import { CommandBuilderError, githubClaimCommand } from "./command-builders";
 import { GitHubClaimError, claimGitHubTicket } from "./github-claim";
 import type { Runner } from "./runner";
-import { GITHUB_PLACEHOLDER_HOST, redactRecordingIdentifiers } from "./recording-identifiers";
-import { fakeRunner, githubRecording, respondingRunner } from "./test-support";
+import { fakeRunner, githubRecording, replayRunner, respondingRunner } from "./test-support";
 import { GITHUB_TEST_TREE } from "./test-tree";
 import { GITHUB_HOST, type TicketRef, formatTicketRef } from "./ticket-ref";
 
@@ -43,15 +42,6 @@ function githubRef(overrides: Partial<TicketRef> = {}): TicketRef {
 	return { tracker: "github", repo: REPO, host: null, key: WRITE_TARGET, ...overrides };
 }
 
-/**
- * The emitted argv as the corpus would have stored it. ADR-0024 replaces a recording's hosts with a dot-less
- * placeholder, so a claim naming GitHub's host cannot match a stored argv literally. Redacting both sides keeps
- * these a test of what the claim *asks*, which replaying a response alone would not assert.
- */
-function asStored(argv: readonly string[]): readonly string[] {
-	return JSON.parse(redactRecordingIdentifiers(JSON.stringify(argv), GITHUB_PLACEHOLDER_HOST));
-}
-
 /** A runner keeping every call it was handed, so a claim can be asserted to be one write and no read. */
 function counted(runner: Runner): { readonly runner: Runner; readonly calls: readonly string[][] } {
 	const calls: string[][] = [];
@@ -66,23 +56,13 @@ const unreachable: Runner = (argv) => {
 describe("claimGitHubTicket, against the captured write", () => {
 	// The call count is the assertion, not an incidental: ADR-0018 has why a read-back could decide nothing.
 	test("is one write and no read, so no call can be mistaken for arbitration", () => {
-		const tracker = counted(respondingRunner(CLAIM));
+		const tracker = counted(replayRunner([CLAIM]));
 		claimGitHubTicket({ runner: tracker.runner, ref: githubRef() });
-		expect(tracker.calls).toHaveLength(1);
-		expect(asStored(tracker.calls[0] as string[])).toEqual([...CLAIM.argv]);
-	});
-
-	// `gh` reads `--repo` as `[HOST/]OWNER/REPO` and falls back to `GH_HOST` for a bare path, which `defaultRunner`
-	// passes through, so a bare repository would let an enterprise environment take the write.
-	test("names GitHub's host in the write, so GH_HOST cannot redirect it", () => {
-		const tracker = counted(respondingRunner(CLAIM));
-		claimGitHubTicket({ runner: tracker.runner, ref: githubRef() });
-		const argv = tracker.calls[0] as string[];
-		expect(argv[argv.indexOf("--repo") + 1]).toBe(`${GITHUB_HOST}/${REPO}`);
+		expect(tracker.calls).toEqual([[...githubClaimCommand({ repo: REPO, key: WRITE_TARGET })]]);
 	});
 
 	test("accepts a reference naming GitHub's own host, which a pasted URL carries", () => {
-		const runner = respondingRunner(CLAIM);
+		const runner = replayRunner([CLAIM]);
 		expect(() => claimGitHubTicket({ runner, ref: githubRef({ host: GITHUB_HOST }) })).not.toThrow();
 	});
 });
@@ -96,8 +76,8 @@ describe("claimGitHubTicket, when the write fails", () => {
 	const outageRunner: Runner = respondingRunner(githubRecording("claim-outage"));
 
 	test("aborts on a defect, saying a retry will not help", () => {
-		expect(() => claimGitHubTicket({ runner: respondingRunner(DEFECT), ref: defectRef })).toThrow(GitHubClaimError);
-		expect(() => claimGitHubTicket({ runner: respondingRunner(DEFECT), ref: defectRef })).toThrow(/retry will not fix/);
+		expect(() => claimGitHubTicket({ runner: replayRunner([DEFECT]), ref: defectRef })).toThrow(GitHubClaimError);
+		expect(() => claimGitHubTicket({ runner: replayRunner([DEFECT]), ref: defectRef })).toThrow(/retry will not fix/);
 	});
 
 	test("aborts on an outage too, and only the message tells the two apart", () => {

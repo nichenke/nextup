@@ -6,7 +6,7 @@
 		"issue",
 		"edit",
 		"--repo",
-		"github-test-tree/nichenke/nextup-test-tree-github",
+		"nichenke/nextup-test-tree-github",
 		"--add-assignee",
 		"@me",
 		"--",

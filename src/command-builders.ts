@@ -1,4 +1,4 @@
-import { GITHUB_HOST, type TicketRef, formatTicketRef } from "./ticket-ref";
+import { type TicketRef, formatTicketRef } from "./ticket-ref";
 
 export class CommandBuilderError extends Error {}
 
@@ -217,25 +217,8 @@ export function githubIssueListCommand(input: GitHubIssueListInput): readonly st
 }
 
 export interface GitHubClaimCommandInput {
-	/** Host-qualified — `hostQualifiedRepo` says why a bare `owner/repo` is not safe to write to. */
 	readonly repo: string;
 	readonly key: string;
-}
-
-/**
- * `owner/repo` with GitHub's host in front, which is the form a write has to name.
- *
- * `gh` reads `--repo` as `[HOST/]OWNER/REPO` and falls back to `GH_HOST` when the host is left off — measured on
- * gh 2.100.0: with `GH_HOST` set to an unresolvable name, a bare `owner/repo` tries to reach that name, while the
- * qualified form ignores it. `defaultRunner` hands `gh` the whole environment on purpose (ADR-0029 bounds the
- * scrub to git), so nothing upstream removes `GH_HOST`, and an operator configured for GitHub Enterprise would
- * otherwise have a claim assign the same owner, repository and number on their server and exit 0. ADR-0032.
- *
- * Not folded into `githubClaimCommand`, so a caller can still spell a repository this refuses to qualify: the
- * capture script names a deliberately unresolvable host to record an outage.
- */
-export function hostQualifiedRepo(repo: string): string {
-	return `${GITHUB_HOST}/${repo}`;
 }
 
 /**
