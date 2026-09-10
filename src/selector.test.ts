@@ -287,6 +287,29 @@ describe("the deadlock diagnostic", () => {
 		).toEqual([["gh:example/repo#1", "gh:example/repo#2"]]);
 	});
 
+	// Keys whose digits and text disagree about order: as text "10" < "100" < "8" < "9", which is what the
+	// walk sorts on, so it starts these cycles at #10 and #100 and lists them in that order. Single-digit
+	// fixtures agree with reference order by accident and cannot catch it.
+	test("orders the cycles and turns each to start at its lowest reference", () => {
+		expect(
+			deadlocksOf([
+				{ key: "8", blockers: ["10"] },
+				{ key: "10", blockers: ["8"] },
+				{ key: "9", blockers: ["100"] },
+				{ key: "100", blockers: ["9"] },
+			]),
+		).toEqual([
+			["gh:example/repo#8", "gh:example/repo#10"],
+			["gh:example/repo#9", "gh:example/repo#100"],
+		]);
+	});
+
+	test("turns a longer cycle without disturbing which ticket blocks which", () => {
+		expect(deadlocksOf([{ key: "10", blockers: ["2"] }, { key: "2", blockers: ["9"] }, { key: "9", blockers: ["10"] }])).toEqual([
+			["gh:example/repo#2", "gh:example/repo#9", "gh:example/repo#10"],
+		]);
+	});
+
 	test("reports no deadlock where the edge closing the loop was never read", () => {
 		expect(deadlocksOf([{ key: "1", blockers: ["2"] }, { key: "2", blockers: "unknown" }])).toEqual([]);
 	});

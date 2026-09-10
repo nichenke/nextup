@@ -58,9 +58,14 @@ a diagnostic that can bury the counts line is worse than one that is incomplete.
 report names as few tickets as any loop through the ticket it starts from can. That is not the smallest
 loop in the group: with `a` blocked by `b`, `b` by `c` and `d`, `c` by `a`, and `d` by `b`, the reports are
 `a → b → c` and `d → b`, the three-member one first. Edges are walked in graph-id order, so which of two
-equally short cycles gets named is the same on every run and a fixture can assert it exactly. That id is
-`ticketId`'s encoded tuple and not a rendered reference, so the order is lexicographic over that encoding —
-`#10` before `#9` — which is a determinism guarantee and not a readable one.
+equally short cycles gets named is the same on every run and a fixture can assert it exactly.
+
+That id is `ticketId`'s encoded tuple rather than a rendered reference, so it ranks `#10` before `#9` — a
+determinism guarantee and not a readable one. Which is why the report is turned at the boundary instead:
+`findDeadlocks` starts each cycle at its lowest reference and orders the cycles by that, through the same
+`compareTicketRefs` the ladder's last rung uses. Turning a cycle costs nothing a reordering would, since every
+ticket keeps the one blocking it next to it. Doing it in the walk was the alternative and would have put
+reference order inside a module that holds only graph ids.
 
 The accepted cost: in a group of interlocking loops, breaking the cycle the report names may leave another
 behind, and the next run names that one. The alternative — naming the group's members without their edges —

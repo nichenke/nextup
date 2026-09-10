@@ -22,9 +22,10 @@ export type BlockingCycle = NonEmpty<IssueId>;
  * their own edges are unread, so a cycle through one could not be confirmed anyway.
  *
  * @param nodes the ids of the tickets the read returned
- * @returns a shortest cycle through each ticket no earlier one already named, in ascending order of first
- *   member; each cycle is ordered so that every ticket is blocked by the next and the last is blocked by
- *   the first, and a self-blocking ticket is the one-member case. So interlocking loops can yield more than
+ * @returns a shortest cycle through each ticket no earlier one already named, in ascending graph-id order —
+ *   which is not reference order, and `findDeadlocks` in `selector.ts` is where the report is turned and
+ *   ordered for a reader. Each cycle is ordered so that every ticket is blocked by the next and the last is
+ *   blocked by the first, and a self-blocking ticket is the one-member case. So interlocking loops can yield more than
  *   one report for what a reader would call one deadlock, and none of them need be the group's shortest —
  *   naming the group without its edges instead would leave a reader no path to follow.
  */
