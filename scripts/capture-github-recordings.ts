@@ -26,8 +26,8 @@ const ABSENT_REPO = "nichenke/nextup-nope-does-not-exist";
 
 /**
  * Far above anything the tree will hold, for the failing write. A number inside the tree's own repository
- * rather than a second absent repository: a write aimed at a name that does not exist yet is a write that
- * lands the moment somebody creates it, and `succeeds: false` only refuses *after* the call.
+ * rather than a second absent repository, because a write aimed at a name nobody has taken yet lands the
+ * moment somebody takes it — see `Capture.succeeds` for why that timing matters.
  */
 const ABSENT_ISSUE = "999999";
 
@@ -166,12 +166,13 @@ function release(writeTarget: string): void {
 		issueNumber(GITHUB_TEST_TREE, "write-target", defaultRunner);
 	} catch (cause) {
 		process.exitCode = 1;
-		process.stderr.write(`${writeTarget} is not back to its spec'd state, so run provision:test-tree: ${message(cause)}\n`);
+		// Says the tree stopped matching its spec, not that the release failed. This check also refuses a duplicate
+		// title, an undescribed one, and a listing at the row limit — so naming the write target as the cause would
+		// point an operator at the wrong thing whenever a stray issue is what tripped it. The underlying message leads.
+		process.stderr.write(
+			`the tree no longer matches its spec, so run provision:test-tree: ${cause instanceof Error ? cause.message : String(cause)}\n`,
+		);
 	}
-}
-
-function message(cause: unknown): string {
-	return cause instanceof Error ? cause.message : String(cause);
 }
 
 requirePrivate(GITHUB_TEST_TREE, defaultRunner);

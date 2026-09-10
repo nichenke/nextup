@@ -63,8 +63,10 @@ on `#37` and reports success.
 bare `0` — and for this hazard that check is the entire safety, not an assertion beside `--`. Calling it an
 assertion would invite loosening it, which is what opens the hole.
 
-`claimGitHubTicket` deliberately does not restate the check: `CommandBuilderError` reaching `cli.ts` with its
-stack reports a broken internal invariant better than a message about claiming would.
+`claimGitHubTicket` deliberately does not restate the check, so the error keeps its own type and stack rather
+than being relabelled a claim failure. Nothing calls the claim yet, so that is a requirement on the launcher
+when it lands rather than behaviour already in place: it must let a `CommandBuilderError` through as the broken
+invariant it is.
 
 The leak upstream is left open on purpose here: `resolveTicketRef` still *accepts* `#037`, so a padded reference
 can exist and only stops at the claim. That is a refusal rather than a wrong write, which is the safety-critical
