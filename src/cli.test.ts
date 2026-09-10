@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { type CliDeps, DEFAULT_LIMIT, run } from "./cli";
-import { DEFAULT_LABEL_FILTER } from "./label-filter";
+import { DEFAULT_LABEL_FILTER, compileLabelFilter } from "./label-filter";
 import type { Runner } from "./runner";
 import { DEADLOCK_PREFIX } from "./selection-output";
 import { answeringOrigin, deadlockLines, githubRecording, replayRunner, respondingRunner, sentinelLines } from "./test-support";
-import { GITHUB_TEST_TREE, openIssues, shapeTitle } from "./test-tree";
+import { GITHUB_TEST_TREE, type TestTreeSpec, openIssues, shapeTitle } from "./test-tree";
 import { GITHUB_HOST } from "./ticket-ref";
 
 /** Every test below runs through this, so a call that started shelling out fails loudly here first. */
@@ -35,6 +35,12 @@ function inTestTree(answer: Runner): Runner {
 	return answeringOrigin(`git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo}.git`, answer);
 }
 
+/** How many of a tree's open issues the default filter refuses, so no test writes that number down. */
+function excludedByDefault(tree: TestTreeSpec): number {
+	const filter = compileLabelFilter(DEFAULT_LABEL_FILTER);
+	return openIssues(tree).filter((issue) => !filter.admits(issue.labels)).length;
+}
+
 describe("run, over a ticket set read from GitHub", () => {
 	/**
 	 * The limit the CLI has to be given for its argv to match the recording, which was captured asking for one
@@ -61,6 +67,9 @@ describe("run, over a ticket set read from GitHub", () => {
 		expect(result.stdout).toContain(shapeTitle(GITHUB_TEST_TREE, "several-priorities"));
 		expect(result.stdout).toContain(`${TREE} tickets:`);
 		expect(result.stdout).toContain("closed not asked");
+		// What the default filter drops, counted from the tree rather than written down: the count moved when
+		// `needs-triage` joined the defaults and no assertion here noticed, because none named it at all.
+		expect(result.stdout).toContain(`${excludedByDefault(GITHUB_TEST_TREE)} filtered out`);
 		expect(result.stderr).toBe("");
 	});
 

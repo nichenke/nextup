@@ -85,8 +85,8 @@ export interface SelectionCounts {
 }
 
 /**
- * A set of tickets that block each other in a loop, so no order of work opens them — `CONTEXT.md` has the
- * term. Reported beside the answer rather than in place of it; ADR-0030 has why it is not a `Degrade`.
+ * `CONTEXT.md`'s **Deadlock**, reported beside the answer rather than in place of it. ADR-0030 has why it is
+ * not a `Degrade`.
  */
 export interface Deadlock {
 	/** Each ticket blocked by the next, the last blocked by the first; one member where it blocks itself. */

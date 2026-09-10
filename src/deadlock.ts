@@ -9,17 +9,12 @@ export type BlockingCycle = NonEmpty<IssueId>;
  * rather than each refusing cycles its own way. ADR-0030 has why this is the selector's job and not an
  * adapter's, and what a reported cycle claims.
  *
- * A cycle is reported only where every ticket in it is *confirmed* open and every edge in it is one the
- * tracker reported, and a cycle holding a closed ticket is not reported at all — its dependent really is
- * unblocked, which is why `deriveEffectiveBlockedness` prunes there too. ADR-0030 has why each of those
- * follows from what the report claims.
+ * What it will not report — an unconfirmed ticket, an unread edge, a loop holding a closed ticket, a loop
+ * leaving `nodes` — and why each of those follows from what the line claims, is ADR-0030's.
  *
  * Openness is asked in one place, of a ticket the walk is about to enter as somebody's blocker. That covers
  * the ticket a walk *started* from as well, because a cycle through it closes on an edge into it, so a
  * confirmed-open check on the start node would decide nothing a second time.
- *
- * Edges are followed only within `nodes`. The graph spans blockers the read never returned as rows, and
- * their own edges are unread, so a cycle through one could not be confirmed anyway.
  *
  * @param nodes the ids of the tickets the read returned
  * @returns a shortest cycle through each ticket no earlier one already named, in ascending graph-id order —
@@ -51,11 +46,10 @@ export function findBlockingCycles(nodes: Iterable<IssueId>, graph: DependencyGr
  * of more than one ticket is mutually reachable and therefore looping, and a lone ticket loops only by
  * blocking itself.
  *
- * This is what keeps a healthy ticket set cheap. Walking from every ticket costs a traversal per ticket, and
- * a set with no cycle in it pays that in full to find nothing — a thousand tickets each blocked by twenty
- * measured 202ms. One pass over the edges here answers which tickets can be on a cycle at all, and the walks
- * below start only at those. The answer is unchanged: every cycle through a ticket lies inside that ticket's
- * own component, so a ticket in none of them had no cycle to report.
+ * This is what keeps a healthy ticket set cheap: walking from every ticket instead means a set with no cycle
+ * in it pays a traversal per ticket to find nothing. The answer is unchanged, because every cycle through a
+ * ticket lies inside that ticket's own component, so a ticket in none of them had no cycle to report.
+ * ADR-0030 has what that saved, over which shapes.
  *
  * Iterative rather than recursive (Tarjan, 1972): the depth is the ticket set's, and a tracker's own limit is
  * what bounds that rather than anything here.
@@ -109,10 +103,8 @@ function loopingNodes(within: ReadonlySet<IssueId>, blockersOf: (node: IssueId) 
 }
 
 /**
- * The component pass and every walk ask the same tickets for their edges, and `graph.blockers` copies its
- * list on the way out, so the reads are held for the length of one call. On a thousand tickets in a single
- * component that measured 26.8ms without this against 10.0ms with it, and 104.8ms against 61.7ms where the
- * blocking is dense enough to make the copies the cost.
+ * The component pass and every walk ask the same tickets for their edges, and `graph.blockers` copies its list
+ * on the way out, so the reads are held for the length of one call. ADR-0030 has what that is worth.
  *
  * Safe against the one implementation there is: `seedGraph` answers from a map it built and copies on the
  * way out, so asking twice cannot differ. The port promises no such thing — `DependencyGraph` says only that

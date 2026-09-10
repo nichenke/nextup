@@ -71,6 +71,27 @@ The accepted cost: in a group of interlocking loops, breaking the cycle the repo
 behind, and the next run names that one. The alternative — naming the group's members without their edges —
 gives a reader no path to follow through the tracker, which is the one thing the report is for.
 
+## What it costs on a set with no deadlock in it
+
+A walk per ticket is the obvious implementation and the wrong one: a healthy backlog reports nothing, so every
+ticket pays a full traversal to find nothing. Which tickets can be on a cycle is a property of the strongly
+connected components, so one pass over the edges answers it and the walks start only at tickets in a component
+larger than one, or blocking themselves. That is exact rather than a heuristic — every cycle through a ticket
+lies inside that ticket's own component — so the report is unchanged.
+
+Measured on this branch with `bun`, over graphs built by `seedGraph`, before and after that pass:
+
+| Shape, no cycle anywhere | Walk per ticket | Component gate |
+| --- | --- | --- |
+| 1,000 tickets, each blocked by 20 | 202ms | 3.5ms |
+| 1,000 tickets, ~500,000 edges | 851ms | 61.7ms |
+
+Holding each ticket's confirmed blockers for the length of one call is worth a further 26.8ms → 10.0ms on a
+thousand tickets in a single component, and 104.8ms → 61.7ms on the dense set, because `graph.blockers` copies
+its list on the way out. These are figures to compare against each other on one machine, not budgets, and no
+benchmark ships — `nichenke/nextup` issue 58 records what is left and why it is below the scale of any current
+use. The default window is 199 open tickets, where the same work is single-digit milliseconds.
+
 ## Consequences
 
 `Selection.deadlocks` is its own field and not a `Degrade`. A degrade says the answer is worth less than a
