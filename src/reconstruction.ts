@@ -153,7 +153,8 @@ const NO_RUNNER: Runner = (argv) => {
  *
  * Membership on each side rather than a count of it: two sides holding different tickets balance whenever the
  * same number entered as left, and then nothing below can see it — `edgesAgree` skips a read ticket the tracker
- * never observed, and a ticket only the tracker saw reaches no check at all. ADR-0033 rests the independent
+ * never observed, and a ticket only the tracker saw reaches no check unless it is frontier-worthy there, which a
+ * claimed or filtered one is not. ADR-0033 rests the independent
  * reader's want of a fixture on this check seeing a dropped or invented ticket, which only the sets do.
  */
 function wholeSetRead(input: ReconstructionInput): CheckResult {

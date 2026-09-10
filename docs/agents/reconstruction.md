@@ -30,7 +30,7 @@ is the obvious target; the test tree is a valid argument and a nearly worthless 
 
 ## The eleven checks
 
-Checks two to four are properties of one read. Checks one, five, six and seven are comparisons against the
+Checks two and three are properties of one read. Checks one and four to seven are comparisons against the
 independent query — the ones the rest exist to make trustworthy. The last four are the states issue 26 named as
 the ones that change the answer.
 
@@ -45,7 +45,7 @@ the ones that change the answer.
 | `frontier-agrees` | The frontier the adapter derived is the one the tracker reports, both directions |
 | `claimed-leaves-frontier` | A claim takes its ticket off the frontier |
 | `closed-blocker-unblocks-its-dependent` | A closed blocker stops gating, rather than being counted as a blocker |
-| `blocker-outside-the-set` | A blocker the read never returned still carries the openness its edge named |
+| `blocker-outside-the-set` | Coverage only, with no fault of its own: that the read met a blocker it did not return, whose state `blockers-resolve` is what asserts |
 | `unknown-blocking-is-not-an-empty-list` | A response with no blocking field reads as unknown, never as no blockers |
 
 ## Reading a verdict
@@ -76,8 +76,8 @@ frontiers cannot be compared whole. Its line says so, and the cause is in `whole
 - `frontier-agrees` failing is a real disagreement, naming the ticket and the side that has it; while
   `whole-set-read` holds it is the finding worth having. Read it with the four state checks: a disagreement
   alongside a failing `claimed-leaves-frontier` points at the claim, alongside a failing
-  `closed-blocker-unblocks-its-dependent` at the blocking read. A read with unknown blocking makes it
-  `unexercised` instead.
+  `closed-blocker-unblocks-its-dependent` at the blocking read. A read with unknown blocking and nothing to
+  report makes it `unexercised` instead.
 - `edges-agree` failing narrows a frontier disagreement to the edge it came from, and can fail where
   `frontier-agrees` holds — two edges wrong in compensating directions reach the same frontier. ADR-0033 has why
   an input comparison is not redundant with the outcome ones.
