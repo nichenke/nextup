@@ -85,8 +85,12 @@ export function heldEverywhere(report: ReconstructionReport): boolean {
  *
  * `observe` runs first so its count sizes the adapter read: the comparison is only sound over one window, and
  * asking the adapter for exactly the open tickets an independent query counted is what makes the two the same
- * window. A ticket opened or closed between the two calls fails `whole-set-read`, possibly alongside a frontier
- * disagreement it caused.
+ * window.
+ *
+ * Three live reads, so three windows, not two: `read` and `readBlind` each issue their own list call, and a
+ * ticket opened or closed between any adjacent pair fails `whole-set-read`, possibly alongside a frontier
+ * disagreement it caused. The fault names which ticket and which side lacks it, which is what tells a rerun's
+ * reader which pair raced.
  *
  * @throws ReconstructionError when the repository has no open tickets, so no state can be exercised.
  */
