@@ -5,7 +5,7 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { GITHUB_TICKET_FIELDS, githubClaimCommand, githubIssueListCommand } from "../src/command-builders";
+import { GITHUB_TICKET_FIELDS, githubClaimCommand, githubIssueListCommand, hostQualifiedRepo } from "../src/command-builders";
 import { collapseFailure } from "../src/failure-class";
 import { GITHUB_PLACEHOLDER_HOST, redactRecordingIdentifiers } from "../src/recording-identifiers";
 import { type Recording, recordingsDir } from "../src/recording";
@@ -88,13 +88,13 @@ function captures(writeTarget: string): readonly Capture[] {
 			name: "claim",
 			description:
 				"The claim landing on the tree's write target, which is the whole write path: one call, whose exit status is the entire verdict.",
-			argv: githubClaimCommand({ repo: GITHUB_TEST_TREE.repo, key: writeTarget }),
+			argv: githubClaimCommand({ repo: hostQualifiedRepo(GITHUB_TEST_TREE.repo), key: writeTarget }),
 			succeeds: true,
 		},
 		{
 			name: "claim-defect",
 			description: "A claim naming an issue the tree does not have, for the wording of a write that is itself wrong.",
-			argv: githubClaimCommand({ repo: GITHUB_TEST_TREE.repo, key: ABSENT_ISSUE }),
+			argv: githubClaimCommand({ repo: hostQualifiedRepo(GITHUB_TEST_TREE.repo), key: ABSENT_ISSUE }),
 			succeeds: false,
 		},
 		{

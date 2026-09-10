@@ -23,6 +23,37 @@ lean on, which is why the reasoning is written out rather than cited.
 An absent host is accepted, and is the ordinary case: every reference the read adapter emits sets it to null,
 because the repository came from the query rather than from a URL.
 
+### Refusing the reference's host is not enough
+
+Accepting an absent host is what makes the refusal insufficient on its own, and review caught this after the
+refusal had already been written. `gh` reads `--repo` as `[HOST/]OWNER/REPO` and falls back to `GH_HOST` when the
+host is left off, so *where* a bare path is written is decided by the environment rather than by the reference.
+Measured on gh 2.100.0, with `GH_HOST` set to a name that cannot resolve:
+
+| `--repo` value | result |
+| --- | --- |
+| `owner/repo` | `error connecting to <the GH_HOST name>` — the environment took it |
+| the same path with GitHub's own host in front | reached GitHub; `GH_HOST` ignored |
+
+Nothing upstream removes it: `defaultRunner` scrubs only `GIT_`-prefixed names, and only for git, which ADR-0029
+bounds deliberately because `gh` authenticates from the environment. So an operator configured for GitHub
+Enterprise, claiming a ticket whose reference carries no host, would have assigned the same owner, repository and
+number on their own server — and exited 0.
+
+The claim therefore host-qualifies the repository as well as refusing a foreign host. The refusal still earns its
+place: it catches a reference that *names* another host, where qualification alone would silently retarget it.
+
+`githubClaimCommand` does not qualify on its own behalf, so that a caller can still spell a repository this would
+refuse — the capture script names an unresolvable host on purpose, to record an outage.
+
+One consequence for the corpus: a stored recording has its hosts replaced by a dot-less placeholder (ADR-0024), so
+a captured argv no longer matches the claim's literally. The test compares both sides redacted rather than
+dropping the comparison, which keeps it a test of what the claim asks.
+
+The read path has the same exposure and is not fixed here: `githubIssueListCommand` also passes a bare
+`owner/repo`, so a read under `GH_HOST` reports another server's issues as this project's. It is a read rather
+than a write, and it belongs with the origin-resolution question that already has its own ticket.
+
 ## A key that does not name the issue the reference does
 
 Two spellings do this, and they need different answers: one the CLI reads as a flag, one it silently renumbers.

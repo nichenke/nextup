@@ -1,4 +1,4 @@
-import { type GitHubClaimCommandInput, githubClaimCommand } from "./command-builders";
+import { type GitHubClaimCommandInput, githubClaimCommand, hostQualifiedRepo } from "./command-builders";
 import { classifyFailure, collapseFailure } from "./failure-class";
 import type { CommandResult, Runner } from "./runner";
 import { GITHUB_HOST, type TicketRef, formatTicketRef, isGitHubHost, isValidRepoPath } from "./ticket-ref";
@@ -37,6 +37,10 @@ export function claimGitHubTicket(input: GitHubClaimInput): void {
 /**
  * The repository and issue to write to, or a refusal. ADR-0032 has why the host check is the one that matters,
  * and why this is the only place a reference's own host is compared against GitHub's.
+ *
+ * The refusal alone is not enough, which is why the repository comes back host-qualified: a reference carrying no
+ * host passes every check here and `GH_HOST` then decides where a bare path is written. `hostQualifiedRepo` has
+ * the measurement.
  */
 function requireClaimable(ref: TicketRef): GitHubClaimCommandInput {
 	if (ref.tracker !== "github") {
@@ -50,7 +54,7 @@ function requireClaimable(ref: TicketRef): GitHubClaimCommandInput {
 			`${formatTicketRef(ref)} is on ${ref.host}, and this claims on ${GITHUB_HOST} only — claiming it here would assign a different repository of the same name`,
 		);
 	}
-	return { repo: ref.repo, key: ref.key };
+	return { repo: hostQualifiedRepo(ref.repo), key: ref.key };
 }
 
 function failedClaim(ref: TicketRef, result: CommandResult): GitHubClaimError {

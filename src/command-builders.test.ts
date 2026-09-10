@@ -9,6 +9,7 @@ import {
 	formatCommand,
 	gitCommonDirCommand,
 	githubClaimCommand,
+	hostQualifiedRepo,
 	githubIssueListCommand,
 	jiraIdentityCommand,
 	originRemoteCommand,
@@ -18,7 +19,7 @@ import {
 	worktreeIdentityCommand,
 	worktreeListCommand,
 } from "./command-builders";
-import type { TicketRef } from "./ticket-ref";
+import { GITHUB_HOST, type TicketRef } from "./ticket-ref";
 
 const GOLDENS = join(dirname(import.meta.dir), "fixtures", "commands");
 const SUFFIX = ".expected.json";
@@ -222,6 +223,13 @@ describe("githubClaimCommand", () => {
 		expect(() => githubClaimCommand({ repo: "example/repo", key: "037" })).toThrow(/canonical/);
 		expect(() => githubClaimCommand({ repo: "example/repo", key: "07" })).toThrow(/canonical/);
 		expect(() => githubClaimCommand({ repo: "example/repo", key: "0" })).toThrow(/canonical/);
+	});
+});
+
+describe("hostQualifiedRepo", () => {
+	// A bare path is written wherever GH_HOST points, and nothing upstream removes that variable.
+	test("puts GitHub's host in front, so the value cannot be redirected by the environment", () => {
+		expect(hostQualifiedRepo("example/repo")).toBe(`${GITHUB_HOST}/example/repo`);
 	});
 });
 
