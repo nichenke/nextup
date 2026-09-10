@@ -151,7 +151,7 @@ function capture(one: Capture, cli: string): Recording {
  * 2.100.0 — so there is no state to check first and get wrong.
  */
 function release(writeTarget: string): void {
-	// `--` for the reason ADR-0030 gives the claim: the issue is a positional word wherever it is spelled.
+	// `--` for the reason ADR-0032 gives the claim: the issue is a positional word wherever it is spelled.
 	const argv = ["gh", "issue", "edit", "--repo", GITHUB_TEST_TREE.repo, "--remove-assignee", "@me", "--", writeTarget];
 	const result = defaultRunner(argv);
 	if (result.code !== 0) {

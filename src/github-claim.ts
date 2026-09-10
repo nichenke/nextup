@@ -25,7 +25,7 @@ export interface GitHubClaimInput {
  * failure classes throw, because a failed claim aborts either way; which one it was is what the message says.
  * @throws CommandBuilderError when the reference's key is not a canonical issue number. Not folded into the
  * error above: `resolveTicketRef` can still mint a padded key, so this is reachable rather than impossible, and
- * a stack naming the builder says more than a message about claiming would. ADR-0030, and issue 56 for the mint
+ * a stack naming the builder says more than a message about claiming would. ADR-0032, and issue 56 for the mint
  * point.
  */
 export function claimGitHubTicket(input: GitHubClaimInput): void {
@@ -35,7 +35,7 @@ export function claimGitHubTicket(input: GitHubClaimInput): void {
 }
 
 /**
- * The repository and issue to write to, or a refusal. ADR-0030 has why the host check is the one that matters,
+ * The repository and issue to write to, or a refusal. ADR-0032 has why the host check is the one that matters,
  * and why this is the only place a reference's own host is compared against GitHub's.
  */
 function requireClaimable(ref: TicketRef): GitHubClaimCommandInput {

@@ -156,7 +156,7 @@ describe("claimGitHubTicket, before it writes anything", () => {
 		);
 	});
 
-	// The reachable one, and the one ADR-0030 calls the safety rather than an assertion: `resolveTicketRef` mints a
+	// The reachable one, and the one ADR-0032 calls the safety rather than an assertion: `resolveTicketRef` mints a
 	// padded key (issue 56) where it can never mint a flag-shaped one. Driven through the claim rather than the
 	// builder alone, so the refusal is shown to land before any call goes out.
 	test("does not reach the CLI with a zero-padded key, which would claim a different issue", () => {

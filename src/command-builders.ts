@@ -233,7 +233,7 @@ export interface GitHubClaimCommandInput {
  * @throws CommandBuilderError when `key` is not a canonical issue number — leading zeros and a bare `0` are
  * refused, not merely non-digits. `gh` normalizes `037` to issue 37 while `compareTicketRefs` treats the two as
  * different tickets, so a padded key would claim one issue for a reference naming another and exit 0. `--` does
- * not help: it stops flag parsing, not number normalization. ADR-0030 has both measurements.
+ * not help: it stops flag parsing, not number normalization. ADR-0032 has both measurements.
  */
 export function githubClaimCommand(input: GitHubClaimCommandInput): readonly string[] {
 	if (!/^[1-9][0-9]*$/.test(input.key)) {

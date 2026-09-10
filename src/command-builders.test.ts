@@ -206,7 +206,7 @@ describe("githubClaimCommand", () => {
 		expect(argv[argv.indexOf("--add-assignee") + 1]).toBe("@me");
 	});
 
-	// ADR-0030: refused here rather than sent, because the command exits 0 having claimed nothing.
+	// ADR-0032: refused here rather than sent, because the command exits 0 having claimed nothing.
 	test("refuses a key the CLI would read as a flag instead of an issue", () => {
 		expect(() => githubClaimCommand({ repo: "example/repo", key: "--help" })).toThrow(/issue number/);
 		expect(() => githubClaimCommand({ repo: "example/repo", key: "-h" })).toThrow(/issue number/);
