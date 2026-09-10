@@ -142,15 +142,12 @@ interface Options {
 	readonly filter: LabelFilterSpec;
 }
 
-/**
- * The flags whose next word is a value rather than a flag. Must list exactly the cases below that call
- * `value`, because `asksForHelp` reads this to know which words are not flags at all.
- */
+/** Must list exactly the cases below that call `value`; `asksForHelp` reads it to skip value positions. */
 const VALUE_FLAGS: ReadonlySet<string> = new Set(["--include", "--exclude", "--limit"]);
 
 /**
  * Whether the line asks for help, answered before the rest of it is judged: help is what a person reaches
- * for *after* getting a flag wrong, and parsing first turned `nextup --limit --help` into a usage error.
+ * for *after* getting a flag wrong, so `nextup --limit --help` must not come back a usage error.
  *
  * A word standing in as a flag's value is skipped, because `-h` is a label a repository may really carry and
  * `--include -h` is then a read rather than a request for help. `--help` in that position still asks for
@@ -168,7 +165,6 @@ function asksForHelp(argv: readonly string[]): boolean {
 	return false;
 }
 
-/** A flag's value is anything but another long flag, which is the rule `value` enforces. */
 function canBeValue(word: string | undefined): word is string {
 	return word !== undefined && !word.startsWith("--");
 }

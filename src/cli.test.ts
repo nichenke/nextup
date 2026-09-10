@@ -95,8 +95,7 @@ describe("run, over a ticket set read from GitHub", () => {
 		expect(result.code).toBe(1);
 		expect(result.stdout).toContain("no candidate to recommend");
 		expect(sentinelLines(result.stdout).some((line) => line.includes("could not be read"))).toBe(true);
-		// The path where "we know nothing" is literally true, and so the one a zero would misdescribe worst: a
-		// read that never reached the tracker has no more standing to report no closed tickets than any other.
+		// The path where nothing was read at all, so the one a zero would misdescribe worst.
 		expect(result.stdout).toContain("closed not asked");
 	});
 
@@ -171,8 +170,6 @@ describe("the command line itself", () => {
 		expect(result.stderr).toContain("gh:1");
 	});
 
-	// Help is what a person reaches for after getting a flag wrong, so it cannot be conditional on the rest of
-	// the line parsing: judged in order, each of these was a usage error on stderr instead.
 	test("answers a help request even when another flag on the line is wrong", () => {
 		for (const argv of [["--help", "--limit"], ["--limit", "--help"], ["--bogus", "-h"], ["--json", "-h"]]) {
 			const result = run(argv, deps());
@@ -182,8 +179,6 @@ describe("the command line itself", () => {
 		}
 	});
 
-	// `-h` is a label a repository may really carry, and the filter accepts it, so this line is a read. Scanning
-	// the whole argv for help swallowed it and printed usage for an invocation that asked to select a ticket.
 	test("reads a label that happens to be spelled like the help flag", () => {
 		const result = run(["--include", "-h"], deps(inTestTree(() => ({ code: 0, stdout: "[]", stderr: "" }))));
 		expect(result.stdout).not.toContain("usage: nextup");
