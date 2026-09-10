@@ -1,5 +1,5 @@
 {
-	"description": "A cycle in one corner of a repository and startable work in another. The pick is reported as it would be without the cycle, and the cycle is named beside it — refusing to answer would take a whole effort down over two tickets, which is the symptom this diagnostic exists to prevent rather than to cause.",
+	"description": "A cycle in one corner of a repository and startable work in another. Pins that the pick, the rung it won on and the counts are all what they would be without the cycle, and that the cycle is named beside them; ADR-0030 has why it is reported that way rather than by refusing.",
 	"truncated": false,
 	"openOnly": false,
 	"filter": { "include": [], "exclude": ["wayfinder:*"] },

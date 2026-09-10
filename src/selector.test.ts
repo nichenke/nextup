@@ -252,9 +252,6 @@ describe("the deadlock diagnostic", () => {
 		expect(deadlocksOf([{ key: "1", blockers: ["1"] }])).toEqual([["gh:example/repo#1"]]);
 	});
 
-	// A deadlock is reported beside the answer, never instead of it: a repository can hold a cycle in one
-	// corner and startable work in another, and refusing to pick would take the whole effort down over it —
-	// which is the "no work available" symptom this diagnostic exists to prevent.
 	test("still recommends and still counts everything, with a deadlock in the set", () => {
 		const selection = select(inputOf([{ key: "1", blockers: ["2"] }, { key: "2", blockers: ["1"] }, { key: "3" }]));
 		expect(formatTicketRef(selection.pick!.ref)).toBe("gh:example/repo#3");
