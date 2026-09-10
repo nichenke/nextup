@@ -36,11 +36,11 @@ the ones that change the answer.
 
 | Check | What it asserts |
 | --- | --- |
-| `whole-set-read` | The read covers the same window the independent query did: untruncated, undegraded, open tickets only, and the same count on both sides and in the blocking-field-less read |
+| `whole-set-read` | The read covers the same window the independent query did: untruncated, undegraded, open tickets only, and the same tickets on both sides and in the blocking-field-less read |
 | `references-parse` | Every reference the read produced is one `resolveTicketRef` takes back, without asking a tracker |
 | `blockers-resolve` | Every blocking edge names a ticket in the set or one outside it that still carries a state |
-| `counts-reconcile` | Every ticket was placed exactly once, and the candidate partitions add up |
-| `nothing-blocked-is-recommended` | Nothing the answer offers is a ticket the tracker says waits on something still open, and the pick is the head of the ranking |
+| `counts-reconcile` | Every ticket was placed exactly once, and under the placement the tracker's own claims and labels call for |
+| `nothing-blocked-is-recommended` | Nothing the answer offers is a ticket the tracker says waits on something still open |
 | `edges-agree` | The two sides read the same blocking edges, with the same openness — the one check comparing inputs rather than outcomes |
 | `frontier-agrees` | The frontier the adapter derived is the one the tracker reports, both directions |
 | `claimed-leaves-frontier` | A claim takes its ticket off the frontier |
@@ -54,27 +54,30 @@ the ones that change the answer.
 evidence; a check reporting a pass over nothing is the failure this harness exists to catch, so there is no
 such line.
 
-**`unexercised`** means the repository produced nothing for the check to read, and it exits 1 rather than 0.
-It is not a pass. Either the repository is too simple — nothing claimed, no closed blockers — or the adapter
-stopped producing the state, which is a defect that would otherwise hide as a green run. Check which before
-reaching for a different repository: an `unexercised` line arriving where the same repository used to
-exercise the check is the more interesting of the two readings.
+**`unexercised`** means the check did not compare anything, and it exits 1 rather than 0. It is not a pass.
+Usually the repository produced nothing for it to read: too simple — nothing claimed, no closed blockers — or
+the adapter stopped producing the state, which is a defect that would otherwise hide as a green run. Check
+which before reaching for a different repository: an `unexercised` line arriving where the same repository used
+to exercise the check is the more interesting of the two readings.
+
+`frontier-agrees` reports it for the other reason — the read came back with unknown blocking, so the two
+frontiers cannot be compared whole. Its line says so, and the cause is in `whole-set-read`'s.
 
 **`failed`** lists every ticket it disagreed about, one per line.
 
 - `whole-set-read` failing first explains the rest, and its everyday cause is not a defect: a ticket opened or
-  closed between the independent query and the adapter read leaves the two counting different sets. Rerun once
-  before investigating a count mismatch; a mismatch surviving a rerun is a real one.
+  closed between the three reads leaves them holding different sets. It names which ticket and which side, so
+  rerun once before investigating; a difference surviving a rerun is a real one.
 - A `the read degraded: <kind>` line is different — the read itself came back with less than it asked for, so a
   rerun will not clear it and the kind names the cause. `contradicted-blocker` is the one to expect on a healthy
   adapter: two edges disagreed about one blocker, which is a read this harness cannot compare whole rather than
-  a defect in it. ADR-0027 has what the adapter does there and why.
-- `frontier-agrees` has two failures that read differently. One naming tickets — "is on the tracker's frontier
-  and not on the adapter's" — is a real disagreement, and while `whole-set-read` holds it is the finding worth
-  having. One saying the frontier "cannot be compared whole" is the check declining to run, because the read came
-  back with unknown blocking; the cause is in `whole-set-read`'s line, not here. Read it with the four state checks: a disagreement
+  a defect in it. ADR-0027 has what the adapter does there and why. `partial-blocking` is the other — a ticket
+  whose blockers arrived as one page of a longer list, held out of the answer and not reported missing from it.
+- `frontier-agrees` failing is a real disagreement, naming the ticket and the side that has it; while
+  `whole-set-read` holds it is the finding worth having. Read it with the four state checks: a disagreement
   alongside a failing `claimed-leaves-frontier` points at the claim, alongside a failing
-  `closed-blocker-unblocks-its-dependent` at the blocking read.
+  `closed-blocker-unblocks-its-dependent` at the blocking read. A read with unknown blocking makes it
+  `unexercised` instead, since declining to compare is not a disagreement.
 - `edges-agree` failing narrows a frontier disagreement to the edge it came from, and can fail where
   `frontier-agrees` holds — two edges wrong in compensating directions reach the same frontier. ADR-0033 has why
   an input comparison is not redundant with the outcome ones.

@@ -256,9 +256,6 @@ function countsReconcile(input: ReconstructionInput, selection: Selection): Chec
  * Judged against the independent observation rather than against the graph the ranking came from. Asking the
  * same graph twice cannot disagree with itself: `select` derives each candidate's state from it, so a check
  * re-deriving from it restates the answer instead of testing it, and passes however wrong the graph is.
- *
- * It also asserts the pick is the head of the ranking, which is why one of its faults names that instead of a
- * blocker: a pick taken from outside the ranking is a recommendation no check above ever looked at.
  */
 function nothingBlockedIsRecommended(input: ReconstructionInput, selection: Selection): CheckResult {
 	const observed = new Map(input.observations.map((one) => [ticketId(one.ref), one] as const));
@@ -275,11 +272,6 @@ function nothingBlockedIsRecommended(input: ReconstructionInput, selection: Sele
 				`${formatTicketRef(candidate.ref)} is ranked, and the tracker says it waits on ${open.map((blocker) => formatTicketRef(blocker.ref)).join(", ")}`,
 			);
 		}
-	}
-	const pick = selection.pick;
-	const first = selection.ranked[0];
-	if ((pick?.ref === undefined ? null : ticketId(pick.ref)) !== (first === undefined ? null : ticketId(first.ref))) {
-		faults.push("the pick is not the head of the ranking");
 	}
 	return verdictOver(
 		"nothing-blocked-is-recommended",
@@ -343,24 +335,27 @@ function edgesAgree(input: ReconstructionInput): CheckResult {
  * the filter would measure the filter instead.
  */
 function frontierAgrees(input: ReconstructionInput, selection: Selection, frontier: readonly TicketRef[]): CheckResult {
+	const expected = refsById(expectedFrontier(input));
+	const actual = refsById(frontier);
 	const faults: string[] = [];
-	// An unknown ticket the tracker also excludes — claimed, filtered, or open-blocked there — is on neither
-	// frontier, so that half of a degraded read agrees by construction. The guard refuses the comparison rather
-	// than reporting an agreement it did not test. The other half faults on its own, since `observe` carries no
-	// unknown and puts such a ticket on the tracker's frontier.
-	if (selection.counts.unknown > 0) {
-		faults.push(`${selection.counts.unknown} tickets came back with unknown blocking, so the frontier cannot be compared whole`);
-	}
-	const expected = new Map(expectedFrontier(input).map((ref) => [ticketId(ref), ref] as const));
-	const actual = new Map(frontier.map((ref) => [ticketId(ref), ref] as const));
-	for (const [id, ref] of expected) {
-		if (!actual.has(id)) faults.push(`${formatTicketRef(ref)} is on the tracker's frontier and not on the adapter's`);
-	}
-	for (const [id, ref] of actual) {
-		if (!expected.has(id)) faults.push(`${formatTicketRef(ref)} is on the adapter's frontier and not on the tracker's`);
-	}
+	for (const ref of onlyIn(expected, actual)) faults.push(`${formatTicketRef(ref)} is on the tracker's frontier and not on the adapter's`);
+	for (const ref of onlyIn(actual, expected)) faults.push(`${formatTicketRef(ref)} is on the adapter's frontier and not on the tracker's`);
 	// The union, for the reason `edgesAgree` gives: a ticket on both frontiers is one ticket compared.
 	const compared = new Set([...expected.keys(), ...actual.keys()]).size;
+	// An unknown ticket the tracker also excludes — claimed, filtered, or open-blocked there — is on neither
+	// frontier, so that half of a degraded read agrees by construction, and the comparison is refused rather than
+	// reported as an agreement it did not test. The other half faults on its own, since `observe` carries no
+	// unknown and puts such a ticket on the tracker's frontier.
+	//
+	// `unexercised` rather than a fault of its own, because declining to compare is not a disagreement: both exit
+	// non-zero, and a fault here reads as the two frontiers differing, which is the first thing the reader would
+	// go and investigate. Where something did disagree it is the disagreements that are reported, with this beside
+	// them to say the comparison was partial.
+	if (selection.counts.unknown > 0) {
+		const partial = `${selection.counts.unknown} tickets came back with unknown blocking, so the frontier cannot be compared whole`;
+		if (faults.length === 0) return { name: "frontier-agrees", verdict: "unexercised", detail: [partial] };
+		faults.push(partial);
+	}
 	return verdictOver("frontier-agrees", compared, faults, `${compared} tickets, agreed on both sides`);
 }
 

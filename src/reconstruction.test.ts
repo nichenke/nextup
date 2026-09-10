@@ -69,9 +69,8 @@ function observationOf(shape: Shape): TrackerObservation {
 	};
 }
 
-/** The read as the adapter would have produced it: a seed per ticket, plus one per blocker outside the set. */
-function readOf(shapes: readonly Shape[]): TicketSetRead {
-	const tickets = shapes.map(ticketOf);
+/** A seed per ticket, plus one per blocker named from outside the set, which is what the read carries. */
+function graphOver(tickets: readonly Ticket[], shapes: readonly Shape[]) {
 	const own = new Set(tickets.map((ticket) => ticketId(ticket.ref)));
 	const outside = new Map<string, boolean>();
 	for (const shape of shapes) {
@@ -79,21 +78,21 @@ function readOf(shapes: readonly Shape[]): TicketSetRead {
 			if (!own.has(ticketId(ref(key)))) outside.set(key, open);
 		}
 	}
-	return {
-		tickets,
-		graph: seedGraph([
-			...tickets.map((ticket) => ({
-				id: ticketId(ticket.ref),
-				parent: null,
-				blockers: ticket.blockers === "unknown" ? ("unknown" as const) : ticket.blockers.map(ticketId),
-				open: true,
-			})),
-			...[...outside].map(([key, open]) => ({ id: ticketId(ref(key)), parent: null, blockers: "unknown" as const, open })),
-		]),
-		truncated: false,
-		openOnly: true,
-		degraded: [],
-	};
+	return seedGraph([
+		...tickets.map((ticket) => ({
+			id: ticketId(ticket.ref),
+			parent: null,
+			blockers: ticket.blockers === "unknown" ? ("unknown" as const) : ticket.blockers.map(ticketId),
+			open: true,
+		})),
+		...[...outside].map(([key, open]) => ({ id: ticketId(ref(key)), parent: null, blockers: "unknown" as const, open })),
+	]);
+}
+
+/** The read as the adapter would have produced it. */
+function readOf(shapes: readonly Shape[]): TicketSetRead {
+	const tickets = shapes.map(ticketOf);
+	return { tickets, graph: graphOver(tickets, shapes), truncated: false, openOnly: true, degraded: [] };
 }
 
 /** The same tickets read with no blocking field in the response, which is what `readBlind` produces live. */
@@ -112,6 +111,17 @@ function blindOf(shapes: readonly Shape[]): TicketSetRead {
 
 function world(shapes: readonly Shape[] = SHAPES): ReconstructionInput {
 	return { read: readOf(shapes), blind: blindOf(shapes), observations: shapes.map(observationOf), filter: FILTER };
+}
+
+/**
+ * The agreeing world with one ticket's blocking unknown to the adapter, which is what a degraded read produces.
+ * The graph is rebuilt over the whole shape list so it keeps its seed for any blocker outside the set: rebuilt
+ * from the tickets alone, a second ticket goes unknown for a reason the case never asked about.
+ */
+function unknownBlockingOn(key: string, shapes: readonly Shape[] = SHAPES): ReconstructionInput {
+	const input = world(shapes);
+	const tickets = input.read.tickets.map((ticket) => (ticket.ref.key === key ? { ...ticket, blockers: "unknown" as const } : ticket));
+	return { ...input, read: { ...input.read, tickets, graph: graphOver(tickets, shapes) } };
 }
 
 function verdicts(input: ReconstructionInput): Record<string, Verdict> {
@@ -434,20 +444,23 @@ describe("frontier-agrees", () => {
 	});
 
 	test("refuses to compare a frontier the adapter could not judge whole", () => {
-		const input = world();
-		const tickets = input.read.tickets.map((ticket) =>
-			ticket.ref.key === "1" ? { ...ticket, blockers: "unknown" as const } : ticket,
+		// Ticket 2's blocking is unknown to the adapter, and the tracker says it waits on an open blocker — so the
+		// tracker keeps it off its frontier too, and the two sides agree on every ticket either of them placed.
+		const input = unknownBlockingOn("2");
+		const check = checkNamed(input, "frontier-agrees");
+		expect(check).toMatchObject({ verdict: "unexercised", detail: expect.stringContaining("unknown blocking") });
+	});
+
+	test("reports the disagreement, not the refusal, where the two also differ on a ticket they could compare", () => {
+		const input = unknownBlockingOn("2");
+		// The tracker says ticket 1 waits on something open, so it keeps it off a frontier the adapter puts it on.
+		const observations = input.observations.map((one) =>
+			one.ref.key === "1" ? { ...one, blockers: [{ ref: ref("3"), open: true }] } : one,
 		);
-		const graph = seedGraph(
-			tickets.map((ticket) => ({
-				id: ticketId(ticket.ref),
-				parent: null,
-				blockers: ticket.blockers === "unknown" ? ("unknown" as const) : ticket.blockers.map(ticketId),
-				open: true,
-			})),
-		);
-		const check = checkNamed({ ...input, read: { ...input.read, tickets, graph } }, "frontier-agrees");
-		expect(check).toMatchObject({ verdict: "failed", detail: expect.stringContaining("unknown blocking") });
+		const check = checkNamed({ ...input, observations }, "frontier-agrees");
+		expect(check.verdict).toBe("failed");
+		expect(check.detail).toContain("gh:example/repo#1 is on the adapter's frontier and not on the tracker's");
+		expect(check.detail).toContain("cannot be compared whole");
 	});
 
 	test("reads labels from the observation, so a label the adapter misread disagrees", () => {
