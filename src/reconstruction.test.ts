@@ -180,12 +180,54 @@ describe("whole-set-read", () => {
 		});
 	});
 
-	test("fails when the two sides counted different numbers of open tickets", () => {
+	test("fails when the read returned a ticket the tracker did not observe open", () => {
 		const input = world();
 		expect(checkNamed({ ...input, observations: input.observations.slice(1) }, "whole-set-read")).toMatchObject({
 			verdict: "failed",
-			detail: expect.stringContaining("5 were observed open"),
+			detail: expect.stringContaining("the read returned gh:example/repo#1, which was not observed open"),
 		});
+	});
+
+	test("fails when the tracker observed a ticket the read did not return", () => {
+		const input = world();
+		const read = { ...input.read, tickets: input.read.tickets.slice(1) };
+		expect(checkNamed({ ...input, read }, "whole-set-read")).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("gh:example/repo#1 was observed open and the read did not return it"),
+		});
+	});
+
+	test("fails two sides holding different tickets in the same number, which comparing the counts accepted", () => {
+		const input = world();
+		// A claimed ticket on each side and not the same one: every count balances, and a claim keeps both off
+		// either frontier, so no check below has anything left to disagree about.
+		const observations = input.observations.map((one) => (one.ref.key === "8" ? { ...one, ref: ref("100") } : one));
+		const check = checkNamed({ ...input, observations }, "whole-set-read");
+		expect(check.verdict).toBe("failed");
+		expect(check.detail).toContain("gh:example/repo#100 was observed open and the read did not return it");
+		expect(check.detail).toContain("the read returned gh:example/repo#8, which was not observed open");
+	});
+
+	test("fails when the blocking-field-less read did not return a ticket the read met", () => {
+		const input = world();
+		expect(checkNamed({ ...input, blind: { ...input.blind, tickets: input.blind.tickets.slice(1) } }, "whole-set-read")).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("the blocking-field-less read did not return gh:example/repo#1"),
+		});
+	});
+
+	test("reports a ticket held out for paging blockers as the one degrade it is, on neither side as a missing ticket", () => {
+		const input = world();
+		const withheld = input.read.tickets.find((ticket) => ticket.ref.key === "4")!;
+		const read = {
+			...input.read,
+			tickets: input.read.tickets.filter((ticket) => ticket.ref.key !== "4"),
+			degraded: [{ kind: "partial-blocking", refs: [withheld.ref] }] as const,
+		};
+		const check = checkNamed({ ...input, read }, "whole-set-read");
+		expect(check.detail).toContain("the read degraded: partial-blocking");
+		expect(check.detail).not.toContain("#4 was observed open and the read did not return it");
+		expect(check.detail).not.toContain("the blocking-field-less read returned");
 	});
 });
 

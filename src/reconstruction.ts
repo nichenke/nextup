@@ -147,23 +147,29 @@ const NO_RUNNER: Runner = (argv) => {
 /**
  * That the read covers the same window the independent query did, which every comparison below rests on. First
  * in the report because a failure here explains the ones after it.
+ *
+ * Membership on each side rather than a count of it: two sides holding different tickets balance whenever the
+ * same number entered as left, and then nothing below can see it — `edgesAgree` skips a read ticket the tracker
+ * never observed, and a ticket only the tracker saw reaches no check at all. ADR-0033 rests the independent
+ * reader's want of a fixture on this check seeing a dropped or invented ticket, which only the sets do.
  */
 function wholeSetRead(input: ReconstructionInput): CheckResult {
 	const faults: string[] = [];
 	if (!input.read.openOnly) faults.push("the read did not ask for open tickets only, so it is a wider set than was observed");
 	if (input.read.truncated) faults.push("the read stopped short of the whole ticket set");
 	for (const degrade of input.read.degraded) faults.push(`the read degraded: ${degrade.kind}`);
-	if (input.read.tickets.length !== input.observations.length) {
-		faults.push(`the read returned ${input.read.tickets.length} tickets where ${input.observations.length} were observed open`);
-	}
-	if (input.blind.tickets.length !== input.read.tickets.length) {
-		faults.push(`the blocking-field-less read returned ${input.blind.tickets.length} tickets rather than ${input.read.tickets.length}`);
-	}
+	const met = metByRead(input.read);
+	const observed = refsById(input.observations.map((one) => one.ref));
+	const blind = refsById(input.blind.tickets.map((ticket) => ticket.ref));
+	for (const ref of onlyIn(observed, met)) faults.push(`${formatTicketRef(ref)} was observed open and the read did not return it`);
+	for (const ref of onlyIn(met, observed)) faults.push(`the read returned ${formatTicketRef(ref)}, which was not observed open`);
+	for (const ref of onlyIn(met, blind)) faults.push(`the blocking-field-less read did not return ${formatTicketRef(ref)}`);
+	for (const ref of onlyIn(blind, met)) faults.push(`the blocking-field-less read returned ${formatTicketRef(ref)}, which the read did not meet`);
 	return verdictOver(
 		"whole-set-read",
-		input.read.tickets.length,
+		met.size,
 		faults,
-		`${input.read.tickets.length} open tickets, untruncated, nothing degraded, matching the independent count`,
+		`${met.size} open tickets, untruncated, nothing degraded, the same set the tracker observed`,
 	);
 }
 
@@ -481,6 +487,28 @@ function edges(tickets: readonly Ticket[]): readonly { readonly ticket: Ticket; 
 	return tickets.flatMap((ticket) =>
 		ticket.blockers === "unknown" ? [] : ticket.blockers.map((blocker) => ({ ticket, blocker })),
 	);
+}
+
+function refsById(refs: readonly TicketRef[]): ReadonlyMap<IssueId, TicketRef> {
+	return new Map(refs.map((ref) => [ticketId(ref), ref] as const));
+}
+
+/** The references on the left that the right does not hold, which is how three checks name a side's own surplus. */
+function onlyIn(left: ReadonlyMap<IssueId, TicketRef>, right: ReadonlyMap<IssueId, TicketRef>): readonly TicketRef[] {
+	return [...left].filter(([id]) => !right.has(id)).map(([, ref]) => ref);
+}
+
+/**
+ * Every ticket the read met, which includes the ones it withheld for arriving with only a page of their blockers.
+ *
+ * Those rows were read and held out of the answer deliberately (ADR-0027), so counting them unread would report
+ * one paging degrade as tickets missing from the read as well — and as missing from the blind read in the
+ * opposite direction, since a response with no blocking field at all has no short node list to hold anything out
+ * and returns them. The degrade itself faults, once.
+ */
+function metByRead(read: TicketSetRead): ReadonlyMap<IssueId, TicketRef> {
+	const withheld = read.degraded.flatMap((degrade) => (degrade.kind === "partial-blocking" ? degrade.refs : []));
+	return refsById([...read.tickets.map((ticket) => ticket.ref), ...withheld]);
 }
 
 /**
