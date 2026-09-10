@@ -499,6 +499,17 @@ describe("claimed-leaves-frontier", () => {
 		expect(verdicts(world([{ key: "1" }, { key: "2" }]))["claimed-leaves-frontier"]).toBe("unexercised");
 	});
 
+	test("is unexercised by a claimed ticket the read withheld, which the answer never placed either", () => {
+		const input = world([{ key: "1" }, { key: "8", claimed: true }]);
+		const withheld = input.read.tickets.find((ticket) => ticket.ref.key === "8")!;
+		const read = {
+			...input.read,
+			tickets: input.read.tickets.filter((ticket) => ticket.ref.key !== "8"),
+			degraded: [{ kind: "partial-blocking", refs: [withheld.ref] }] as const,
+		};
+		expect(checkNamed({ ...input, read }, "claimed-leaves-frontier")).toMatchObject({ verdict: "unexercised" });
+	});
+
 	test("is unexercised by a claimed ticket the read never returned, whose absence the claim did not cause", () => {
 		const input = world([{ key: "1" }, { key: "8", claimed: true }]);
 		// `whole-set-read` is what reports the missing ticket.

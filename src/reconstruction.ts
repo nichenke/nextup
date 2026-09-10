@@ -254,9 +254,9 @@ function blockersResolve(input: ReconstructionInput): CheckResult {
  */
 function countsReconcile(input: ReconstructionInput, selection: Selection): CheckResult {
 	const counts = selection.counts;
-	// The tickets that reached `select`, so one held out for paging blockers is absent from both sides here rather
-	// than counted only on the tracker's.
-	const answered = refsById(input.read.tickets.map((ticket) => ticket.ref));
+	// So a ticket held out for paging blockers is absent from both sides here rather than counted only on the
+	// tracker's.
+	const answered = answeredOver(input.read);
 	const observed = input.observations.filter((one) => answered.has(ticketId(one.ref)));
 	const claimed = observed.filter((one) => one.claimed);
 	const filtered = observed.filter((one) => !one.claimed && !input.filter.admits(one.labels));
@@ -413,11 +413,13 @@ function frontierWorthy(one: TrackerObservation, input: ReconstructionInput): bo
 /** That a claim takes its ticket off the frontier — the first of the four states criterion three names. */
 function claimedLeavesFrontier(input: ReconstructionInput, frontier: readonly TicketRef[]): CheckResult {
 	const onFrontier = new Set(frontier.map(ticketId));
-	const met = metByRead(input.read);
-	// Narrowed to tickets the read met, the way `closedBlockerUnblocksItsDependent` narrows before counting: a
-	// claimed ticket the adapter never returned is off the frontier for that reason alone, so counting it exercised
-	// reports the claim as the cause of an absence it did not produce.
-	const withheld = input.observations.filter((one) => frontierWorthy(one, input) && one.claimed && met.has(ticketId(one.ref)));
+	const answered = answeredOver(input.read);
+	// `answeredOver` and not `metByRead`, which `wholeSetRead` above uses for the opposite reason: a ticket the read
+	// withheld was met, but the answer never placed it, so it is off the frontier for that reason alone and
+	// counting it exercised reports the claim as the cause of an absence it did not produce.
+	const withheld = input.observations.filter(
+		(one) => frontierWorthy(one, input) && one.claimed && answered.has(ticketId(one.ref)),
+	);
 	const faults = withheld
 		.filter((one) => onFrontier.has(ticketId(one.ref)))
 		.map((one) => `${formatTicketRef(one.ref)} is claimed and is on the frontier anyway`);
@@ -539,6 +541,15 @@ function refsById(refs: readonly TicketRef[]): ReadonlyMap<IssueId, TicketRef> {
 /** The references on the left that the right does not hold, which is how three checks name a side's own surplus. */
 function onlyIn(left: ReadonlyMap<IssueId, TicketRef>, right: ReadonlyMap<IssueId, TicketRef>): readonly TicketRef[] {
 	return [...left].filter(([id]) => !right.has(id)).map(([, ref]) => ref);
+}
+
+/**
+ * The tickets that reached `select`, which is narrower than `metByRead` by every ticket the read withheld. A check
+ * asking what the answer did with a ticket has to use this one: a withheld ticket is not in the answer, so the
+ * answer cannot have placed it anywhere for the reason under test.
+ */
+function answeredOver(read: TicketSetRead): ReadonlyMap<IssueId, TicketRef> {
+	return refsById(read.tickets.map((ticket) => ticket.ref));
 }
 
 /**
