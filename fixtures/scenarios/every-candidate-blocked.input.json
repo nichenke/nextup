@@ -1,5 +1,5 @@
 {
-	"description": "Every candidate blocked and nothing deadlocked — a GitHub repository mid-migration where the one ticket everything waits on is already being worked. There is nothing to recommend today and the backlog opens up when that ticket closes, which is what deadlock-names-the-cycle reports the same emptiness without.",
+	"description": "Every candidate blocked and nothing deadlocked — a GitHub repository mid-migration where the one ticket everything waits on is already being worked. There is nothing to recommend today and the set opens up when that ticket closes, which is what deadlock-names-the-cycle reports the same emptiness without.",
 	"truncated": false,
 	"openOnly": false,
 	"filter": { "include": [], "exclude": ["wayfinder:*"] },

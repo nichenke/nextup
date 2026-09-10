@@ -67,7 +67,7 @@ describe("run, over a ticket set read from GitHub", () => {
 	// The tree carries one deliberate cycle, so this is the diagnostic against edges a tracker really
 	// returned rather than against a hand-built graph. The numbers are not asserted: the tree is keyed by
 	// shape and ADR-0023 says why a test may not claim an issue number.
-	test("names the tree's dependency cycle, from the edges the tracker returned", () => {
+	test("names the tree's blocking cycle, from the edges the tracker returned", () => {
 		const result = run(["--limit", String(TREE)], readingTree("ticket-set"));
 		const lines = deadlockLines(result.stdout);
 		expect(lines).toHaveLength(1);
@@ -173,7 +173,7 @@ describe("the command line itself", () => {
 	// prose leaves --help describing a filter the tool does not run, with nothing failing.
 	//
 	// Quoted as the text quotes them, not as bare words: `spec` is a substring of the "specification" two
-	// lines below it, so the looser assertion passed over a usage text that had stopped naming the pattern.
+	// lines below it, so a bare-word assertion holds over a usage text that has stopped naming the pattern.
 	test("names every default exclusion it applies", () => {
 		const result = run(["--help"], deps());
 		for (const pattern of DEFAULT_LABEL_FILTER.exclude) expect(result.stdout).toContain(`'${pattern}'`);

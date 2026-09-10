@@ -218,8 +218,7 @@ function identify(tickets: readonly Ticket[]): Map<Ticket, IssueId> {
  * The deadlocks over the whole ticket set, as references rather than graph ids — the ids are keys nobody
  * outside the graph reads, and a report a person acts on has to name what the tracker calls each ticket.
  *
- * Every ticket, not every candidate: an excluded or claimed ticket still blocks, so a cycle among tickets
- * nothing may recommend is exactly the one the counts cannot explain on their own.
+ * Every ticket rather than every candidate, which ADR-0030 has the reason for.
  */
 function findDeadlocks(ids: ReadonlyMap<Ticket, IssueId>, graph: DependencyGraph): Deadlock[] {
 	const refs = new Map<IssueId, TicketRef>();

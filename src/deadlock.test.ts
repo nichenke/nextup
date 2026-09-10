@@ -164,8 +164,7 @@ describe("findBlockingCycles", () => {
 	});
 
 	// A walk starts at every ticket and they cross the same ones, so without the held read this set asks for
-	// the shared ticket's edges once per walk that reaches it — quadratic in the ticket set, which at a
-	// thousand tickets was the difference between 469ms and 72ms.
+	// the shared ticket's edges once per walk that reaches it — quadratic in the ticket set.
 	test("asks for a ticket's edges once however many walks reach it", () => {
 		const { graph, ids, edgeReads } = countingGraph({
 			a: { blockers: ["b", "c"] },

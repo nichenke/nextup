@@ -65,7 +65,7 @@ The filter narrows only what may be recommended: the blocking graph still reads 
 excluded ticket still blocks.
 
 Tickets that block each other in a loop are named on a "deadlock: " line, which is the sentinel for
-the one thing no rerun improves: a backlog that is merely blocked opens up when its blockers close,
+the one thing no rerun improves: a ticket set that is merely blocked opens up when its blockers close,
 and one holding a cycle does not until a person breaks it.
 
 Once claiming lands: the pick will be shown and confirmed before it is claimed, --yes will answer in
@@ -84,7 +84,7 @@ Exit status, of what is wired: 0 a pick reported, 1 nothing to recommend, 2 some
 — a repository that cannot be resolved, a read that is itself wrong, or a bad invocation. A tracker that
 could not be reached is reported as a degraded answer with nothing to recommend, which is 1.
 
-A deadlocked backlog is also 1, so the status does not say whether waiting will help: a wrapper that
+A deadlocked ticket set is also 1, so the status does not say whether waiting will help: a wrapper that
 retries on 1 has to read the "deadlock: " lines to know that this one will answer the same tomorrow.
 `;
 

@@ -31,7 +31,7 @@ anything here, and the test names it so a widening to a prefix arrives as a fail
 
 The exclusions narrow only what may be recommended. The blocking graph still spans every ticket, so an
 excluded ticket still blocks — and, per [0030](./0030-a-deadlock-is-named-beside-the-answer.md), can be
-named in a deadlock the candidates are stuck behind.
+named in a deadlock the candidates are blocked behind.
 
 `--exclude` cannot be emptied. A caller wanting the wayfinder track has to say so through the filter
 parameter in code rather than through the flag, which is what keeps the flag from being the way a run

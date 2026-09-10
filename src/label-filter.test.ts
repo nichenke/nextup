@@ -69,11 +69,10 @@ describe("DEFAULT_LABEL_FILTER", () => {
 		expect(filter.admits([])).toBe(true);
 	});
 
-	test("excludes an untriaged ticket and a specification", () => {
+	test("excludes an untriaged ticket and a specification, as whole labels rather than prefixes", () => {
 		const filter = compileLabelFilter(DEFAULT_LABEL_FILTER);
 		expect(filter.admits(["needs-triage"])).toBe(false);
 		expect(filter.admits(["spec"])).toBe(false);
-		// Whole labels, not prefixes, so a repository's own `specification` is ordinary work.
 		expect(filter.admits(["specification"])).toBe(true);
 		expect(filter.admits(["needs-triage-review"])).toBe(true);
 	});

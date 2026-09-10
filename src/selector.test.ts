@@ -233,7 +233,7 @@ describe("the deadlock diagnostic", () => {
 
 	// `bun test` is transpile-only, so the assertion here is `tsc --noEmit`, which CI runs as its own gate: it
 	// fails if the directive stops being needed, which is what an empty cycle becoming representable looks
-	// like. A deadlock naming no ticket renders as a claim with nothing in it.
+	// like.
 	test("cannot represent a cycle that names no ticket", () => {
 		// @ts-expect-error an empty cycle is not a Deadlock
 		const empty: Deadlock = { cycle: [] };

@@ -10,10 +10,9 @@ export type BlockingCycle = NonEmpty<IssueId>;
  * adapter's, and what a reported cycle claims.
  *
  * A cycle is reported only where every ticket in it is *confirmed* open and every edge in it is one the
- * tracker reported. Both are the same rule: the report says these tickets can never unblock each other,
- * and an unread edge could be the one that is not there. A closed member prunes for the reason
- * `deriveEffectiveBlockedness` prunes at one — a closed blocker is a met dependency — so a cycle
- * containing one is not a deadlock, and its dependent really is unblocked.
+ * tracker reported, and a cycle holding a closed ticket is not reported at all — its dependent really is
+ * unblocked, which is why `deriveEffectiveBlockedness` prunes there too. ADR-0030 has why each of those
+ * follows from what the report claims.
  *
  * Openness is asked in one place, of a ticket the walk is about to enter as somebody's blocker. That covers
  * the ticket a walk *started* from as well, because a cycle through it closes on an edge into it, so a
