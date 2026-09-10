@@ -125,6 +125,17 @@ describe("findBlockingCycles", () => {
 		]);
 	});
 
+	// Every ticket blocking both others, so `b`'s and `c`'s own loop is left unnamed: both are already on a
+	// reported cycle, and a walk never starts from them. A reader who breaks the two named loops is still
+	// deadlocked through the third, which is why README says an absent line is not the absence of a cycle.
+	// Naming them all means enumerating every cycle, which is exponential — ADR-0030 has that tradeoff.
+	test("leaves a loop unnamed when every ticket on it is already named by another", () => {
+		expect(cycles({ a: { blockers: ["b", "c"] }, b: { blockers: ["a", "c"] }, c: { blockers: ["a", "b"] } })).toEqual([
+			["a", "b"],
+			["c", "a"],
+		]);
+	});
+
 	// A three-member cycle reported first while a two-member one exists in the same group — so "shortest"
 	// holds per starting ticket and not across the group, which is what ADR-0030 says and what a reader of
 	// the report has to know before treating the first line as the smallest thing to fix.
