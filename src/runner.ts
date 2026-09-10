@@ -92,7 +92,9 @@ export const defaultRunner: Runner = (argv) => {
 		// the message a user reads, where `null` names nothing. The signal goes to stderr so neither is lost.
 		const signal = result.signalCode;
 		return {
-			code: signal ? signalledExitCode(signal) : (result.exitCode ?? 0),
+			// `?? 1`, never `?? 0`: an exit status neither reported nor explained by a signal is a command whose
+			// outcome is unknown, and reporting that as success is the one reading that cannot be recovered from.
+			code: signal ? signalledExitCode(signal) : (result.exitCode ?? 1),
 			stdout: result.stdout.toString(),
 			stderr: signal ? `${result.stderr.toString()}killed by ${signal}\n` : result.stderr.toString(),
 		};

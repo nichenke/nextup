@@ -92,8 +92,10 @@ part that cannot be sandboxed.
 _Avoid_: runner, executor, starter
 
 **Runner**:
-The injected seam every external process call passes through. The one place the tool touches anything
-outside itself, and therefore the only thing a test has to substitute.
+The injected seam every external process call passes through, and therefore the only thing a test has to
+substitute. The one place the tool touches anything outside itself, with two audited exceptions under
+`scripts/` that run before a dependency is installed and so cannot import it — ADR-0029 names them and what
+each does instead.
 _Avoid_: shell, executor, spawner
 
 **Ensure**:

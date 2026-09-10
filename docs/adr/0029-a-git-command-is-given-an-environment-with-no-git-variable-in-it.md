@@ -56,12 +56,14 @@ read, `worktree list`, `show-ref`, `for-each-ref`, `rev-parse --git-common-dir`,
 `rev-parse`, `symbolic-ref`, and `worktree add` — run against a repository named `<intended>` with each
 variable pointing at `<other>`. Testing one command and generalising is the fault that produced 0026's list.
 
-| Variable | What changed, at exit 0 |
+Each variable was set to `<other>`, or to the value given, and each command was run against `<intended>`.
+
+| Variable | What changed |
 | --- | --- |
-| `GIT_DIR`, `GIT_COMMON_DIR` | origin read, `worktree list`, `--git-common-dir`, and `worktree add` all answered for `<other>`; the worktree it created went there |
-| `GIT_WORK_TREE` | the identity `rev-parse` alone reported `<other>` as the worktree root |
-| `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM` | the origin read returned `<other>`'s URL |
-| `GIT_REPLACE_REF_BASE` | `worktree add` aborted on a `BUG:` assertion in git, exit 134 — no redirect, but a crash. The runner reports a signalled death as 128 plus the signal number, which is where that 134 comes from |
+| `GIT_DIR`, `GIT_COMMON_DIR` | at exit 0: origin read, `worktree list`, `--git-common-dir`, and `worktree add` all answered for `<other>`; the worktree it created went there |
+| `GIT_WORK_TREE` | at exit 0: the identity `rev-parse` alone reported `<other>` as the worktree root |
+| `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM` | at exit 0: the origin read returned `<other>`'s URL |
+| `GIT_REPLACE_REF_BASE=refs/other` | no redirect, but `worktree add` died on `BUG: refs.c:1900: ref pattern must end in a trailing slash when trimming`, SIGABRT. The missing slash is the whole cause: `refs/other/` exits 0, so a reader who writes the namespace the conventional way reproduces nothing. The runner turns a signalled death into 128 plus the signal number, which is the 134 a shell shows |
 | the other fourteen tried | no answer changed |
 
 The fourteen: `GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_INDEX_FILE`, `GIT_NAMESPACE`,
@@ -91,10 +93,12 @@ for an environment fault.
 - **"`GIT_OBJECT_DIRECTORY` broke the command outright, which is already loud enough to need no guard."** It
   broke nothing. Every command in the set returned its correct answer at exit 0. The conclusion — no guard
   needed — held for the opposite reason.
-- **"a wrapper, hook, or shell that exports it"** as the vector. git 2.55 hands a hook `GIT_AUTHOR_DATE`,
-  `GIT_AUTHOR_EMAIL`, `GIT_AUTHOR_NAME`, `GIT_CONFIG_PARAMETERS`, `GIT_EDITOR`, `GIT_EXEC_PATH`,
-  `GIT_INDEX_FILE` and `GIT_PREFIX` — not `GIT_DIR` or `GIT_COMMON_DIR`. The hook vector was real and the
-  named variables were not the ones it produces, which is a second way an enumerated list misses.
+- **"a wrapper, hook, or shell that exports it"** as the vector. git 2.55 hands a `post-commit` hook
+  `GIT_AUTHOR_DATE`, `GIT_AUTHOR_EMAIL`, `GIT_AUTHOR_NAME`, `GIT_CONFIG_PARAMETERS`, `GIT_EDITOR`,
+  `GIT_EXEC_PATH`, `GIT_INDEX_FILE` and `GIT_PREFIX` — not `GIT_DIR` or `GIT_COMMON_DIR`. One hook, named
+  rather than generalised: the set differs per hook, and "a hook receives X" from a single measurement is the
+  move this ADR faults 0026 for. What holds for the argument is only that this hook does not export the two
+  variables 0026 refused, so the hook vector was real and did not produce them.
 - **"An injected runner is not checked, so tests are unaffected."** The same change added
   `src/test-preload.ts`, which stopped the whole suite before any test when either variable was exported.
   Tests were affected in the strongest available way. That half of the preload is removed here: the suite now
