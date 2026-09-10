@@ -81,6 +81,14 @@ function observation(row: Record<string, unknown>, input: GitHubReconstructionIn
 	};
 }
 
+/**
+ * One ticket's blockers, from the per-issue dependency endpoint.
+ *
+ * Its rows carry a nested `repository` object, not the `repository_url` an issue-list row identifies its
+ * repository with — for a blocker in this repository as well as one outside it. Reading `repository_url` here is
+ * the plausible wrong move, and a review took the two endpoints for one shape and reported this as broken: a live
+ * run parsed fifteen blockers this way, eight of them same-repo.
+ */
 function blockersOf(input: GitHubReconstructionInput, key: string, where: string): readonly ObservedBlocker[] {
 	return request(input.runner, blockedByRequest(input.repo, key), where).map((row, index) => {
 		const at = `${where}[${index}]`;
