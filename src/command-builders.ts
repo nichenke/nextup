@@ -218,7 +218,7 @@ export function githubIssueListCommand(input: GitHubIssueListInput): readonly st
 
 /**
  * An issue-list argv with the blocking field taken out of its projection, so the response carries no `blockedBy`
- * key at all — the shape a read of an unavailable dependency surface has to be told apart from an empty one.
+ * key at all. `capture:github` stores that shape under `ticket-set-without-blockers` and says what it is for.
  *
  * Not a parameter of `githubIssueListCommand`, which stays the one projection every read asks for. This is the
  * narrowing two callers outside the read need: the capture that stores the shape, and the live check that asserts

@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 /**
  * Reads a real repository's ticket set through the adapter and checks the answer against the tracker's own
- * ground truth. Local and manual, never CI: it needs a credentialed `gh` and a request per open issue.
- * `docs/agents/reconstruction.md` is how to run it and what each verdict means.
+ * account of the same tickets. It writes nothing anywhere.
  *
- * It writes nothing anywhere, which `docs/agents/reconstruction.md` has the reasons for.
+ * `docs/agents/reconstruction.md` is how to run it, what each verdict means, why it is never CI, and why it
+ * writes nothing.
  */
 import { resolveOriginRemote } from "../src/git-remote";
 import { GitHubAdapterError } from "../src/github-adapter";
