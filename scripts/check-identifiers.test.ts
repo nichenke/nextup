@@ -1,9 +1,18 @@
-import { describe, expect, test } from "bun:test";
-import { readdirSync } from "node:fs";
+import { afterEach, describe, expect, test } from "bun:test";
+import { spawnSync } from "bun";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { defaultRunner } from "../src/runner";
 import { runGuardOn } from "./guard-harness";
 
 const guardDirs = (): number => readdirSync(tmpdir()).filter((name) => name.startsWith("nextup-guard-")).length;
+
+const decoys: string[] = [];
+
+afterEach(() => {
+	for (const root of decoys.splice(0)) rmSync(root, { recursive: true, force: true });
+});
 
 // Fixtures the guard must reject are assembled at runtime, because this file is itself tracked
 // and scanned. Splitting after a scheme's colon is no longer sufficient on its own, because the
@@ -45,6 +54,80 @@ describe("runGuardOn", () => {
 		runGuardOn("See https://example.com/issues/1\n");
 		runGuardOn(`Ticket at ${unknownHttpsUrl}\n`);
 		expect(guardDirs()).toBe(before);
+	});
+});
+
+describe("check-identifiers under a redirected git environment", () => {
+	/**
+	 * The guard as CI invokes it, in `cwd`. The environment is passed rather than inherited for the reason
+	 * `runGuardOn` gives, so a case may set a variable and have the guard see it.
+	 */
+	function guardIn(cwd: string) {
+		return spawnSync({ cmd: ["bash", join(import.meta.dir, "check-identifiers.sh")], cwd, env: { ...process.env } });
+	}
+
+	/** A throwaway repository at `root`, with `files` committed. Empty when none are given. */
+	function repositoryWith(files: Readonly<Record<string, string>>): string {
+		const root = mkdtempSync(join(tmpdir(), "nextup-decoy-"));
+		decoys.push(root);
+		expect(defaultRunner(["git", "init", "--quiet", root]).code).toBe(0);
+		for (const [name, contents] of Object.entries(files)) {
+			mkdirSync(join(root, dirname(name)), { recursive: true });
+			writeFileSync(join(root, name), contents);
+		}
+		if (Object.keys(files).length > 0) {
+			const identity = ["-c", "user.email=n@invalid", "-c", "user.name=n"];
+			expect(defaultRunner(["git", "-C", root, "add", "-A"]).code).toBe(0);
+			expect(defaultRunner(["git", "-C", root, ...identity, "commit", "--quiet", "-m", "init"]).code).toBe(0);
+		}
+		return root;
+	}
+
+	test("refuses a repository with nothing tracked, rather than reporting a pass", () => {
+		const result = guardIn(repositoryWith({}));
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr.toString()).toContain("nothing is tracked");
+	});
+
+	test("refuses a directory that is not a repository, naming the listing rather than the contents", () => {
+		const root = mkdtempSync(join(tmpdir(), "nextup-decoy-"));
+		decoys.push(root);
+		const result = guardIn(root);
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr.toString()).toContain("git ls-files failed");
+	});
+
+	// git honours any of its boolean spellings here, so the guard reads the value as a boolean rather than
+	// comparing it to the one spelling `sparse-checkout init` happens to write.
+	test("refuses a sparse checkout configured with another of git's boolean spellings", () => {
+		const root = repositoryWith({ "a.md": `leak at ${unknownHttpsUrl}\n` });
+		expect(defaultRunner(["git", "-C", root, "config", "core.sparseCheckout", "yes"]).code).toBe(0);
+		const result = guardIn(root);
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr.toString()).toContain("sparse checkout");
+	});
+
+	test("refuses a sparse checkout, rather than scanning the part of the tree it has", () => {
+		const root = repositoryWith({ "keep/a.md": "clean\n", "drop/b.md": `leak at ${unknownHttpsUrl}\n` });
+		expect(defaultRunner(["git", "-C", root, "sparse-checkout", "init", "--cone"]).code).toBe(0);
+		expect(defaultRunner(["git", "-C", root, "sparse-checkout", "set", "keep"]).code).toBe(0);
+		const result = guardIn(root);
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr.toString()).toContain("sparse checkout");
+	});
+
+	test("scans the fixture rather than reporting ok on nothing", () => {
+		const before = process.env.GIT_DIR;
+		// An empty repository for GIT_DIR to name; a missing path would fail the listing rather than empty it.
+		process.env.GIT_DIR = join(repositoryWith({}), ".git");
+		try {
+			const result = runGuardOn(`Ticket at ${unknownHttpsUrl}\n`);
+			expect(result.exitCode).not.toBe(0);
+			expect(result.stderr.toString()).toContain("internal.corp.test");
+		} finally {
+			if (before === undefined) delete process.env.GIT_DIR;
+			else process.env.GIT_DIR = before;
+		}
 	});
 });
 

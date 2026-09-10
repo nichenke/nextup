@@ -2,6 +2,7 @@ import { spawnSync } from "bun";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gitEnvironment } from "../src/runner";
 
 const script = join(import.meta.dir, "check-identifiers.sh");
 
@@ -22,16 +23,22 @@ export function runGuardOn(contents: string) {
 	// accumulated 3502 directories and most of a gigabyte of temp space before anyone looked.
 	try {
 		writeFileSync(join(dir, "fixture.md"), contents);
+		// Scrubbed, or an exported GIT_DIR aims `git init` and `git add` at another repository and the fixture
+		// is never staged where the guard looks. `src/runner.ts` owns which names go.
+		const { env } = gitEnvironment(process.env);
 		for (const cmd of [
 			["git", "init", "-q"],
 			["git", "add", "fixture.md"],
 		]) {
-			const setup = spawnSync({ cmd, cwd: dir });
+			const setup = spawnSync({ cmd, cwd: dir, env });
 			if (setup.exitCode !== 0) {
 				throw new Error(`fixture setup failed: ${cmd.join(" ")}`);
 			}
 		}
-		return spawnSync({ cmd: ["bash", script], cwd: dir });
+		// Explicitly, or a case that sets a variable cannot reach the guard — `src/runner.test.ts` has why an
+		// inherited child cannot see one. Whole, because whether the guard removes what it must is what its
+		// own tests assert.
+		return spawnSync({ cmd: ["bash", script], cwd: dir, env: { ...process.env } });
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}

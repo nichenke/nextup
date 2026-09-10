@@ -1,5 +1,9 @@
 # A redirected git environment is refused at the runner
 
+> Superseded by [0029](./0029-a-git-command-is-given-an-environment-with-no-git-variable-in-it.md), whose
+> "What 0026 stated that does not hold" section lists the statements below that do not reproduce. Retained
+> as the evidence for that decision, not as a description of the current tool.
+
 `GIT_DIR` overrides `-C`. A wrapper, hook, or shell that exports it therefore points every git command this
 tool issues at a different repository than the one it was asked about, and nothing downstream can notice,
 because every answer git gives is self-consistent — about the wrong repository.

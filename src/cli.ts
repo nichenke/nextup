@@ -6,7 +6,7 @@ import {
 	type LabelFilterSpec,
 	compileLabelFilter,
 } from "./label-filter";
-import { type Runner, RunnerRefusal } from "./runner";
+import type { Runner } from "./runner";
 import { type Answer, answerJson, renderAnswer } from "./selection-output";
 import { SelectionError, select } from "./selector";
 
@@ -124,12 +124,11 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 /**
  * Whatever a read or the selection over it refused, as something for a person to fix — including a failure
  * of neither class, which is the case that has to be loud rather than rethrown. An uncaught throw leaves
- * exit 1, which this command defines as nothing to recommend, so the runner refusing a redirected git
- * environment (ADR-0026) would report a quiet day. Unrecognised, it keeps its stack: nobody has classified
- * it, so whoever reads it needs everything.
+ * exit 1, which this command defines as nothing to recommend, so a run that failed would reach a script as a
+ * quiet day. Unrecognised, it keeps its stack: nobody has classified it, so whoever reads it needs everything.
  */
 function failedAnswer(cause: unknown): CliResult {
-	if (cause instanceof GitHubAdapterError || cause instanceof SelectionError || cause instanceof RunnerRefusal) {
+	if (cause instanceof GitHubAdapterError || cause instanceof SelectionError) {
 		return { code: 2, stdout: "", stderr: `${cause.message}\n` };
 	}
 	return { code: 2, stdout: "", stderr: `${cause instanceof Error ? (cause.stack ?? cause.message) : String(cause)}\n` };

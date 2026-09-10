@@ -18,6 +18,32 @@
 # publishing the guard would leak exactly what it protects.
 set -euo pipefail
 
+# Removed here rather than through the tool's runner: this runs before any dependency install. ADR-0029.
+unset "${!GIT_@}"
+
+# Both scan pipelines below end in `|| true`, so anything leaving them without input reads as nothing found.
+# ADR-0029 has why each cause gets its own message.
+if ! tracked=$(git ls-files); then
+	printf 'check-identifiers: git ls-files failed, so no file was scanned\n' >&2
+	exit 1
+fi
+
+if [ -z "$tracked" ]; then
+	printf 'check-identifiers: nothing is tracked here, so a pass would mean nothing\n' >&2
+	exit 1
+fi
+
+# A sparse checkout keeps tracked files out of the worktree, so the scan reads a subset and passes -- measured
+# with the identifier in the excluded file. Asked of git rather than inferred from a file being absent, because
+# an unstaged deletion looks identical on disk and is an everyday state, not a reason to refuse.
+# `--bool` rather than a literal comparison: git accepts `yes`, `on`, `1` and `TRUE` for a boolean and honours
+# them, while `--get` returns whatever the file says -- so comparing the raw value misses a sparse checkout
+# spelled any of those ways. Measured: a config holding `yes` reads back as `yes` raw and `true` as a bool.
+if [ "$(git config --bool --get core.sparseCheckout || true)" = "true" ]; then
+	printf 'check-identifiers: this is a sparse checkout, so a scan would cover part of the tree\n' >&2
+	exit 1
+fi
+
 ALLOWED='
 https://anthropic.com/claude-code/marketplace.schema.json
 https://github.com/nichenke/nextup
