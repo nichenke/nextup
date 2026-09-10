@@ -231,12 +231,8 @@ function findDeadlocks(ids: ReadonlyMap<Ticket, IssueId>, graph: DependencyGraph
 
 /**
  * A cycle turned to begin at its lowest reference, which is also how the lines are ordered against each
- * other — `compareTicketRefs`, the same total order the ladder's last rung uses.
- *
- * Ordering is applied here rather than in the walk, because the walk has only graph ids and those are
- * `ticketId`'s encoded tuples: sorted, they put `#10` before `#9` and start a chain at whichever member the
- * encoding happened to rank first. Deterministic either way, but a reader chasing the tickets in a tracker
- * gets the order the rest of the output uses.
+ * other — `compareTicketRefs`, the same total order the ladder's last rung uses. ADR-0030 has why the walk
+ * itself cannot do this.
  *
  * Turning a cycle is safe where reordering one would not be: every ticket keeps the ticket that blocks it
  * next to it, including the last, which still closes on the first.

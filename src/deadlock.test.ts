@@ -60,9 +60,8 @@ describe("findBlockingCycles", () => {
 		expect(cycles({ a: { blockers: ["a"] } })).toEqual([["a"]]);
 	});
 
-	// The self-block is the shortest loop through `a`, so it is what `a` is reported for; `b` is on no
-	// shorter one and is reported for the loop it does sit on. Naming only the self-block would leave the
-	// pair looking like one stray ticket rather than two that also wait on each other.
+	// Naming only the self-block would leave the pair looking like one stray ticket rather than two that also
+	// wait on each other.
 	test("reports a self-block and the longer cycle its ticket also sits on", () => {
 		expect(cycles({ a: { blockers: ["a", "b"] }, b: { blockers: ["a"] } })).toEqual([["a"], ["b", "a"]]);
 	});
@@ -125,11 +124,12 @@ describe("findBlockingCycles", () => {
 		]);
 	});
 
-	// Every ticket blocking both others, so `b`'s and `c`'s own loop is left unnamed: both are already on a
-	// reported cycle, and a walk never starts from them. A reader who breaks the two named loops is still
-	// deadlocked through the third, which is why README says an absent line is not the absence of a cycle.
-	// Naming them all means enumerating every cycle, which is exponential — ADR-0030 has that tradeoff.
-	test("leaves a loop unnamed when every ticket on it is already named by another", () => {
+	// `b`↔`c` goes unnamed for two different reasons, and neither is that its tickets were already named: no
+	// walk starts at `b`, which the first cycle reported, while `c`'s own walk does run and closes through `a`
+	// first, because the edges are walked in order and that loop is just as short. A reader who breaks the two
+	// named loops is still deadlocked through the third — README says an absent line is not the absence of a
+	// cycle, and ADR-0030 has why naming every loop is not on offer.
+	test("leaves a loop unnamed where each of its tickets was named by a different loop", () => {
 		expect(cycles({ a: { blockers: ["b", "c"] }, b: { blockers: ["a", "c"] }, c: { blockers: ["a", "b"] } })).toEqual([
 			["a", "b"],
 			["c", "a"],

@@ -46,10 +46,9 @@ export function findBlockingCycles(nodes: Iterable<IssueId>, graph: DependencyGr
  * of more than one ticket is mutually reachable and therefore looping, and a lone ticket loops only by
  * blocking itself.
  *
- * This is what keeps a healthy ticket set cheap: walking from every ticket instead means a set with no cycle
- * in it pays a traversal per ticket to find nothing. The answer is unchanged, because every cycle through a
- * ticket lies inside that ticket's own component, so a ticket in none of them had no cycle to report.
- * ADR-0030 has what that saved, over which shapes.
+ * The answer is unchanged by gating on this, because every cycle through a ticket lies inside that ticket's
+ * own component, so a ticket in none of them had no cycle to report. ADR-0030 has what it saves and why a
+ * walk from every ticket was the wrong shape.
  *
  * Iterative rather than recursive (Tarjan, 1972): the depth is the ticket set's, and a tracker's own limit is
  * what bounds that rather than anything here.
@@ -103,8 +102,8 @@ function loopingNodes(within: ReadonlySet<IssueId>, blockersOf: (node: IssueId) 
 }
 
 /**
- * The component pass and every walk ask the same tickets for their edges, and `graph.blockers` copies its list
- * on the way out, so the reads are held for the length of one call. ADR-0030 has what that is worth.
+ * The component pass and every walk ask the same tickets for their edges, so the reads are held for the length
+ * of one call. ADR-0030 has what that is worth.
  *
  * Safe against the one implementation there is: `seedGraph` answers from a map it built and copies on the
  * way out, so asking twice cannot differ. The port promises no such thing — `DependencyGraph` says only that

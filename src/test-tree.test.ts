@@ -154,8 +154,8 @@ describe("the shapes the GitHub test tree carries", () => {
 		expect(reading.unread).toEqual(["priority: high"]);
 	});
 
-	// Asserted against the default filter rather than a hand-built one, so the tree covers what a run really
-	// applies: given `exclude: ["needs-triage"]` by hand, this passed whether or not the default carried it.
+	// Given `exclude: ["needs-triage"]` by hand, this passes whether or not the default carries it, which is
+	// the coverage the tree is here to provide.
 	test("a needs-triage ticket, which the default filter excludes", () => {
 		expect(issue("needs-triage").labels).toContain("needs-triage");
 		expect(compileLabelFilter(DEFAULT_LABEL_FILTER).admits(issue("needs-triage").labels)).toBe(false);

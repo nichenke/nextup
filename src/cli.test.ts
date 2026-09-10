@@ -67,8 +67,8 @@ describe("run, over a ticket set read from GitHub", () => {
 		expect(result.stdout).toContain(shapeTitle(GITHUB_TEST_TREE, "several-priorities"));
 		expect(result.stdout).toContain(`${TREE} tickets:`);
 		expect(result.stdout).toContain("closed not asked");
-		// What the default filter drops, counted from the tree rather than written down: the count moved when
-		// `needs-triage` joined the defaults and no assertion here noticed, because none named it at all.
+		// The count moved when `needs-triage` joined the defaults and no assertion here noticed, because none
+		// named it at all.
 		expect(result.stdout).toContain(`${excludedByDefault(GITHUB_TEST_TREE)} filtered out`);
 		expect(result.stderr).toBe("");
 	});

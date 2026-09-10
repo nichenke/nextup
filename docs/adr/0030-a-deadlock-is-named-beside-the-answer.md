@@ -87,8 +87,8 @@ Measured on this branch with `bun`, over graphs built by `seedGraph`, before and
 | 1,000 tickets, ~500,000 edges | 851ms | 61.7ms |
 
 Holding each ticket's confirmed blockers for the length of one call is worth a further 26.8ms → 10.0ms on a
-thousand tickets in a single component, and 104.8ms → 61.7ms on the dense set, because `graph.blockers` copies
-its list on the way out. These are figures to compare against each other on one machine, not budgets, and no
+thousand tickets in a single component, and 104.8ms → 61.7ms on the dense set, because the graph implementation
+in use copies each list on the way out — which the port itself does not promise either way. These are figures to compare against each other on one machine, not budgets, and no
 benchmark ships — `nichenke/nextup` issue 58 records what is left and why it is below the scale of any current
 use. The default window is 199 open tickets, where the same work is single-digit milliseconds.
 

@@ -229,8 +229,7 @@ function parse(argv: readonly string[]): Options {
 		}
 	}
 
-	// The default exclusions are a floor, not a starting point a filter flag replaces: `--include backend`
-	// would otherwise hand out a wayfinder or untriaged ticket labelled `backend`.
+	// Prepended rather than replaced, so the defaults are a floor a filter flag cannot lift; ADR-0031 has why.
 	return { json, yes, printCommand, limit, filter: { include, exclude: [...DEFAULT_LABEL_FILTER.exclude, ...exclude] } };
 }
 
