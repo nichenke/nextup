@@ -6,6 +6,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { GITHUB_TICKET_FIELDS, githubClaimCommand, githubIssueListCommand } from "../src/command-builders";
+import { collapseFailure } from "../src/failure-class";
 import { GITHUB_PLACEHOLDER_HOST, redactRecordingIdentifiers } from "../src/recording-identifiers";
 import { type Recording, recordingsDir } from "../src/recording";
 import { defaultRunner } from "../src/runner";
@@ -117,7 +118,7 @@ function withoutBlockedBy(argv: readonly string[]): readonly string[] {
 
 function cliVersion(): string {
 	const result = defaultRunner(["gh", "--version"]);
-	if (result.code !== 0) throw new Error(`gh --version failed: ${result.stderr.trim()}`);
+	if (result.code !== 0) throw new Error(`gh --version failed: ${collapseFailure(result.stderr)}`);
 	return result.stdout.split("\n")[0]?.trim() ?? "";
 }
 
@@ -125,7 +126,7 @@ function capture(one: Capture, cli: string): Recording {
 	const result = defaultRunner([...one.argv]);
 	if (one.succeeds !== (result.code === 0)) {
 		throw new Error(
-			`${one.name} was expected to ${one.succeeds ? "succeed" : "fail"} and exited ${result.code}: ${result.stderr.trim() || "no stderr"}`,
+			`${one.name} was expected to ${one.succeeds ? "succeed" : "fail"} and exited ${result.code}: ${collapseFailure(result.stderr) || "no stderr"}`,
 		);
 	}
 	return {
@@ -155,7 +156,7 @@ function release(writeTarget: string): void {
 	const result = defaultRunner(argv);
 	if (result.code !== 0) {
 		process.exitCode = 1;
-		process.stderr.write(`could not release ${writeTarget}, so run provision:test-tree: ${result.stderr.trim()}\n`);
+		process.stderr.write(`could not release ${writeTarget}, so run provision:test-tree: ${collapseFailure(result.stderr)}\n`);
 		return;
 	}
 	// Exit 0 is not evidence the issue is now unassigned: `--remove-assignee @me` also exits 0 against an issue

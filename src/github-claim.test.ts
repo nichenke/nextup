@@ -109,6 +109,13 @@ describe("claimGitHubTicket, when the write fails", () => {
 		expect(() => claimGitHubTicket({ runner, ref: githubRef() })).toThrow(/could not write to that repository/);
 	});
 
+	// The shape `defaultRunner` answers an unclassifiable exit with: a code and two empty streams. Nothing is left
+	// to quote, so the code has to be the evidence rather than the message trailing off after its colon.
+	test("names the exit code when a failure wrote nothing at all", () => {
+		const runner = fakeRunner({ code: 128, stdout: "", stderr: "" });
+		expect(() => claimGitHubTicket({ runner, ref: githubRef() })).toThrow(/no output, exit 128/);
+	});
+
 	test("collapses a multi-line failure, so one abort is one line", () => {
 		try {
 			claimGitHubTicket({ runner: outageRunner(), ref: githubRef() });

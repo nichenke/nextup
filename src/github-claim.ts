@@ -54,11 +54,12 @@ function requireClaimable(ref: TicketRef): GitHubClaimCommandInput {
 }
 
 function failedClaim(ref: TicketRef, result: CommandResult): GitHubClaimError {
-	// stdout is the fallback because this message is the operator's whole evidence: the run stops here, having
-	// already made a worktree, and a failure that wrote nothing to stderr would abort on a bare colon. `run` in
-	// `test-tree-provision.ts` reads a failed call the same way. Classification still asks stderr only, which is
-	// what it was measured against, so a diagnostic on stdout alone falls through to the loud class.
-	const detail = collapseFailure(result.stderr) || collapseFailure(result.stdout);
+	// This message is the operator's whole evidence: the run stops here, having already made a worktree. So stdout
+	// backs up stderr the way `run` in `test-tree-provision.ts` reads a failed call, and the exit code backs up
+	// both — `defaultRunner` answers an exit it cannot classify with 128 and two empty streams, which would
+	// otherwise abort on a bare colon. Classification still asks stderr alone, which is what it was measured
+	// against, so a diagnostic on stdout alone falls through to the loud class.
+	const detail = collapseFailure(result.stderr) || collapseFailure(result.stdout) || `no output, exit ${result.code}`;
 	const what = formatTicketRef(ref);
 	// Not "the request is wrong": a missing or unauthenticated `gh`, and a repository we cannot write to, both
 	// land here, and none of the three is fixed by editing the request or by trying again.
