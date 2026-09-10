@@ -1,8 +1,8 @@
-# The live invariant check
+# Reconstruction
 
-`bun run check:live` reads a real repository's ticket set through the adapter and checks the answer against
-the tracker's own account of the same tickets. It is the cross-check issue 26 asked for, and ADR-0033 is why
-it is built the way it is.
+`CONTEXT.md` defines **reconstruction** as reading a real repository live and asserting invariants over the
+result rather than exact values — the primary control, because it is the only one that finds shapes nobody
+imagined. `bun run check:live` is that control, and ADR-0033 is why it is built the way it is.
 
 Local and manual. It needs a credentialed `gh`, it makes a request per open issue to read that issue's
 blockers, and CI runs with no credentials by design — so it is not part of `bun test` and never will be.
@@ -62,9 +62,13 @@ exercise the check is the more interesting of the two readings.
 
 **`failed`** lists every ticket it disagreed about, one per line.
 
-- `whole-set-read` failing first explains the rest, and the everyday cause is not a defect: a ticket opened
-  or closed between the independent query and the adapter read leaves the two counting different sets. Rerun
-  once before investigating. A failure that survives a rerun is a real one.
+- `whole-set-read` failing first explains the rest, and its everyday cause is not a defect: a ticket opened or
+  closed between the independent query and the adapter read leaves the two counting different sets. Rerun once
+  before investigating a count mismatch; a mismatch surviving a rerun is a real one.
+- A `the read degraded: <kind>` line is different — the read itself came back with less than it asked for, so a
+  rerun will not clear it and the kind names the cause. `contradicted-blocker` is the one to expect on a healthy
+  adapter: two edges disagreed about one blocker, which is a read this harness cannot compare whole rather than
+  a defect in it. ADR-0027 has what the adapter does there and why.
 - `frontier-agrees` has two failures that read differently. One naming tickets — "is on the tracker's frontier
   and not on the adapter's" — is a real disagreement, and while `whole-set-read` holds it is the finding worth
   having. One saying the frontier "cannot be compared whole" is the check declining to run, because the read came
@@ -80,7 +84,7 @@ exercise the check is the more interesting of the two readings.
 
 ## Adding a tracker
 
-`LiveTracker` in `src/live-invariants.ts` is the seam: a name, an independent `observe`, the adapter's `read`,
+`ReconstructionTracker` in `src/reconstruction.ts` is the seam: a name, an independent `observe`, the adapter's `read`,
 and a `readBlind` that answers the same read with no blocking field. Supply those four and every check above
 applies unchanged — that is what issue 26 meant by parameterised by tracker, and what tickets 15 and 17 are
 meant to reuse.
@@ -93,5 +97,5 @@ Two things a new tracker has to get right, both of which ADR-0033 argues, with i
 
 One limit on "unchanged": `expectedFrontier` reads a ticket's own edges and no further, which its docstring
 argues is right wherever containment does not gate its children. A tracker whose parent chain does gate needs a
-different expected frontier, and since `expectedFrontier` is private with no seam on `LiveTracker` to override,
-that means a change to `src/live-invariants.ts` rather than only a new implementation.
+different expected frontier, and since `expectedFrontier` is private with no seam on `ReconstructionTracker` to override,
+that means a change to `src/reconstruction.ts` rather than only a new implementation.

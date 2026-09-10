@@ -3,14 +3,14 @@ import { seedGraph } from "./graph-store";
 import { DEFAULT_LABEL_FILTER, compileLabelFilter } from "./label-filter";
 import {
 	type CheckResult,
-	type LiveCheckInput,
-	type LiveObservation,
-	type LiveTracker,
+	type ReconstructionInput,
+	type TrackerObservation,
+	type ReconstructionTracker,
 	type Verdict,
-	checkLive,
-	checkLiveTracker,
+	checkReconstruction,
+	checkReconstructionTracker,
 	heldEverywhere,
-} from "./live-invariants";
+} from "./reconstruction";
 import { type Ticket, ticketId } from "./ticket";
 import type { TicketRef } from "./ticket-ref";
 import type { TicketSetRead } from "./ticket-set-read";
@@ -60,7 +60,7 @@ function ticketOf(shape: Shape): Ticket {
 	};
 }
 
-function observationOf(shape: Shape): LiveObservation {
+function observationOf(shape: Shape): TrackerObservation {
 	return {
 		ref: ref(shape.key),
 		claimed: shape.claimed === true,
@@ -110,24 +110,24 @@ function blindOf(shapes: readonly Shape[]): TicketSetRead {
 	};
 }
 
-function world(shapes: readonly Shape[] = SHAPES): LiveCheckInput {
+function world(shapes: readonly Shape[] = SHAPES): ReconstructionInput {
 	return { read: readOf(shapes), blind: blindOf(shapes), observations: shapes.map(observationOf), filter: FILTER };
 }
 
-function verdicts(input: LiveCheckInput): Record<string, Verdict> {
+function verdicts(input: ReconstructionInput): Record<string, Verdict> {
 	const named: Record<string, Verdict> = {};
-	for (const check of checkLive(input).checks) named[check.name] = check.verdict;
+	for (const check of checkReconstruction(input).checks) named[check.name] = check.verdict;
 	return named;
 }
 
 /** One named check with its detail lines joined, so a case can assert on wording without pinning line breaks. */
-function checkNamed(input: LiveCheckInput, name: string): Omit<CheckResult, "detail"> & { readonly detail: string } {
-	const found = checkLive(input).checks.find((check) => check.name === name);
+function checkNamed(input: ReconstructionInput, name: string): Omit<CheckResult, "detail"> & { readonly detail: string } {
+	const found = checkReconstruction(input).checks.find((check) => check.name === name);
 	if (found === undefined) throw new Error(`no check named ${name}`);
 	return { ...found, detail: found.detail.join("; ") };
 }
 
-describe("checkLive over an agreeing read", () => {
+describe("checkReconstruction over an agreeing read", () => {
 	test("every check runs and holds", () => {
 		expect(verdicts(world())).toEqual({
 			"whole-set-read": "held",
@@ -146,11 +146,11 @@ describe("checkLive over an agreeing read", () => {
 
 	test("the frontier is the unclaimed, admitted, unblocked tickets, ranked", () => {
 		// Ticket 3 leads on the unblocks rung, since ticket 2 is waiting on it.
-		expect(checkLive(world()).frontier.map((one) => one.key)).toEqual(["3", "1", "4"]);
+		expect(checkReconstruction(world()).frontier.map((one) => one.key)).toEqual(["3", "1", "4"]);
 	});
 
 	test("a passing check names what it read, so a pass cannot be a check that met nothing", () => {
-		for (const check of checkLive(world()).checks) {
+		for (const check of checkReconstruction(world()).checks) {
 			expect(check.detail).not.toBeEmpty();
 			expect(check.detail.every((detail) => detail !== "")).toBe(true);
 		}
@@ -444,22 +444,15 @@ describe("blocker-outside-the-set", () => {
 		expect(verdicts(world([{ key: "1" }, { key: "2", blockers: [["1", true]] }]))["blocker-outside-the-set"]).toBe("unexercised");
 	});
 
-	test("does not fault a blocker the read reported contradicted, which blockers-resolve accepts as a state", () => {
-		const input = world();
-		const graph = seedGraph([
-			...input.read.tickets.map((ticket) => ({
-				id: ticketId(ticket.ref),
-				parent: null,
-				blockers: ticket.blockers === "unknown" ? ("unknown" as const) : ticket.blockers.map(ticketId),
-				open: true,
-			})),
-			{ id: ticketId(ref("9")), parent: null, blockers: "unknown" as const, open: "unknown" as const },
-		]);
-		const read = { ...input.read, graph, degraded: [{ kind: "contradicted-blocker", refs: [ref("9")] }] as const };
-		expect(checkNamed({ ...input, read }, "blocker-outside-the-set")).toMatchObject({ verdict: "held" });
+	test("counts the distinct blockers the read met without returning", () => {
+		expect(checkNamed(world(), "blocker-outside-the-set").detail).toBe("1 blockers outside the read");
 	});
 
-	test("names the blocker when the read left one outside the set with no state", () => {
+	/**
+	 * Coverage only. Whether such a blocker carries a state is `blockers-resolve`'s assertion over every edge, and
+	 * this check holding while that one names the blocker is what keeps the two from reporting one defect twice.
+	 */
+	test("leaves a stateless blocker to blockers-resolve rather than faulting on it too", () => {
 		const input = world();
 		const graph = seedGraph(
 			input.read.tickets.map((ticket) => ({
@@ -469,10 +462,12 @@ describe("blocker-outside-the-set", () => {
 				open: true,
 			})),
 		);
-		expect(checkNamed({ ...input, read: { ...input.read, graph } }, "blocker-outside-the-set")).toMatchObject({
+		const stripped = { ...input, read: { ...input.read, graph } };
+		expect(checkNamed(stripped, "blockers-resolve")).toMatchObject({
 			verdict: "failed",
 			detail: expect.stringContaining("gh:example/repo#9"),
 		});
+		expect(checkNamed(stripped, "blocker-outside-the-set")).toMatchObject({ verdict: "held" });
 	});
 });
 
@@ -513,8 +508,8 @@ describe("unknown-blocking-is-not-an-empty-list", () => {
 	});
 });
 
-describe("checkLiveTracker", () => {
-	function tracker(shapes: readonly Shape[]): LiveTracker & { readonly limits: number[] } {
+describe("checkReconstructionTracker", () => {
+	function tracker(shapes: readonly Shape[]): ReconstructionTracker & { readonly limits: number[] } {
 		const limits: number[] = [];
 		return {
 			name: "github",
@@ -533,18 +528,18 @@ describe("checkLiveTracker", () => {
 
 	test("sizes both adapter reads from the independently observed count", () => {
 		const one = tracker(SHAPES);
-		const report = checkLiveTracker(one, FILTER);
+		const report = checkReconstructionTracker(one, FILTER);
 		expect(one.limits).toEqual([SHAPES.length, SHAPES.length]);
 		expect(report.tracker).toBe("github");
 		expect(heldEverywhere(report)).toBe(true);
 	});
 
 	test("refuses a repository with no open tickets rather than reporting checks that read nothing", () => {
-		expect(() => checkLiveTracker(tracker([]), FILTER)).toThrow(/no open tickets/);
+		expect(() => checkReconstructionTracker(tracker([]), FILTER)).toThrow(/no open tickets/);
 	});
 
 	test("an unexercised check is not a pass", () => {
-		const report = checkLiveTracker(tracker([{ key: "1" }, { key: "2" }]), FILTER);
+		const report = checkReconstructionTracker(tracker([{ key: "1" }, { key: "2" }]), FILTER);
 		expect(report.checks.some((check) => check.verdict === "unexercised")).toBe(true);
 		expect(heldEverywhere(report)).toBe(false);
 	});

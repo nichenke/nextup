@@ -3,11 +3,11 @@ import type { Runner } from "./runner";
 
 export class NotAReadError extends Error {}
 
-/** The commands the live check may issue, as leading words. An allowlist because `gh` grows subcommands; ADR-0033. */
+/** The commands a reconstruction may issue, as leading words. An allowlist because `gh` grows subcommands; ADR-0033. */
 const READS: readonly (readonly string[])[] = [
 	["gh", "issue", "list"],
 	["gh", "api"],
-	// `check-live-invariants.ts` resolves the repository from the remote when `--repo` is absent.
+	// `reconstruct.ts` resolves the repository from the remote when `--repo` is absent.
 	["git", "remote", "get-url"],
 ];
 
@@ -17,9 +17,8 @@ const READS: readonly (readonly string[])[] = [
  * flag makes it something else, so admitting two known-inert flags is a smaller thing to get right than
  * enumerating the ones that write.
  *
- * `gh` uses pflag, so a shorthand carries its value attached and boolean shorthands cluster: `-XPOST`,
- * `-fkey=value` and `-iXPOST` all parse, measured on gh 2.100.0. ADR-0033 has why naming the writing flags
- * instead cannot close that.
+ * `-XPOST`, `-fkey=value` and `-iXPOST` all parse, measured on gh 2.100.0 — ADR-0033 has why that means naming
+ * the writing flags cannot work.
  */
 const READABLE_API_FLAGS: ReadonlySet<string> = new Set(["--paginate", "--slurp"]);
 

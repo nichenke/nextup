@@ -1,6 +1,6 @@
 # The expected answer comes from a different surface, and has no fixture
 
-The live invariant check derives its expected frontier from a tracker surface the adapter does not read, with
+The reconstruction (`CONTEXT.md`) derives its expected frontier from a tracker surface the adapter does not read, with
 code the adapter does not share. That independent reader has no stored recording behind it, and no test
 asserting a successful observation. Its correctness is established by the comparison it takes part in, not by a
 fixture.
@@ -68,7 +68,7 @@ is shipped behaviour with no second opinion beside it; this reader is one half o
 is independently derived, and it runs only when a person runs it.
 
 The cost is real and worth naming: a defect here reports as a disagreement about the *adapter*, and the first
-reading of a `frontier-agrees` failure will sometimes be wrong. `docs/agents/live-invariants.md` says to rerun
+reading of a `frontier-agrees` failure will sometimes be wrong. `docs/agents/reconstruction.md` says to rerun
 before investigating, which is the cheapest way to separate the common causes.
 
 ## Why an unexercised check fails

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { GitHubLiveError, githubLiveTracker } from "./github-live";
+import { GitHubReconstructionError, githubReconstructionTracker } from "./github-reconstruction";
 import type { Runner } from "./runner";
 import { GITHUB_TEST_TREE, openIssues } from "./test-tree";
 import { fakeRunner, githubRecording, replayRunner } from "./test-support";
@@ -8,7 +8,7 @@ import { fakeRunner, githubRecording, replayRunner } from "./test-support";
 const WHOLE_TREE = openIssues(GITHUB_TEST_TREE).length;
 
 function tracker(runner: Runner, repo = GITHUB_TEST_TREE.repo) {
-	return githubLiveTracker({ runner, repo });
+	return githubReconstructionTracker({ runner, repo });
 }
 
 describe("readBlind", () => {
@@ -52,7 +52,7 @@ describe("observe", () => {
 	}
 
 	test("throws rather than degrading when the independent read fails", () => {
-		expect(observing({ code: 1, stdout: "", stderr: "could not resolve host" })).toThrow(GitHubLiveError);
+		expect(observing({ code: 1, stdout: "", stderr: "could not resolve host" })).toThrow(GitHubReconstructionError);
 		expect(observing({ code: 1, stdout: "", stderr: "could not resolve host" })).toThrow(/exit 1/);
 	});
 
