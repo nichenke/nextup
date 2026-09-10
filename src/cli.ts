@@ -252,17 +252,9 @@ class StartError extends Error {}
 
 /**
  * A failure after the worktree was made, told with the worktree beside it and with the recovery that failure
- * actually leaves open — which is not the same one for the two steps, and this is the whole reason the two
- * arms are separate.
- *
- * A failed claim leaves the ticket unclaimed, so re-running reaches it again and `ensure` attaches to the
- * worktree already there. That is ADR-0016's recovery path, and it works.
- *
- * A failed session does not. The claim landed, and `place` in `selector.ts` buckets any ticket carrying a
- * claim as claimed and drops it before the ladder — so a re-run cannot pick this ticket, and would claim and
- * start a *different* one while this stayed claimed with nobody working it. Telling an operator to re-run
- * here would be telling them to start the wrong work, so the session command is given instead. Releasing the
- * claim is not the alternative: ADR-0016 forbids a release path, and the release is itself a call that fails.
+ * leaves open. The two arms are separate because those recoveries differ: a failed claim leaves the ticket
+ * claimable and so re-running works, while a failed session does not and must not say it does. ADR-0035's
+ * Consequences have why, and why releasing the claim is not the alternative.
  *
  * `CommandBuilderError` is deliberately not wrapped, though the claim can raise one for a key that is not a
  * canonical issue number. `github-claim.ts` leaves it unwrapped so a stack naming the builder survives, per

@@ -417,11 +417,8 @@ describe("a start that could not finish", () => {
 		expect(of("new-workspace")).toEqual([]);
 	});
 
-	/**
-	 * The claim landed, and `place` in `selector.ts` drops a claimed ticket before the ladder — so a re-run
-	 * cannot reach this ticket and would start work on a different one. Telling an operator to re-run here is
-	 * therefore telling them to start the wrong work, which is what this asserts is not said.
-	 */
+	// The re-run wording is asserted absent, not merely the new wording present: ADR-0035 has why saying it here
+	// would send an operator to start the wrong ticket.
 	test("hands over the session command when the workspace fails after the claim landed", () => {
 		const { runner, of } = startSequence((argv) =>
 			argv[1] === "new-workspace" ? { code: 1, stdout: "", stderr: "no window" } : null,

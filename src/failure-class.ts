@@ -1,3 +1,5 @@
+import type { CommandResult } from "./runner";
+
 /**
  * Which of the two failures a tracker CLI just had. An **outage** — connectivity, or the tracker itself
  * erroring — fails open: the caller flags it and continues with less known. A **defect** is the request
@@ -47,6 +49,6 @@ export function collapseFailure(stderr: string): string {
  * Classification stays a question about stderr alone, which is what `classifyFailure` was measured
  * against, so a diagnostic on stdout alone still falls through to the loud class.
  */
-export function failureDetail(result: { readonly code: number; readonly stdout: string; readonly stderr: string }): string {
+export function failureDetail(result: CommandResult): string {
 	return collapseFailure(result.stderr) || collapseFailure(result.stdout) || `no output, exit ${result.code}`;
 }

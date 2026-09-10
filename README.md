@@ -91,7 +91,10 @@ Two layers, deliberately separate:
   with reasons out, as JSON. No side effects and no model in the decision path, so its output can be
   asserted exactly against a fixture.
 - **The launcher is a thin shell over it.** It ensures a worktree, claims the ticket, and starts a
-  session. It is the only part that writes anything, and the only part that cannot be sandboxed.
+  session. It is the only part that writes anything, and the only part that cannot be sandboxed:
+  creating a workspace with an arbitrary working directory and an arbitrary command *is* arbitrary code
+  execution, so a sandbox that can reach the workspace host is not a sandbox. `--print-command` is the
+  bridge, and the selector's pure reads are the part that can be confined.
 
 The worktree comes first, the claim second, and the session third, so that no failure needs undoing — see
 [ADR-0016](./docs/adr/0016-the-worktree-is-created-before-the-claim.md). A failed claim aborts loudly

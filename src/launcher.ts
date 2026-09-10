@@ -48,7 +48,7 @@ export function requireWorkspaceHost(runner: Runner): void {
 	const result = runner([...argv]);
 	if (result.code === 0) return;
 	throw new LaunchError(
-		`${formatCommand(argv)} did not answer, so there is no workspace host to start a session in: ${failureDetail(result)}. Start it and run this again, or use --print-command to get the command and start the session yourself.`,
+		`${formatCommand(argv)} did not answer, so there is no workspace host to start a session in: ${failureDetail(result)}. Start it and run this again. --print-command gives the session command instead, but it makes no worktree, so run it somewhere you meant to work rather than in the checkout you are standing in.`,
 	);
 }
 
