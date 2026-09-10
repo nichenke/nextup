@@ -312,6 +312,42 @@ describe("a response the read cannot parse", () => {
 		}
 	});
 
+	/**
+	 * `of` counts the rows the read considered, which is a wider population than the tickets it hands back: a
+	 * row held out for partial blocking was read and is not a ticket. Asserted where the two differ, because
+	 * everywhere else they are equal by construction and a narrower count would read as correct.
+	 */
+	test("counts unreadable blocking against the rows read, not against the tickets handed back", () => {
+		const read = reading(
+			issueRow({ blockedBy: undefined }),
+			issueRow({ number: 2, url: `${INLINE_REPO}/issues/2`, blockedBy: { nodes: [], totalCount: 3 } }),
+		);
+		expect(read.tickets).toHaveLength(1);
+		expect(read.degraded).toContainEqual({ kind: "unreadable-blocking", tickets: 1, of: 2 });
+	});
+
+	/**
+	 * The sibling of the edge case above: the over-fetched row must not reach the answer through the degrade
+	 * list either. Named on a `partial-blocking` line, a row nobody asked to consider becomes something a
+	 * person is told was held back.
+	 */
+	test("keeps the over-fetched row out of what it reports as held back", () => {
+		const read = readGitHubTicketSet({
+			repo: INLINE_REPO,
+			limit: 1,
+			runner: () => ({
+				code: 0,
+				stdout: JSON.stringify([
+					issueRow(),
+					issueRow({ number: 2, url: `${INLINE_REPO}/issues/2`, blockedBy: { nodes: [], totalCount: 4 } }),
+				]),
+				stderr: "",
+			}),
+		});
+		expect(read.truncated).toBe(true);
+		expect(read.degraded).toEqual([]);
+	});
+
 	// As this adapter's own failure rather than as the plain `Error` `seedGraph` raises: a caller classifying on
 	// the error type has nothing to recognise that one by, so it would arrive as a stack with no message.
 	test("refuses a response holding one issue twice", () => {

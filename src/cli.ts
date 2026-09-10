@@ -137,7 +137,6 @@ function failedAnswer(cause: unknown): CliResult {
 class CliError extends Error {}
 
 interface Options {
-	readonly help: boolean;
 	readonly json: boolean;
 	readonly yes: boolean;
 	readonly printCommand: boolean;
@@ -146,7 +145,6 @@ interface Options {
 }
 
 function parse(argv: readonly string[]): Options {
-	let help = false;
 	let json = false;
 	let yes = false;
 	let printCommand = false;
@@ -157,10 +155,6 @@ function parse(argv: readonly string[]): Options {
 	for (let i = 0; i < argv.length; i++) {
 		const flag = argv[i]!;
 		switch (flag) {
-			case "--help":
-			case "-h":
-				help = true;
-				break;
 			case "--json":
 				json = true;
 				break;
@@ -186,7 +180,7 @@ function parse(argv: readonly string[]): Options {
 
 	// The default exclusion is a floor, not a starting point a filter flag replaces: `--include backend`
 	// would otherwise hand out a wayfinder ticket labelled `backend`.
-	return { help, json, yes, printCommand, limit, filter: { include, exclude: [...DEFAULT_LABEL_FILTER.exclude, ...exclude] } };
+	return { json, yes, printCommand, limit, filter: { include, exclude: [...DEFAULT_LABEL_FILTER.exclude, ...exclude] } };
 }
 
 /**
