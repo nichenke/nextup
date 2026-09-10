@@ -55,48 +55,47 @@ describe("requireWorkspaceHost", () => {
 });
 
 describe("launch", () => {
-	test("creates one workspace running the session in the ticket's worktree", () => {
+	const SESSION = planLaunch({ ref: REF, slashCommand: DEFAULT_SLASH_COMMAND }).command;
+
+	test("creates one workspace running the given session in the ticket's worktree", () => {
 		const { runner, calls } = recording();
-		const started = launch({ runner, ref: REF, slashCommand: DEFAULT_SLASH_COMMAND, worktree: WORKTREE });
+		launch({ runner, ref: REF, command: SESSION, worktree: WORKTREE });
 
 		expect(calls).toHaveLength(1);
-		expect(started.command).toEqual(["claude", "/implement gh:example/repo#1"]);
-		expect([...started.workspace]).toEqual(calls[0]!);
 		expect(calls[0]![calls[0]!.indexOf("--cwd") + 1]).toBe(WORKTREE);
-		expect(calls[0]![calls[0]!.indexOf("--command") + 1]).toBe(formatCommand(started.command));
+		expect(calls[0]![calls[0]!.indexOf("--command") + 1]).toBe(formatCommand(SESSION));
 	});
 
 	test("names the workspace after the worktree, so several running sessions are told apart", () => {
 		const { runner, calls } = recording();
-		launch({ runner, ref: REF, slashCommand: DEFAULT_SLASH_COMMAND, worktree: WORKTREE });
+		launch({ runner, ref: REF, command: SESSION, worktree: WORKTREE });
 		expect(calls[0]![calls[0]!.indexOf("--name") + 1]).toBe("reader-1");
 	});
 
-	test("runs the slash command it was given rather than the default", () => {
+	test("runs whatever session argv it was handed, rather than building one of its own", () => {
 		const { runner, calls } = recording();
-		const started = launch({ runner, ref: REF, slashCommand: "/triage", worktree: WORKTREE });
-		expect(started.command[1]).toBe("/triage gh:example/repo#1");
+		const triage = planLaunch({ ref: REF, slashCommand: "/triage" }).command;
+		launch({ runner, ref: REF, command: triage, worktree: WORKTREE });
 		expect(calls[0]![calls[0]!.indexOf("--command") + 1]).toContain("/triage");
 	});
 
 	test("aborts on a workspace that could not be created, having tried nothing else", () => {
 		const { runner, calls } = recording({ code: 1, stdout: "", stderr: "no window to create a workspace in" });
-		expect(() => launch({ runner, ref: REF, slashCommand: DEFAULT_SLASH_COMMAND, worktree: WORKTREE })).toThrow(
-			LaunchError,
-		);
+		expect(() => launch({ runner, ref: REF, command: SESSION, worktree: WORKTREE })).toThrow(LaunchError);
 		expect(calls).toHaveLength(1);
 	});
 
-	test("names the ticket in that abort, since the worktree and the claim are already there", () => {
-		const { runner } = recording({ code: 1, stdout: "", stderr: "refused" });
-		expect(() => launch({ runner, ref: REF, slashCommand: DEFAULT_SLASH_COMMAND, worktree: WORKTREE })).toThrow(
-			/gh:example\/repo#1/,
-		);
-	});
-
-	test("refuses a slash command that is not one before anything is created", () => {
-		const { runner, calls } = recording();
-		expect(() => launch({ runner, ref: REF, slashCommand: "nope", worktree: WORKTREE })).toThrow(/slash command/);
-		expect(calls).toEqual([]);
+	test("names the ticket and what the host said, and prescribes no recovery of its own", () => {
+		const { runner } = recording({ code: 1, stdout: "", stderr: "no window" });
+		try {
+			launch({ runner, ref: REF, command: SESSION, worktree: WORKTREE });
+			throw new Error("expected a refusal");
+		} catch (cause) {
+			const message = (cause as Error).message;
+			expect(message).toContain("gh:example/repo#1");
+			expect(message).toContain("no window");
+			// The caller decides that, because what is recoverable depends on how much had been written.
+			expect(message).not.toContain("running this again");
+		}
 	});
 });

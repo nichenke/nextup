@@ -270,6 +270,37 @@ describe("starting work on the pick", () => {
 		expect(result.stdout).toContain("claimed ");
 		expect(result.stdout).toContain("started claude ");
 	});
+
+	/**
+	 * The `start` object is what README and --help tell a script to read, so it is a contract rather than a
+	 * convenience — and every reference in it has to be the short form, since a raw `{tracker, repo, host, key}`
+	 * reaching a consumer is the shape `CandidateJson` exists to prevent.
+	 */
+	test("carries what it started under --json, with references in their short form", () => {
+		const { runner } = startSequence();
+		const document = JSON.parse(run([...LIMIT, "--yes", "--json"], deps(runner)).stdout);
+
+		expect(document.start.kind).toBe("started");
+		expect(typeof document.start.ref).toBe("string");
+		expect(document.start.ref).toBe(document.selection.pick.ref);
+		expect(document.start.command[0]).toBe("claude");
+		expect(document.start.worktree.path).toContain(`${PRIMARY}/.worktrees/`);
+		expect(document.start.worktree.kind).toBe("created");
+	});
+
+	test("names the other outcomes under --json too, so a script can tell them apart", () => {
+		const printed = JSON.parse(run([...LIMIT, "--print-command", "--json"], deps(startSequence().runner)).stdout);
+		expect(printed.start).toEqual({ kind: "printed", command: ["claude", printed.start.command[1]] });
+
+		const declined = JSON.parse(
+			run([...LIMIT, "--json"], { runner: startSequence().runner, confirm: terminal(false).confirm, cwd: PRIMARY }).stdout,
+		);
+		expect(declined.start.kind).toBe("declined");
+		expect(typeof declined.start.ref).toBe("string");
+
+		const nothing = JSON.parse(run(["--json"], deps(inTestTree(() => ({ code: 0, stdout: "[]", stderr: "" })))).stdout);
+		expect(nothing.start).toEqual({ kind: "nothing-to-start" });
+	});
 });
 
 describe("the confirmation gate", () => {
@@ -287,10 +318,9 @@ describe("the confirmation gate", () => {
 	});
 
 	/**
-	 * `CONTEXT.md` forbids `Unknown` being collapsed into blocked or unblocked, and the gate is where that is
-	 * easiest to do by accident: the rendering carrying the state is returned rather than written, so it
-	 * reaches the operator only after they have answered. Asserted on both states, because a phrase present
-	 * only for one would make its absence the signal — which is the collapse again, spelled the other way.
+	 * Asserted on both states rather than only on unknown: a phrase present for one alone would make its
+	 * absence the signal, which is the same collapse spelled the other way. `blockingPhrase` has why the gate
+	 * is where this matters.
 	 */
 	test("names the pick's blocking state in the question, whichever state it is", () => {
 		const confirmed = terminal();
@@ -387,14 +417,22 @@ describe("a start that could not finish", () => {
 		expect(of("new-workspace")).toEqual([]);
 	});
 
-	test("aborts on a workspace that would not be created, having claimed the ticket already", () => {
+	/**
+	 * The claim landed, and `place` in `selector.ts` drops a claimed ticket before the ladder — so a re-run
+	 * cannot reach this ticket and would start work on a different one. Telling an operator to re-run here is
+	 * therefore telling them to start the wrong work, which is what this asserts is not said.
+	 */
+	test("hands over the session command when the workspace fails after the claim landed", () => {
 		const { runner, of } = startSequence((argv) =>
 			argv[1] === "new-workspace" ? { code: 1, stdout: "", stderr: "no window" } : null,
 		);
 		const result = run([...LIMIT, "--yes"], deps(runner));
 		expect(result.code).toBe(2);
 		expect(of("issue", "edit")).toHaveLength(1);
-		expect(result.stderr).toContain("running this again");
+		expect(result.stderr).not.toContain("running this again");
+		expect(result.stderr).toContain("would pick a different ticket");
+		expect(result.stderr).toContain(`cd ${PRIMARY}/.worktrees/`);
+		expect(result.stderr).toContain("claude '/implement ");
 	});
 
 	test("reports a worktree that could not be made, and claims nothing", () => {

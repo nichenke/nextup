@@ -42,6 +42,18 @@ that re-running continues from them rather than starting over.
 
 ## Consequences
 
+Re-running is not the recovery for a session that fails after the claim landed, and the abort must not say it
+is. 0016's Consequences make re-running the ordinary path because `ensure()` is idempotent and a failed claim
+can simply be retried — but a claim that *succeeded* takes the ticket out of the candidate set, since `place`
+in `selector.ts` drops any ticket carrying a claim before the ladder runs. So a re-run cannot reach this ticket
+at all: it would claim and start a different one, leaving the original claimed with nobody working it and a
+worktree nothing points at. The abort therefore hands over the session command to run in the worktree, and only
+the earlier failures are told to re-run. Releasing the claim is still not the alternative — 0016 forbids a
+release path, and the release is itself a call that can fail.
+
+This is the one place the launch step narrows what 0016 promised, and it is a property of ordering rather than
+of this decision: any third write after the claim would reach it.
+
 `--print-command` becomes the answer for an operator whose host is down, rather than only the sandbox-safe
 path [0002](./0002-pure-selector-separate-launcher.md) describes. It is the same output either way; what
 changes is that it is now named in the refusal, so the message leaves a person with something to do.

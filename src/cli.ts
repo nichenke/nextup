@@ -1,4 +1,4 @@
-import { type Argv, CommandBuilderError, DEFAULT_SLASH_COMMAND, formatCommand } from "./command-builders";
+import { type Argv, CommandBuilderError, DEFAULT_SLASH_COMMAND, formatCommand, isSlashCommand } from "./command-builders";
 import { GitHubAdapterError, isReadableLimit, readGitHubTicketSet } from "./github-adapter";
 import { GitHubClaimError, claimGitHubTicket } from "./github-claim";
 import {
@@ -82,8 +82,12 @@ the one thing no rerun improves: a ticket set that is merely blocked opens up wh
 and one holding a cycle does not until a person breaks it.
 
 Starting work writes in three places, in this order: the ticket's worktree, then the claim, then the
-session. Nothing unwinds. A step that fails leaves what the steps before it did, and running the command
-again continues from there rather than starting over.
+session. Nothing unwinds — a step that fails leaves what the steps before it did.
+
+What recovers depends on which step failed, and the abort says which. Up to and including a failed claim,
+running the command again continues from what is there. Past it, a claimed ticket is no longer a candidate,
+so a re-run would pick a different one — the abort hands you the session command to run in the worktree
+instead. Neither case releases the claim, and nothing here rolls back.
 
 The confirmation gate is on by default. It names the pick and its blocking state, since a pick whose
 blockers nothing could confirm is worth knowing about before you claim it. --yes answers in advance for an
@@ -178,7 +182,6 @@ export type StartOutcome =
 			readonly ref: TicketRef;
 			readonly worktree: WorktreeOutcome;
 			readonly command: Argv;
-			readonly workspace: Argv;
 	  };
 
 /**
@@ -189,17 +192,18 @@ export type StartOutcome =
  * ADR-0035 puts the session after both, and is why the host is asked before the gate rather than after.
  *
  * @throws StartError where there is nobody to confirm with, and where the claim or the session failed —
- * carrying the worktree, so the abort says what re-running would continue from.
+ * carrying the worktree, and saying which recovery the failure actually leaves open.
  * @throws WorktreeError from the worktree step, and LaunchError from the host check. Not from the session
  * itself: `startedNothing` has why that one arrives as a `StartError` instead.
- * @throws CommandBuilderError unwrapped, from a claim whose key is not a canonical issue number.
+ * @throws CommandBuilderError unwrapped, before anything is asked or written, where `--slash-command` named
+ * something `sessionCommand` will not build. Parsing already refused that, so this is a backstop.
  */
 function startWork(answer: Answer, options: Options, deps: CliDeps): StartOutcome {
 	const pick = answer.selection.pick;
 	if (pick === null) return { kind: "nothing-to-start" };
-	if (options.printCommand) {
-		return { kind: "printed", command: planLaunch({ ref: pick.ref, slashCommand: options.slashCommand }).command };
-	}
+	// Built first, so the one input that can fail without touching anything fails while that is still true.
+	const { command } = planLaunch({ ref: pick.ref, slashCommand: options.slashCommand });
+	if (options.printCommand) return { kind: "printed", command };
 
 	requireWorkspaceHost(deps.runner);
 	if (!approved(answer, pick, options, deps)) return { kind: "declined", ref: pick.ref };
@@ -207,15 +211,10 @@ function startWork(answer: Answer, options: Options, deps: CliDeps): StartOutcom
 	const worktree = ensure({ runner: deps.runner, repo: deps.cwd, ticket: pick });
 	try {
 		claimGitHubTicket({ runner: deps.runner, ref: pick.ref });
-		const started = launch({
-			runner: deps.runner,
-			ref: pick.ref,
-			slashCommand: options.slashCommand,
-			worktree: worktree.path,
-		});
-		return { kind: "started", ref: pick.ref, worktree, command: started.command, workspace: started.workspace };
+		launch({ runner: deps.runner, ref: pick.ref, command, worktree: worktree.path });
+		return { kind: "started", ref: pick.ref, worktree, command };
 	} catch (cause) {
-		throw startedNothing(cause, worktree);
+		throw startedNothing(cause, worktree, command);
 	}
 }
 
@@ -223,11 +222,10 @@ function startWork(answer: Answer, options: Options, deps: CliDeps): StartOutcom
  * Whether to go ahead. `--yes` answers in advance; otherwise the person at the terminal is asked.
  *
  * The question restates the pick, for the reason `Confirm` gives, and carries every caveat the answer holds,
- * because none of them have been printed when it is asked. The blocking state is the one that must be there:
- * an `Unknown` pick asked about without it reads exactly like a confirmed-unblocked one, which is the collapse
- * `CONTEXT.md` forbids, at the only place a person decides. The rest are there because the same reasoning
- * covers them — a pick from a truncated read is one a better candidate may beat, and the operator would learn
- * that only after claiming it. Both wordings are shared with the rendering rather than restated.
+ * because none of them have been printed when it is asked. `blockingPhrase` is why the blocking state is one
+ * of them; the rest follow the same reasoning, since a pick from a truncated read is one a better candidate
+ * may beat and the operator would learn that only after claiming it. Both wordings come from the rendering
+ * rather than being restated here.
  *
  * @throws StartError where there is nobody to ask. Refused rather than assumed in either direction: assuming
  * yes claims a ticket and starts a session nobody saw, and assuming no makes an unattended run a silent
@@ -253,21 +251,36 @@ function approved(answer: Answer, pick: Candidate, options: Options, deps: CliDe
 class StartError extends Error {}
 
 /**
- * A failure after the worktree was made, told with the worktree beside it.
+ * A failure after the worktree was made, told with the worktree beside it and with the recovery that failure
+ * actually leaves open — which is not the same one for the two steps, and this is the whole reason the two
+ * arms are separate.
  *
- * ADR-0016 makes re-running the recovery path rather than a separate one, and an operator who is not told a
- * worktree is already there has no reason to believe that.
+ * A failed claim leaves the ticket unclaimed, so re-running reaches it again and `ensure` attaches to the
+ * worktree already there. That is ADR-0016's recovery path, and it works.
+ *
+ * A failed session does not. The claim landed, and `place` in `selector.ts` buckets any ticket carrying a
+ * claim as claimed and drops it before the ladder — so a re-run cannot pick this ticket, and would claim and
+ * start a *different* one while this stayed claimed with nobody working it. Telling an operator to re-run
+ * here would be telling them to start the wrong work, so the session command is given instead. Releasing the
+ * claim is not the alternative: ADR-0016 forbids a release path, and the release is itself a call that fails.
  *
  * `CommandBuilderError` is deliberately not wrapped, though the claim can raise one for a key that is not a
- * canonical issue number. `github-claim.ts` leaves it unwrapped so that a stack naming the builder survives,
- * per ADR-0032, and re-wrapping it here to add a worktree path would spend exactly that. Anything else
- * unclassified is returned untouched for the same reason.
+ * canonical issue number. `github-claim.ts` leaves it unwrapped so a stack naming the builder survives, per
+ * ADR-0032, and re-wrapping it to add a worktree path would spend exactly that. Anything else unclassified is
+ * returned untouched for the same reason — `ensure` is idempotent, so the worktree is recoverable without it.
  */
-function startedNothing(cause: unknown, worktree: WorktreeOutcome): unknown {
-	if (!(cause instanceof GitHubClaimError || cause instanceof LaunchError)) return cause;
-	return new StartError(
-		`${cause.message}\n${worktree.path} is in place on ${worktree.branch}, so running this again continues from there rather than starting over.`,
-	);
+function startedNothing(cause: unknown, worktree: WorktreeOutcome, command: Argv): unknown {
+	if (cause instanceof GitHubClaimError) {
+		return new StartError(
+			`${cause.message}\n${worktree.path} is in place on ${worktree.branch} and the ticket is still unclaimed, so running this again continues from there.`,
+		);
+	}
+	if (cause instanceof LaunchError) {
+		return new StartError(
+			`${cause.message}\nThe ticket is claimed and ${worktree.path} is in place on ${worktree.branch}. Running this again would pick a different ticket, because a claimed one is no longer a candidate — so start this session yourself instead:\n  cd ${worktree.path} && ${formatCommand(command)}`,
+		);
+	}
+	return cause;
 }
 
 /**
@@ -302,8 +315,16 @@ function renderStart(start: StartOutcome): string {
 /** `StartOutcome` with every reference in the short form `CandidateJson` uses. */
 export type StartOutcomeJson =
 	| Extract<StartOutcome, { readonly kind: "nothing-to-start" | "printed" }>
-	| (Omit<Extract<StartOutcome, { readonly kind: "declined" }>, "ref"> & { readonly ref: string })
-	| (Omit<Extract<StartOutcome, { readonly kind: "started" }>, "ref"> & { readonly ref: string });
+	| ShortRef<"declined">
+	| ShortRef<"started">;
+
+/**
+ * One arm with its reference as the short form, its own other fields carried over so a field added to that arm
+ * reaches the output. `ShortRefs` in `selection-output.ts` is the same shape for the same reason.
+ */
+type ShortRef<K extends StartOutcome["kind"]> = Omit<Extract<StartOutcome, { readonly kind: K }>, "ref"> & {
+	readonly ref: string;
+};
 
 function startJson(start: StartOutcome): StartOutcomeJson {
 	switch (start.kind) {
@@ -381,15 +402,6 @@ function canBeValue(word: string | undefined): word is string {
 /** Digits only, which is what `tickets` accepts, so the two cannot disagree about what a limit looks like. */
 function isTicketCount(word: string): boolean {
 	return /^[0-9]+$/.test(word);
-}
-
-/**
- * A slash command: `/` and one word, which is what `sessionCommand` accepts. Asked here so that a mistyped
- * value reads as a bad invocation with the usage beside it, rather than as a builder failure with a stack —
- * and so `--slash-command -h` is the help request it looks like rather than a value.
- */
-function isSlashCommand(word: string): boolean {
-	return /^\/\S+$/.test(word);
 }
 
 function parse(argv: readonly string[]): Options {

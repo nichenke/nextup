@@ -55,36 +55,29 @@ export function requireWorkspaceHost(runner: Runner): void {
 export interface LaunchInput {
 	readonly runner: Runner;
 	readonly ref: TicketRef;
-	readonly slashCommand: string;
+	/** The session argv to run, built by `planLaunch` before any of this was written. */
+	readonly command: Argv;
 	/** The worktree the session runs in, whose own directory name is what the workspace is called. */
 	readonly worktree: string;
-}
-
-export interface Launch {
-	/** The session argv the workspace was told to run, so a caller reports what started rather than restating it. */
-	readonly command: Argv;
-	readonly workspace: Argv;
 }
 
 /**
  * Starts a session on one ticket, in the worktree already made for it.
  *
- * One call, whose exit status is the whole verdict. No rollback, no retry, and no second host to try:
- * ADR-0016 has why nothing here unwinds, and ADR-0035 why a host that will not serve is a refusal rather
- * than something to work around.
+ * One call, whose exit status is the whole verdict, so there is nothing to return: it started or it threw.
+ * No rollback, no retry, and no second host to try — ADR-0016 has why nothing here unwinds, and ADR-0035 why
+ * a host that will not serve is a refusal rather than something to work around.
+ *
+ * The failure names the ticket and what the host said, and stops there. What to do about it depends on how
+ * much had already been written, which only the caller knows; `startedNothing` in `cli.ts` is where that is
+ * decided, and saying it here too produced two overlapping recovery sentences.
  *
  * @throws LaunchError when the workspace could not be created.
- * @throws CommandBuilderError when `slashCommand` is not a single `/`-prefixed word — by which point the
- * caller has already made the worktree and the claim, so this is not a refusal that left nothing behind.
  */
-export function launch(input: LaunchInput): Launch {
-	const command = sessionCommand(input);
-	const workspace = workspaceCommand({ name: basename(input.worktree), cwd: input.worktree, command });
+export function launch(input: LaunchInput): void {
+	const workspace = workspaceCommand({ name: basename(input.worktree), cwd: input.worktree, command: input.command });
 	const result = input.runner([...workspace]);
 	if (result.code !== 0) {
-		throw new LaunchError(
-			`the workspace for ${formatTicketRef(input.ref)} could not be created: ${failureDetail(result)}. Its worktree and its claim are both in place, so running this again starts the session without redoing either.`,
-		);
+		throw new LaunchError(`the workspace for ${formatTicketRef(input.ref)} could not be created: ${failureDetail(result)}`);
 	}
-	return { command, workspace };
 }

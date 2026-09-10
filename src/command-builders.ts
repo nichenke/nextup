@@ -32,8 +32,17 @@ export interface SessionCommandInput {
  *
  * @throws CommandBuilderError when `slashCommand` is not a single `/`-prefixed word.
  */
+/**
+ * Whether a word is a slash command: `/` and one word. Exported because the command line has to refuse a bad
+ * `--slash-command` value as a usage error, and this is the shape that decides it — two copies of the pattern
+ * would let a value pass the flag's own check and then throw from `sessionCommand` with a stack instead.
+ */
+export function isSlashCommand(word: string): boolean {
+	return /^\/\S+$/.test(word);
+}
+
 export function sessionCommand(input: SessionCommandInput): Argv {
-	if (!/^\/\S+$/.test(input.slashCommand)) {
+	if (!isSlashCommand(input.slashCommand)) {
 		throw new CommandBuilderError(`${input.slashCommand} is not a slash command: it must be "/" and one word`);
 	}
 	return [SESSION_BINARY, `${input.slashCommand} ${formatTicketRef(input.ref)}`];

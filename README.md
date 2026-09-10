@@ -27,9 +27,8 @@ bun bin/nextup.ts --help                # every flag
 ```
 
 The session runs in a cmux workspace. Starting writes in three places — the worktree, the claim, then the
-session — and nothing unwinds, so running the command again continues from wherever a failure stopped. A
-workspace host that is not running is refused before any of them, with no fallback. "Design in one screen"
-below has both, and the decisions behind them.
+session — and nothing unwinds. A workspace host that is not running is refused before any of them, with no
+fallback. "Design in one screen" below has both, and the decisions behind them.
 
 Only open tickets are read, and the counts line says `closed not asked` rather than reporting a zero as a
 count. The window is the most recently created open tickets, so a backlog larger than `--limit` never
@@ -106,6 +105,11 @@ both a worktree and a claim behind it. So the host is asked before either write,
 answer is refused rather than fallen back from —
 [ADR-0035](./docs/adr/0035-a-workspace-host-that-is-not-running-is-refused-before-anything-is-written.md)
 has why both available fallbacks were worse, and why that check narrows the window rather than closing it.
+
+Where the session fails anyway, re-running is *not* the recovery. The claim has landed by then, and a claimed
+ticket is not a candidate, so the next run would pick a different ticket and leave this one claimed with
+nobody working it. That abort hands over the session command to run in the worktree instead. The claim is
+still never released — ADR-0016 forbids a release path, and the release is itself a call that can fail.
 
 Ensuring the worktree is one of three things, and the outcome says which: the branch and the worktree
 both created, a worktree made for a branch that already existed, or an attach to the worktree already
