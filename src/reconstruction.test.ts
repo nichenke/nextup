@@ -443,6 +443,14 @@ describe("claimed-leaves-frontier", () => {
 		expect(verdicts(world([{ key: "1" }, { key: "2" }]))["claimed-leaves-frontier"]).toBe("unexercised");
 	});
 
+	test("is unexercised by a claimed ticket the read never returned, whose absence the claim did not cause", () => {
+		const input = world([{ key: "1" }, { key: "8", claimed: true }]);
+		// The tracker observes the claimed ticket and the adapter never returned it, so it is off the frontier for
+		// that reason. `whole-set-read` is what reports the missing ticket.
+		const read = { ...input.read, tickets: input.read.tickets.filter((ticket) => ticket.ref.key !== "8") };
+		expect(checkNamed({ ...input, read }, "claimed-leaves-frontier")).toMatchObject({ verdict: "unexercised" });
+	});
+
 	test("is unexercised where the frontier is empty anyway, rather than held over a frontier nothing was kept off", () => {
 		// Every candidate came back unknown-blocking, so `select` consulted the unknown partition and the frontier is
 		// empty for a reason that has nothing to do with the claim.

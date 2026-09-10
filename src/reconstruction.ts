@@ -374,7 +374,11 @@ function frontierWorthy(one: TrackerObservation, input: ReconstructionInput): bo
 /** That a claim takes its ticket off the frontier — the first of the four states criterion three names. */
 function claimedLeavesFrontier(input: ReconstructionInput, frontier: readonly TicketRef[]): CheckResult {
 	const onFrontier = new Set(frontier.map(ticketId));
-	const withheld = input.observations.filter((one) => frontierWorthy(one, input) && one.claimed);
+	const met = metByRead(input.read);
+	// Narrowed to tickets the read met, the way `closedBlockerUnblocksItsDependent` narrows before counting: a
+	// claimed ticket the adapter never returned is off the frontier for that reason alone, so counting it exercised
+	// reports the claim as the cause of an absence it did not produce.
+	const withheld = input.observations.filter((one) => frontierWorthy(one, input) && one.claimed && met.has(ticketId(one.ref)));
 	const faults = withheld
 		.filter((one) => onFrontier.has(ticketId(one.ref)))
 		.map((one) => `${formatTicketRef(one.ref)} is claimed and is on the frontier anyway`);
