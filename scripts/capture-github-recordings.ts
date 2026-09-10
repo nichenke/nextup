@@ -142,11 +142,9 @@ function capture(one: Capture, cli: string): Recording {
  * Puts the tree's write target back to unassigned, which is the state `src/test-tree.ts` specs it in and every
  * read capture above recorded it in.
  *
- * Reported rather than thrown, because this runs on the way out of a failed capture too and must not replace
- * the error that got us here — but it sets a failing exit status, which is the part that cannot be left to a
- * human noticing a line on stderr. A run that exits 0 having stranded the claim gets believed: the next run
- * captures the reads first, stores `write-target` assigned, and `github-adapter.test.ts` then fails as though
- * the adapter had broken. `bun run provision:test-tree` is the recovery.
+ * Reported rather than thrown, because this runs on the way out of a failed capture too and must not replace the
+ * error that got us here — but it sets a failing exit status, because a run that exits 0 having stranded the
+ * claim gets believed. `bun run provision:test-tree` is the recovery.
  *
  * Unconditional, because `--remove-assignee @me` against an issue nobody holds exits 0 — measured on gh
  * 2.100.0 — so there is no state to check first and get wrong.

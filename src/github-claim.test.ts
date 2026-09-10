@@ -27,11 +27,9 @@ function claimedIssue(stdout: string): string {
 }
 
 /**
- * The issue a capture named, for the failing writes, whose stdout is empty and so cannot say.
- *
- * This does read the recording's own argv, so a test built on it cannot also test what was asked — the failing
- * captures are used for classification and wording only. `WRITE_TARGET` is the one that has to come from
- * elsewhere, because the success case is where the issued argv is checked against the captured one.
+ * The issue a capture named, for the failing writes, whose stdout is empty and so cannot say. Safe to read off
+ * the argv here, unlike `WRITE_TARGET`, because the failing captures test classification and wording rather than
+ * what was asked.
  */
 function claimedIssueIn(argv: readonly string[]): string {
 	const separator = argv.indexOf("--");

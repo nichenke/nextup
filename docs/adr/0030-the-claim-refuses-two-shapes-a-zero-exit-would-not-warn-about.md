@@ -41,9 +41,9 @@ The help flags are the whole hazard: they report success through the one channel
 already fail loudly and never needed a guard.
 
 The key therefore goes last, after `--`. That is a structural end to the question rather than a list of
-spellings to keep refusing — the same move ADR-0025 records for a worktree's identity, where three rounds of
-refusing each newly-demonstrated bad `.git` file were replaced by one positive assertion. A separator cannot
-fall behind a CLI that adds a flag, and it costs nothing.
+spellings to keep refusing — the same move ADR-0025 records for a worktree's identity, where refusing each
+newly-demonstrated bad `.git` file gave way to one positive assertion of what the directory is. A separator
+cannot fall behind a CLI that adds a flag, and it costs nothing.
 
 ### Silently renumbered
 

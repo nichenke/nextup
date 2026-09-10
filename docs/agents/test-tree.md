@@ -62,15 +62,15 @@ issue the tree does not have, and a claim against an unresolvable host. They com
 it unassigned. A release that itself fails says so **and fails the run**, so a stray claim cannot be mistaken
 for a clean capture.
 
-Interrupting the run is the gap: a `finally` does not cover Ctrl-C or a kill, and the window where a claim is
-outstanding includes a DNS timeout against `.invalid`, which is the slowest call and the likeliest moment to
-lose patience. An interrupted run cannot quietly become a bad corpus, though: the next capture refuses to start
-against a `write-target` the tree has claimed or closed, and the release itself checks rather than trusting its
-own exit status, since removing an assignee somebody else holds also exits 0.
+Interrupting the run is the gap: a `finally` does not cover Ctrl-C or a kill. An interrupted run cannot quietly
+become a bad corpus, though: the next capture refuses to start against a `write-target` the tree has claimed or
+closed, and the release itself checks rather than trusting its own exit status, since removing an assignee
+somebody else holds also exits 0.
 
-Recovery is the Rules bullet below, and it reaches `write-target` only. A claim landed on any other issue has to
-be removed by hand, because provisioning refuses a tree holding an issue the spec does not describe rather than
-tidying it — so it would throw before reaching the release.
+Provisioning releases a stray claim on any issue the spec describes, not only `write-target` — `reconcileClaim`
+runs over every spec issue. The one claim it cannot clear is one landed on an issue the spec describes no shape
+for, because `listIssues` refuses an undescribed title before any release happens. Only the failing write capture
+could produce that, which is why it names a number the tree cannot reach.
 
 Four captures are failures rather than successful exchanges: an unresolvable host, for the wording an outage
 is recognised by, and a request that is itself wrong, for a defect's — each in a read form and a write form.

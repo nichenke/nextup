@@ -206,7 +206,6 @@ describe("githubClaimCommand", () => {
 		expect(argv[argv.indexOf("--add-assignee") + 1]).toBe("@me");
 	});
 
-
 	// ADR-0030: refused here rather than sent, because the command exits 0 having claimed nothing.
 	test("refuses a key the CLI would read as a flag instead of an issue", () => {
 		expect(() => githubClaimCommand({ repo: "example/repo", key: "--help" })).toThrow(/issue number/);
@@ -219,8 +218,6 @@ describe("githubClaimCommand", () => {
 		expect(() => githubClaimCommand({ repo: "example/repo", key: "ABC-7" })).toThrow(/issue number/);
 	});
 
-	// `gh` reads 037 as issue 37 while `compareTicketRefs` calls 037 and 37 different tickets, so a padded key
-	// claims an issue the reference does not name and exits 0. The separator cannot catch this one.
 	test("refuses a zero-padded key, which the CLI would silently resolve to a different issue", () => {
 		expect(() => githubClaimCommand({ repo: "example/repo", key: "037" })).toThrow(/canonical/);
 		expect(() => githubClaimCommand({ repo: "example/repo", key: "07" })).toThrow(/canonical/);

@@ -150,8 +150,6 @@ describe("issueNumber", () => {
 		expect(() => issueNumber(GITHUB_TEST_TREE, "no-such-shape", tracker.runner)).toThrow(TestTreeError);
 	});
 
-	// A claim an interrupted capture left behind. Refused here because a write to it exits 0 with nothing to
-	// show, and every read capture would store the tree carrying a claim the spec says it does not.
 	test("refuses a shape the tree has claimed when the spec says it is unclaimed", () => {
 		const tracker = fakeTracker([
 			{ number: 22, title: WRITE_TARGET, labels: ["P2"], assignees: [{ login: "someone" }], state: "OPEN", blockedBy: [] },
@@ -159,8 +157,7 @@ describe("issueNumber", () => {
 		expect(() => issueNumber(GITHUB_TEST_TREE, "write-target", tracker.runner)).toThrow(/claimed/);
 	});
 
-	// Not caught by the undescribed-title check, since the title is one the spec describes: a closed shape drops
-	// out of a read asking --state open, so the corpus loses a row with nothing failing at capture time.
+	// Distinct from the undescribed-title case above, because the title is one the spec does describe.
 	test("refuses a shape the tree has closed when the spec says it is open", () => {
 		const tracker = fakeTracker([
 			{ number: 22, title: WRITE_TARGET, labels: ["P2"], assignees: [], state: "CLOSED", blockedBy: [] },

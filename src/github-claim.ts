@@ -23,8 +23,10 @@ export interface GitHubClaimInput {
  *
  * @throws GitHubClaimError when the reference is not a claimable GitHub one, or when the write fails. Both
  * failure classes throw, because a failed claim aborts either way; which one it was is what the message says.
- * @throws CommandBuilderError when the reference's key is not an issue number. Not folded into the error above,
- * because no path produces such a reference: one arriving is an internal invariant broken. ADR-0030.
+ * @throws CommandBuilderError when the reference's key is not a canonical issue number. Not folded into the
+ * error above: `resolveTicketRef` can still mint a padded key, so this is reachable rather than impossible, and
+ * a stack naming the builder says more than a message about claiming would. ADR-0030, and issue 56 for the mint
+ * point.
  */
 export function claimGitHubTicket(input: GitHubClaimInput): void {
 	const argv = githubClaimCommand(requireClaimable(input.ref));
