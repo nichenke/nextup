@@ -83,6 +83,9 @@ to retry rather than to change anything.
 Exit status, of what is wired: 0 a pick reported, 1 nothing to recommend, 2 something needing a person
 — a repository that cannot be resolved, a read that is itself wrong, or a bad invocation. A tracker that
 could not be reached is reported as a degraded answer with nothing to recommend, which is 1.
+
+A deadlocked backlog is also 1, so the status does not say whether waiting will help: a wrapper that
+retries on 1 has to read the "deadlock: " lines to know that this one will answer the same tomorrow.
 `;
 
 export function run(argv: readonly string[], deps: CliDeps): CliResult {

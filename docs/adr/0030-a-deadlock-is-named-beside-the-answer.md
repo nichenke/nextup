@@ -92,3 +92,11 @@ act on, and the render path would have to assert its way past it.
 Detection runs over every ticket, not every candidate. An excluded or claimed ticket still blocks
 (`CONTEXT.md`), so a cycle among tickets nothing may recommend is exactly the one the counts cannot explain
 on their own.
+
+The cost of that is a line on every run for a cycle among excluded tickets that gates no candidate, which
+`--exclude` cannot silence — the flag narrows what may be recommended, never what the graph reads. Reporting
+only cycles that gate a candidate was the alternative and is worse: a loop is a loop from the moment it
+exists, and staying quiet until it blocks something means first reporting it on the run where it costs a
+pick. Between the two, [0031](./0031-the-default-candidate-exclusions-are-negative-filters.md) makes the
+noisy case likelier than it looks, since `spec` is excluded by default and a specification's own tickets are
+where a stray edge is cheapest to write.

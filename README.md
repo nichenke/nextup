@@ -33,9 +33,10 @@ considers its oldest — the truncation sentinel is what says so.
 [ADR-0028](./docs/adr/0028-the-read-asks-for-open-tickets-and-the-closed-count-says-so.md) has the
 measurement that makes that safe for blocking, and what the default limit claims.
 
-A **deadlock** — `CONTEXT.md` has the term — is named on a `deadlock: ` line, one per cycle, each ticket
-followed by the one blocking it and closing on the ticket it started from, so every edge can be followed in
-the tracker. It is reported beside the answer rather than instead of it: a cycle in one corner of a
+A **deadlock** — `CONTEXT.md` has the term — is named on a `deadlock: ` line, each ticket followed by the one
+blocking it and closing on the ticket it started from, so every edge can be followed in the tracker. Not one
+line per loop: where loops interlock, some are named and the rest are the same tickets over again, so an
+absent line is not the absence of a cycle. ADR-0030 has what gets named. It is reported beside the answer rather than instead of it: a cycle in one corner of a
 repository does not stop a pick from another. Under `--json` it is `selection.deadlocks`, which is neither
 of the two degrade lists below.
 [ADR-0030](./docs/adr/0030-a-deadlock-is-named-beside-the-answer.md) has why the selector detects it and no

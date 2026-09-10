@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { type CliDeps, DEFAULT_LIMIT, run } from "./cli";
+import { DEFAULT_LABEL_FILTER } from "./label-filter";
 import type { Runner } from "./runner";
 import { DEADLOCK_PREFIX } from "./selection-output";
 import { answeringOrigin, deadlockLines, githubRecording, replayRunner, respondingRunner, sentinelLines } from "./test-support";
@@ -166,6 +167,16 @@ describe("the command line itself", () => {
 		expect(result.code).toBe(0);
 		expect(result.stdout).toContain("--include");
 		expect(result.stdout).toContain("--json");
+	});
+
+	// The usage text spells the default exclusions out, so a fourth one added to the filter and not to the
+	// prose leaves --help describing a filter the tool does not run, with nothing failing.
+	//
+	// Quoted as the text quotes them, not as bare words: `spec` is a substring of the "specification" two
+	// lines below it, so the looser assertion passed over a usage text that had stopped naming the pattern.
+	test("names every default exclusion it applies", () => {
+		const result = run(["--help"], deps());
+		for (const pattern of DEFAULT_LABEL_FILTER.exclude) expect(result.stdout).toContain(`'${pattern}'`);
 	});
 
 	test("refuses an unrecognised flag rather than ignoring it", () => {

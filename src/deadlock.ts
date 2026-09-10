@@ -51,8 +51,10 @@ export function findBlockingCycles(nodes: Iterable<IssueId>, graph: DependencyGr
  * call instead: a thousand tickets each blocked by twenty, with no cycle to stop a walk early, measured
  * 469ms without this and 72ms with it.
  *
- * Safe because the port answers stably within a call — `deriveEffectiveBlockedness` already rests on that,
- * visiting each node once — and because nothing here writes to the graph.
+ * Safe against the one implementation there is: `seedGraph` answers from a map it built and copies on the
+ * way out, so asking twice cannot differ. The port promises no such thing — `DependencyGraph` says only that
+ * a relation is a confirmed value or `"unknown"` — so a graph that fetched lazily would need to answer
+ * stably for the length of a call, or this held read has to go.
  */
 function memoizedBlockers(
 	within: ReadonlySet<IssueId>,
