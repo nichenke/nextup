@@ -35,8 +35,12 @@ It is still the right window, and the alternatives were checked rather than assu
 sort flag; ordering is reachable only through `--search`, whose sorts are `created`, `updated`, `comments`
 and `reactions` — none of which is the ladder. Taking `sort:created-asc` would invert the bias to hide all
 recent work, which is worse for a tool answering "what next". So the window stays newest-first and the cost
-is stated instead: the truncation sentinel says the answer may be missing a better candidate, and the
-remedy is `--include` to name the work you cannot see, or a `--limit` past your open count.
+is stated instead: the truncation sentinel says the answer may be missing a better candidate.
+
+The only remedy that widens the window is a larger `--limit`. `--include` is **not** one, and saying it was
+is a mistake this ADR carried until a reviewer caught it: the label filter is compiled in the command and
+applied to the rows already returned, so it narrows what may be recommended from inside the window and
+cannot reach a ticket the read never fetched. The section below is what would have to change first.
 
 Reading open-only spends the whole limit on the population a pick can come from. Nothing else about the
 answer changes, and blocking in particular does not, because a blocker's state arrives on its dependent's
@@ -103,11 +107,10 @@ The rendered line reads `14 tickets: closed not asked, 0 claimed, ...`.
 label filter and the claim check run *locally*, over rows the read already returned — there, a zero is a
 count.
 
-The moment a filter moves into the query, it stops being one. This ADR prescribes `--include` as the answer
-to the truncation window, and the only way `--include` can reach work outside the newest-N window is by
-being pushed into the `gh` query — at which point `SelectionCounts.filtered` is zero whatever the tracker
-holds, which is this same collapse in a field with no sentinel, no required input flag and no guard.
-`--assignee` would do it to `claimed`.
+The moment a filter moves into the query, it stops being one — and there is a standing reason to move one.
+Making `--include` reach work outside the newest-N window means pushing it into the `gh` query, at which
+point `SelectionCounts.filtered` is zero whatever the tracker holds: this same collapse, in a field with no
+sentinel, no required input flag and no guard. `--assignee` would do it to `claimed`.
 
 So the next person to push a filter server-side should carry the read's asked-for scope once — the states,
 the labels, the assignees — and derive from it which count fields may report a number, rather than writing
