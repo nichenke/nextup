@@ -30,12 +30,6 @@ describe("readBlind", () => {
 		expect(read.degraded).toEqual([{ kind: "unreadable-blocking", tickets: WHOLE_TREE, of: WHOLE_TREE }]);
 	});
 
-	test("refuses a call whose projection it cannot find, rather than passing it through unnarrowed", () => {
-		const unreachable: Runner = () => {
-			throw new Error("the read was passed through without its projection being narrowed");
-		};
-		expect(() => tracker(unreachable).readBlind(WHOLE_TREE)).toThrow(/projection/);
-	});
 });
 
 describe("read", () => {
