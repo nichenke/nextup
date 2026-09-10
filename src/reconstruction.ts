@@ -89,8 +89,7 @@ export function heldEverywhere(report: ReconstructionReport): boolean {
  *
  * Three live reads, so three windows, not two: `read` and `readBlind` each issue their own list call, and a
  * ticket opened or closed between any adjacent pair fails `whole-set-read`, possibly alongside a frontier
- * disagreement it caused. The fault names which ticket and which side lacks it, which is what tells a rerun's
- * reader which pair raced.
+ * disagreement it caused.
  *
  * @throws ReconstructionError when the repository has no open tickets, so no state can be exercised.
  */
@@ -353,8 +352,7 @@ function frontierAgrees(input: ReconstructionInput, selection: Selection, fronti
 	//
 	// `unexercised` rather than a fault of its own, because declining to compare is not a disagreement: both exit
 	// non-zero, and a fault here reads as the two frontiers differing, which is the first thing the reader would
-	// go and investigate. Where something did disagree it is the disagreements that are reported, with this beside
-	// them to say the comparison was partial.
+	// go and investigate.
 	if (selection.counts.unknown > 0) {
 		const partial = `${selection.counts.unknown} tickets came back with unknown blocking, so the frontier cannot be compared whole`;
 		if (faults.length === 0) return { name: "frontier-agrees", verdict: "unexercised", detail: [partial] };

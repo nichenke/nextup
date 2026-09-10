@@ -453,7 +453,6 @@ describe("frontier-agrees", () => {
 
 	test("reports the disagreement, not the refusal, where the two also differ on a ticket they could compare", () => {
 		const input = unknownBlockingOn("2");
-		// The tracker says ticket 1 waits on something open, so it keeps it off a frontier the adapter puts it on.
 		const observations = input.observations.map((one) =>
 			one.ref.key === "1" ? { ...one, blockers: [{ ref: ref("3"), open: true }] } : one,
 		);
@@ -489,8 +488,7 @@ describe("claimed-leaves-frontier", () => {
 
 	test("is unexercised by a claimed ticket the read never returned, whose absence the claim did not cause", () => {
 		const input = world([{ key: "1" }, { key: "8", claimed: true }]);
-		// The tracker observes the claimed ticket and the adapter never returned it, so it is off the frontier for
-		// that reason. `whole-set-read` is what reports the missing ticket.
+		// `whole-set-read` is what reports the missing ticket.
 		const read = { ...input.read, tickets: input.read.tickets.filter((ticket) => ticket.ref.key !== "8") };
 		expect(checkNamed({ ...input, read }, "claimed-leaves-frontier")).toMatchObject({ verdict: "unexercised" });
 	});

@@ -77,7 +77,7 @@ frontiers cannot be compared whole. Its line says so, and the cause is in `whole
   `whole-set-read` holds it is the finding worth having. Read it with the four state checks: a disagreement
   alongside a failing `claimed-leaves-frontier` points at the claim, alongside a failing
   `closed-blocker-unblocks-its-dependent` at the blocking read. A read with unknown blocking makes it
-  `unexercised` instead, since declining to compare is not a disagreement.
+  `unexercised` instead.
 - `edges-agree` failing narrows a frontier disagreement to the edge it came from, and can fail where
   `frontier-agrees` holds — two edges wrong in compensating directions reach the same frontier. ADR-0033 has why
   an input comparison is not redundant with the outcome ones.
