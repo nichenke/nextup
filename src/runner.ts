@@ -8,6 +8,9 @@ export interface CommandResult {
 
 export type Runner = (argv: string[]) => CommandResult;
 
+/** Stands in for the exit code a child killed by a signal does not have. 127 already means "no such binary". */
+const KILLED_BY_SIGNAL = 128;
+
 /**
  * The runner refusing to run anything at all, as against a command that ran and failed. Its own class so a
  * caller can report the recovery path rather than a stack: `cli.ts` prints the stack of an error nobody has
@@ -32,9 +35,10 @@ export interface GitEnvironment {
 /**
  * The environment a git command is given: `source` with every `GIT_`-prefixed name removed.
  *
- * Removed by prefix rather than by a list of the ones measured to redirect, so that a variable nobody has
- * measured fails closed. Nothing in the command set needs a `GIT_` variable, which ADR-0029 measures, so
- * removing them all costs nothing — reintroducing a keep-list has to argue with that measurement.
+ * Removed by prefix rather than by a list of the ones measured to redirect, so an unmeasured variable cannot
+ * point git anywhere. Nothing in the command set needs a `GIT_` variable, which ADR-0029 measures, so
+ * reintroducing a keep-list has to argue with that measurement — as does treating this as closing anything
+ * beyond redirection, which ADR-0029 bounds.
  */
 export function gitEnvironment(source: Readonly<Record<string, string | undefined>>): GitEnvironment {
 	const env: Record<string, string> = {};
@@ -57,7 +61,7 @@ function reportRemovals(names: readonly string[]): void {
 	// Deliberately no "unset them" advice: a removed variable may have carried the only configuration that
 	// makes git work here. ADR-0029.
 	process.stderr.write(
-		`${names.join(", ")} ${one ? "was" : "were"} removed from the environment of every git command: this tool names the repository it means on each command, so an inherited GIT_ variable can only answer for a different one. Anything ${one ? "it" : "they"} configured is gone with ${one ? "it" : "them"}.\n`,
+		`${names.join(", ")} ${one ? "was" : "were"} removed from the environment of every git command: an inherited GIT_ variable answers for a repository this tool did not ask about. Anything ${one ? "it" : "they"} configured is gone with ${one ? "it" : "them"}.\n`,
 	);
 }
 
@@ -72,10 +76,13 @@ export const defaultRunner: Runner = (argv) => {
 		// with, so the two kinds of child would disagree about a variable assigned since.
 		const env = git?.env ?? { ...process.env };
 		const result = spawnSync({ cmd: argv, stdout: "pipe", stderr: "pipe", env });
+		// A child killed by a signal has no exit code, and `code` is a number: `worktree.ts` renders it into
+		// the message a user reads, where `null` names nothing. The signal goes to stderr so neither is lost.
+		const signal = result.signalCode;
 		return {
-			code: result.exitCode,
+			code: result.exitCode ?? KILLED_BY_SIGNAL,
 			stdout: result.stdout.toString(),
-			stderr: result.stderr.toString(),
+			stderr: signal ? `${result.stderr.toString()}killed by ${signal}\n` : result.stderr.toString(),
 		};
 	} catch (err) {
 		return { code: 127, stdout: "", stderr: err instanceof Error ? err.message : String(err) };

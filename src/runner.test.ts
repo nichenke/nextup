@@ -17,6 +17,15 @@ describe("defaultRunner", () => {
 		expect(result.code).toBe(127);
 		expect(result.stderr).not.toBe("");
 	});
+
+	// A signal-killed child has no exit code, and `code` is a number — `worktree.ts` puts it in front of a
+	// user. SIGABRT rather than any signal because that is how git dies on a `BUG:` assertion.
+	test("gives a signal-killed command a number for a code, and names the signal", () => {
+		const result = defaultRunner(["bash", "-c", "kill -ABRT $$"]);
+		expect(result.code).not.toBeNull();
+		expect(result.code).not.toBe(0);
+		expect(result.stderr).toContain("SIGABRT");
+	});
 });
 
 describe("gitEnvironment", () => {
@@ -90,11 +99,24 @@ function twoRepositories(): { root: string; intended: string; other: string } {
 	return { root, intended: join(root, "intended"), other: join(root, "other") };
 }
 
-// One fixture for every case that only reads, rebuilt for none of them: six identical constructions cost six
-// times the git subprocesses and prove nothing more. `src/recording.test.ts` sets the same precedent.
-const shared = twoRepositories();
+let sharedRepositories: ReturnType<typeof twoRepositories> | undefined;
 
-afterAll(() => rmSync(shared.root, { recursive: true, force: true }));
+/**
+ * One fixture for every case that only reads, rebuilt for none of them: six identical constructions cost six
+ * times the git subprocesses and prove nothing more.
+ *
+ * Built on first use rather than at import, because a run whose tests are all filtered out would otherwise
+ * build it, assert inside it outside any test, and leave it behind — measured as one stray directory, of the
+ * kind `scripts/guard-harness.ts` records accumulating 3502 of.
+ */
+function shared(): ReturnType<typeof twoRepositories> {
+	sharedRepositories ??= twoRepositories();
+	return sharedRepositories;
+}
+
+afterAll(() => {
+	if (sharedRepositories) rmSync(sharedRepositories.root, { recursive: true, force: true });
+});
 
 /**
  * Runs `body` against this module in a child process whose environment is `overrides` and nothing else.
@@ -132,41 +154,41 @@ function printing(argv: readonly string[]): string {
  */
 describe("a git variable exported before the tool started", () => {
 	test("does not redirect the origin read, which decides whose tickets a run considers", () => {
-		const { stdout } = inChildProcess(printing(["git", "-C", shared.intended, "remote", "get-url", "origin"]), {
-			GIT_DIR: join(shared.other, ".git"),
+		const { stdout } = inChildProcess(printing(["git", "-C", shared().intended, "remote", "get-url", "origin"]), {
+			GIT_DIR: join(shared().other, ".git"),
 		});
-		expect(stdout.trim()).toBe(shared.intended);
+		expect(stdout.trim()).toBe(shared().intended);
 	});
 
 	test("does not redirect the worktree root, where GIT_WORK_TREE reaches and worktree list does not", () => {
 		const { stdout } = inChildProcess(
-			printing(["git", "-C", shared.intended, "rev-parse", "--path-format=absolute", "--show-toplevel"]),
-			{ GIT_WORK_TREE: shared.other },
+			printing(["git", "-C", shared().intended, "rev-parse", "--path-format=absolute", "--show-toplevel"]),
+			{ GIT_WORK_TREE: shared().other },
 		);
-		expect(realpathSync(stdout.trim())).toBe(shared.intended);
+		expect(realpathSync(stdout.trim())).toBe(shared().intended);
 	});
 
 	test("does not redirect the origin read through a global config file", () => {
-		const config = join(shared.root, "config-naming-other");
-		writeFileSync(config, `[remote "origin"]\n\turl = ${shared.other}\n`);
-		const { stdout } = inChildProcess(printing(["git", "-C", shared.intended, "remote", "get-url", "origin"]), {
+		const config = join(shared().root, "config-naming-other");
+		writeFileSync(config, `[remote "origin"]\n\turl = ${shared().other}\n`);
+		const { stdout } = inChildProcess(printing(["git", "-C", shared().intended, "remote", "get-url", "origin"]), {
 			GIT_CONFIG_GLOBAL: config,
 		});
-		expect(stdout.trim()).toBe(shared.intended);
+		expect(stdout.trim()).toBe(shared().intended);
 	});
 
 	test("is scrubbed for git named by an absolute path, not only by the bare word", () => {
 		const binary = Bun.which("git");
 		expect(binary).not.toBeNull();
-		const { stdout } = inChildProcess(printing([binary as string, "-C", shared.intended, "remote", "get-url", "origin"]), {
-			GIT_DIR: join(shared.other, ".git"),
+		const { stdout } = inChildProcess(printing([binary as string, "-C", shared().intended, "remote", "get-url", "origin"]), {
+			GIT_DIR: join(shared().other, ".git"),
 		});
-		expect(stdout.trim()).toBe(shared.intended);
+		expect(stdout.trim()).toBe(shared().intended);
 	});
 
 	test("does not reach git as an empty value, which git rejects as a repository name at 128", () => {
 		const { stdout } = inChildProcess(
-			`process.stdout.write(String(defaultRunner(${JSON.stringify(["git", "-C", shared.intended, "remote", "get-url", "origin"])}).code));`,
+			`process.stdout.write(String(defaultRunner(${JSON.stringify(["git", "-C", shared().intended, "remote", "get-url", "origin"])}).code));`,
 			{ GIT_DIR: "" },
 		);
 		expect(stdout.trim()).toBe("0");

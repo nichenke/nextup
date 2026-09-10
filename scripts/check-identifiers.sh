@@ -21,6 +21,12 @@ set -euo pipefail
 # Removed here rather than through the tool's runner: this runs before any dependency install. ADR-0029.
 unset "${!GIT_@}"
 
+# `git ls-files` lists what is under the current directory, so a run from a subdirectory would scan a subset
+# and pass -- 30 of this repository's 146 files, measured from `docs/`. The whole tree or nothing.
+if toplevel=$(git rev-parse --show-toplevel 2>/dev/null); then
+	cd "$toplevel"
+fi
+
 # Both scan pipelines below end in `|| true`, so anything leaving them without input reads as nothing found.
 # One message per cause: "the repository is empty" and "git is broken" are not the same report. ADR-0029.
 if ! tracked=$(git ls-files); then

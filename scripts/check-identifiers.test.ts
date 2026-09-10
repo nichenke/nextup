@@ -99,6 +99,15 @@ describe("check-identifiers under a redirected git environment", () => {
 		expect(result.stderr.toString()).toContain("git ls-files failed");
 	});
 
+	// `git ls-files` lists what is under the current directory, so a run from a subdirectory scanned a subset
+	// and passed. The identifier sits outside the directory the guard is invoked from.
+	test("scans the whole tree when run from a subdirectory, not the subtree it was started in", () => {
+		const root = repositoryWith({ "keep/a.md": "clean\n", "drop/b.md": `leak at ${unknownHttpsUrl}\n` });
+		const result = guardIn(join(root, "keep"));
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr.toString()).toContain("internal.corp.test");
+	});
+
 	// A sparse checkout lists a tracked file the scan cannot read, so it would pass on the subset it
 	// materialised — with the excluded file carrying the identifier.
 	test("refuses a sparse checkout, rather than scanning the part of the tree it has", () => {

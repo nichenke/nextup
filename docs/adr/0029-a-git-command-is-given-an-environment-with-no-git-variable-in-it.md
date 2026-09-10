@@ -11,9 +11,16 @@ whose body stands as written.
 Nothing is refused, and no other command's environment is touched.
 
 **By prefix, not by a list of the ones that redirect.** An enumerated list fails open: a variable nobody
-measured is permitted, which is how this has now been wrong twice. Removing by prefix fails closed — a
-variable nobody has measured is removed, and the cost of removing one that was harmless is nothing, because
-nothing this tool runs needs a `GIT_` variable. That last clause is measured below rather than assumed.
+measured is permitted, which is how this has now been wrong twice. Removing by prefix fails closed against
+*redirection* — a variable nobody has measured cannot point git anywhere, because it is not there.
+
+It does not fail closed against the loss of what a variable was doing, and two shapes of that are real. A
+variable can carry configuration, which "Consequences" covers. A variable can also *suppress* configuration:
+`GIT_CONFIG_GLOBAL=/dev/null` is how a caller runs git hermetically, and removing it hands `~/.gitconfig` back,
+where a `url.<base>.insteadOf` rule rewrites the origin read — measured, turning an origin of `<intended>` into
+one under a different host. The prefix rule is the right trade anyway, because the alternative is the
+enumerated list that has now been wrong twice, but "fails closed" is a claim about location and not about
+configuration.
 
 **Only for git.** `gh`, `glab` and `jira` pass the same seam and authenticate from the environment, which is
 why 0026 refused rather than stripped. Bun's `spawnSync` takes a per-call `env`, so that argument only ever
@@ -144,9 +151,14 @@ naming this decision. Adding one means re-measuring, not assuming the table abov
 The tool no longer refuses to start for an environment it can simply not pass on, so `debug-ref.ts` and any
 scheduled run keep working in a redirected shell instead of exiting on an uncaught bare `Error`.
 
-A `GIT_` variable a user set deliberately is ignored for git, not honoured and not fatal. Every command this
-tool issues names the repository it means, so there is nothing for an ambient one to usefully *locate* — but a
-variable can carry configuration rather than a location, and that is removed too. The case that matters is a
+A `GIT_` variable a user set deliberately is ignored for git, not honoured and not fatal. Almost every command
+this tool issues names the repository it means, so there is little for an ambient one to usefully *locate*.
+The exception is the origin read, `git remote get-url origin`, which carries no `-C` and so resolves from the
+current directory: asking "which repository am I in" is its purpose, and a scrubbed environment makes the
+answer the directory rather than an inherited variable. Under 0026 the same situation threw instead.
+
+A variable can also carry configuration rather than a location, and that is removed too. The case that matters
+is a
 container running as a uid that does not own the checkout, where
 `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='*'` is how trust is granted when there
 is no writable global config. Under 0026 that environment ran; here every command loses the grant and fails at
