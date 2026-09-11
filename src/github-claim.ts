@@ -7,7 +7,7 @@ export class GitHubClaimError extends Error {}
 
 export interface GitHubClaimInput {
 	readonly runner: Runner;
-	/** The ticket to claim, which already names its repository: the pick came from a read that resolved one. */
+	/** The ticket to claim, which already names its repository: a read resolved one, or `resolveTicketRef` did. */
 	readonly ref: TicketRef;
 }
 

@@ -5,7 +5,7 @@ import { resolveOriginRemote } from "./git-remote";
 import { type GraphSeed, seedGraph } from "./graph-store";
 import type { CommandResult, Runner } from "./runner";
 import { type Claim, type Ticket, ticketId } from "./ticket";
-import type { ReadDegrade, TicketRead, TicketSetRead } from "./ticket-set-read";
+import { type ReadDegrade, type TicketRead, type TicketSetRead, ticketRead } from "./ticket-set-read";
 import { GITHUB_HOST, type TicketRef, formatTicketRef, githubTicketTarget, isGitHubHost, isValidRepoPath } from "./ticket-ref";
 
 export class GitHubAdapterError extends Error {}
@@ -105,7 +105,8 @@ export interface GitHubTicketReadInput {
  * both for the same reason, and the message is what says which it was.
  *
  * @throws GitHubAdapterError on a reference no GitHub command can act on, a call that failed either way, a
- * response that is not one issue object, and one answering about a different issue than was named.
+ * response that is not one issue object or whose shape cannot be read, and one answering about a different issue
+ * than was named.
  * @throws CommandBuilderError when the reference's key is not a canonical issue number, unwrapped for the
  * reason `github-claim.ts` leaves the claim's unwrapped: the stack names the builder, per ADR-0032.
  */
@@ -125,13 +126,19 @@ export function readGitHubTicket(input: GitHubTicketReadInput): TicketRead {
 		throw new GitHubAdapterError(`reading ${named} answered about issue ${reading.ticket.ref.key}`);
 	}
 
-	const { graph, contradicted } = graphForOne(reading);
+	const { seeds, contradicted } = blockerSeeds([reading.edges], new Set([ticketId(reading.ticket.ref)]));
 	const degraded: ReadDegrade[] = [];
 	if (reading.edges === "unknown") degraded.push({ kind: "unreadable-blocking", tickets: 1, of: 1 });
 	if (reading.edges === "partial") degraded.push({ kind: "partial-blocking", refs: [reading.ticket.ref] });
 	if (contradicted.length > 0) degraded.push({ kind: "contradicted-blocker", refs: contradicted });
 
-	return { ticket: reading.ticket, graph, degraded };
+	// Through `ticketRead` rather than seeding the graph here, so this adapter cannot state one blocking answer in
+	// the ticket and a different one in the graph — the reason that constructor exists.
+	return ticketRead({
+		ticket: reading.ticket,
+		blockers: seeds.map((seed) => ({ ref: refOf(seed.id, reading.edges), open: seed.open })),
+		degraded,
+	});
 }
 
 /**
@@ -161,23 +168,17 @@ function readOneRow(stdout: string, named: string): Record<string, unknown> {
 	return raw as Record<string, unknown>;
 }
 
-/** The graph over one ticket: its own seed, plus one per blocker its edges named. */
-function graphForOne(reading: RowReading): GraphReading {
-	const id = ticketId(reading.ticket.ref);
-	const { seeds, contradicted } = blockerSeeds([reading.edges], new Set([id]));
-	return {
-		graph: seedGraph([
-			{
-				id,
-				// Containment is not a blocking channel (ADR-0017), so the walk stops at one hop here as it does there.
-				parent: null,
-				blockers: reading.ticket.blockers === "unknown" ? "unknown" : reading.ticket.blockers.map(ticketId),
-				open: reading.ticket.state === "open",
-			},
-			...seeds,
-		]),
-		contradicted,
-	};
+/**
+ * The reference a seeded blocker id stands for, recovered from the edges that named it.
+ *
+ * `GraphSeed` carries the id rather than the reference, and `ticketRead` needs the reference to key the same id
+ * again — so this maps back rather than having `blockerSeeds` return both, which would make the set read carry a
+ * field only this caller reads. The lookup cannot miss: every id in `seeds` came from one of these edges.
+ */
+function refOf(id: IssueId, edges: EdgeReading): TicketRef {
+	const found = typeof edges === "string" ? undefined : edges.find((edge) => ticketId(edge.ref) === id);
+	if (found === undefined) throw new GitHubAdapterError(`the graph seeded ${id}, which no edge of the ticket named`);
+	return found.ref;
 }
 
 /**

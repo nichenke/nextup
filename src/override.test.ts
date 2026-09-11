@@ -1,10 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { seedGraph } from "./graph-store";
 import { type Override, clearedByForce, decideOverride } from "./override";
 import type { Ticket } from "./ticket";
-import { ticketId } from "./ticket";
 import type { TicketRef } from "./ticket-ref";
-import type { TicketRead } from "./ticket-set-read";
+import { type TicketRead, ticketRead } from "./ticket-set-read";
 
 const REPO = "example/repo";
 
@@ -26,27 +24,20 @@ function ticket(fields: Partial<Ticket> = {}): Ticket {
 }
 
 /**
- * A read of one ticket, with a graph seeded the way the adapter seeds one: the ticket itself, plus a seed per
- * blocker its edges named carrying that blocker's own openness.
+ * A read of one ticket, built the way every adapter has to build one — so no fixture here can state a blocking
+ * answer in the ticket that the graph contradicts. `ticketRead`'s own docstring has why that matters.
  */
 function read(one: Ticket, blockers: readonly { readonly ref: TicketRef; readonly open: boolean }[] = []): TicketRead {
-	return {
-		ticket: one,
-		graph: seedGraph([
-			{ id: ticketId(one.ref), parent: null, blockers: blockers.map((blocker) => ticketId(blocker.ref)), open: one.state === "open" },
-			...blockers.map((blocker) => ({ id: ticketId(blocker.ref), parent: null, blockers: "unknown" as const, open: blocker.open })),
-		]),
-		degraded: [],
-	};
+	return ticketRead({ ticket: one, blockers, degraded: [] });
 }
 
 /** A read whose blocking field did not answer, which is `Unknown` rather than either of the other two states. */
 function unreadableBlocking(one: Ticket = ticket()): TicketRead {
-	return {
+	return ticketRead({
 		ticket: { ...one, blockers: "unknown" },
-		graph: seedGraph([{ id: ticketId(one.ref), parent: null, blockers: "unknown", open: one.state === "open" }]),
+		blockers: [],
 		degraded: [{ kind: "unreadable-blocking", tickets: 1, of: 1 }],
-	};
+	});
 }
 
 function kinds(override: Override): readonly string[] {
@@ -61,11 +52,21 @@ describe("decideOverride, without --force", () => {
 		expect(override.target.blocked).toBe("unblocked");
 	});
 
-	// Unknown is not blocked, and the ranking path recommends an unknown candidate when nothing confirmed is
-	// left — so refusing one here would make the override stricter than the ladder it overrides. ADR-0037.
+	// ADR-0037: `Unknown` is not blocked, so refusing one here would make the override stricter than the
+	// ladder it overrides.
 	test("starts a ticket whose blocking state the tracker could not report, saying that is what it is", () => {
 		const override = decideOverride({ read: unreadableBlocking(), force: false });
 		expect(override.kind).toBe("startable");
+		expect(override.target.blocked).toBe("unknown");
+	});
+
+	// The collapse `CONTEXT.md` forbids, attempted through the constructor: a ticket whose blockers were never
+	// read cannot come back confirmed, whatever openness a caller hands alongside it.
+	test("cannot be built to confirm a ticket whose blockers were never read", () => {
+		const override = decideOverride({
+			read: ticketRead({ ticket: ticket({ blockers: "unknown" }), blockers: [{ ref: ref("2"), open: false }], degraded: [] }),
+			force: false,
+		});
 		expect(override.target.blocked).toBe("unknown");
 	});
 
@@ -78,8 +79,7 @@ describe("decideOverride, without --force", () => {
 		expect(override.refusals[0]).toEqual({ kind: "blocked", blockers: [blocker] });
 	});
 
-	// A list including the satisfied edge would send a reader to a closed ticket for the reason their work is
-	// held up; the tree's `mixed-blockers` shape is this, one closed blocker beside an open one.
+	// The tree's `mixed-blockers` shape is this: one closed blocker beside an open one.
 	test("names only the blockers that are open, not every edge the ticket carries", () => {
 		const open = ref("2");
 		const closed = ref("3");
@@ -101,8 +101,6 @@ describe("decideOverride, without --force", () => {
 		expect(override.refusals[0]).toEqual({ kind: "claimed", by: "someone" });
 	});
 
-	// A tracker can record that a ticket is claimed without recording who; reading that as unclaimed is what
-	// `Claim` exists to make unavailable.
 	test("refuses a claim recording no claimant, rather than reading it as unclaimed", () => {
 		const override = decideOverride({ read: read(ticket({ claim: { by: null } })), force: false });
 		expect(kinds(override)).toEqual(["claimed"]);

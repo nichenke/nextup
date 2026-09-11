@@ -192,7 +192,10 @@ function readDegradeReason(degrade: ReadDegrade): string {
 			// population: a ticket held back for partial blocking is a row that was read and is not a ticket.
 			return `${degrade.tickets} of ${degrade.of} rows read did not report their blockers, so nothing confirms them unblocked`;
 		case "partial-blocking":
-			return `held out of the answer, because only a page of their blockers arrived: ${refList(degrade.refs)}`;
+			// Not "held out of the answer": a set read does hold these out, and a single-ticket read returns the one
+			// ticket it was asked about — so a wording naming either consequence is false on the other path, and this
+			// one reaches the override path's gate, where the run is about to start the ticket it describes.
+			return `only a page of their blockers arrived, so nothing confirms them unblocked: ${refList(degrade.refs)}`;
 		case "contradicted-blocker":
 			return `read as unknown blockers, because the edges naming them disagreed about their state: ${refList(degrade.refs)}`;
 	}
@@ -246,8 +249,9 @@ function heldBackCount(selection: Selection): number {
  * an unknown pick like a confirmed one would be that collapse, at the one place a person decides. Shared
  * rather than written twice, so the two cannot come to describe one ticket differently.
  *
- * Not "blocking confirmed", the only string here a reader could take to mean confirmed *blocked* — on the
- * line recommending the ticket, above a counts line that says how many are.
+ * "blocking confirmed" is the rejected wording for the unblocked arm: on a line recommending a ticket, above a
+ * counts line saying how many are blocked, a reader can take it to mean confirmed *blocked*. The blocked arm says
+ * so outright, and is reachable only from the override path, which is the one path that can start such a ticket.
  *
  * All three states, though a `Candidate` carries only two: the override path can start a ticket that is
  * confirmed blocked, and wording that one here is what keeps the gate's line from being written twice. The

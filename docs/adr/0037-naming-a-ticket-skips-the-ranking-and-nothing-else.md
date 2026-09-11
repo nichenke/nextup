@@ -15,8 +15,16 @@ happen.
 What stays is every check about whether the work can be started at all:
 
 - **Closed.** There is no work to start.
-- **Claimed.** Somebody is already on it.
+- **Claimed.** Somebody is on it — possibly you. ADR-0018 rules out the identity lookup that would tell
+  the two apart, so resuming a ticket you already claimed takes `--force`, and the refusal names the
+  claimant rather than asserting it is somebody else.
 - **Blocked.** A blocker is confirmed open.
+
+And one the override adds, because only this path can reach it: the ticket has to be in the repository
+the command was invoked in. `ensure` builds the worktree in that checkout while the claim goes wherever
+the reference names, so a ticket from elsewhere would be claimed there and worked on here — which is
+exactly what `CliDeps.cwd` exists to prevent. A pasted URL from another repository is the ordinary way
+to reach it, so the refusal is worth its own check rather than a note.
 
 Naming a ticket by hand is exactly the path where the frontier query is bypassed, so these are the
 checks that matter most here rather than least. `CONTEXT.md`'s **Unknown** is not among them: a ticket
@@ -45,9 +53,10 @@ Skipping the blocked check is a judgment a person is entitled to make; skipping 
 the work invisible to the next session, which is the one thing the claim exists to prevent. So the
 write order is unchanged — worktree, claim, session — and `--force` changes nothing about it.
 
-The claim is additive on every tracker here: `--add-assignee` adds rather than replaces. Forcing past
-an existing claim therefore leaves both names on the ticket, which is the honest record of what
-happened and is visible to whoever held it first.
+The claim is additive on the one tracker implemented: `gh issue edit --add-assignee` adds rather than
+replaces. Forcing past an existing claim therefore leaves both names on the ticket, which is the honest
+record of what happened and is visible to whoever held it first. A tracker whose claim replaced one
+would need this decided again.
 [ADR-0018](./0018-concurrent-claim-arbitration-is-out-of-scope.md) still applies — nothing arbitrates,
 and a second name is a report rather than a resolution.
 
@@ -63,8 +72,8 @@ So `readGitHubTicket` is a single-issue read of the same projection
 (`GITHUB_TICKET_FIELDS`), parsed by the same row reader. `gh issue view` carries no state filter, so
 a closed ticket comes back as a closed ticket and the refusal can say so. The key is guarded the way
 [ADR-0032](./0032-the-claim-refuses-two-shapes-a-zero-exit-would-not-warn-about.md) guards the
-claim's: `gh` normalizes `037` to issue 37 while `compareTicketRefs` treats the two as different
-tickets, so a padded key would read one issue under a reference naming another.
+claim's, against the normalization measured there, so a padded key cannot read one issue under a
+reference naming another.
 
 A reference naming a tracker this has no adapter for — `glab:`, `jira:` — is refused here rather than
 read. The spec brings both in later, GitLab first and Jira override-only.
@@ -76,13 +85,24 @@ reference alone, so there is nothing for a tracker read to contribute. Not readi
 sandbox-safe path the spec calls it — usable with no credentials and no network — at the cost that it
 cannot tell you the ticket is blocked. The checks gate writes, and this writes nothing.
 
+Reading nothing is not accepting anything, though. The reference is still resolved and put through
+`githubTicketTarget` and the key guard: without that, this is the one path that prints a session command
+for a tracker there is no adapter for, or for a padded key every other path refuses — and what it prints
+is meant to be pasted and run.
+
+So "no network" is the short form's property, not the flag's. Resolving reads this checkout's git remote,
+and a pasted URL asks the tracker CLIs which hosts they are authenticated to, because that is what
+identifies the tracker. Neither is a ticket read, and neither needs a credential for the tracker itself.
+
 ## Consequences
 
 A page of blockers reads as `unknown` here rather than holding the ticket out. `readEdges` returns
 `"partial"` without the retained edges, and the set read's answer to that is to drop the ticket from
 the answer entirely — which on this path would be a refusal of the one ticket the operator named. So
-the graph is seeded `"unknown"`, the state reads unknown, and a `degraded: ` line says only a page
-arrived.
+the graph is seeded `"unknown"`, the state reads unknown, and a `degraded: ` line says only a page of
+its blockers arrived, so nothing confirms it unblocked. That wording is shared with the set read and
+therefore names neither path's consequence — the set read holds such a ticket out of its answer, and
+here the ticket is the answer, so a line saying either would be false on the other path.
 
 The cost is that a retained edge naming a confirmed-open blocker no longer reads as blocked, so such a
 ticket starts without `--force` and reports `blockers unknown` while being blocked in fact. Making

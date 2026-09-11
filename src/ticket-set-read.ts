@@ -1,5 +1,6 @@
 import type { DependencyGraph } from "./effective-blockedness";
-import type { Ticket } from "./ticket";
+import { seedGraph } from "./graph-store";
+import { type Ticket, ticketId } from "./ticket";
 import type { TicketRef } from "./ticket-ref";
 
 /**
@@ -17,7 +18,11 @@ import type { TicketRef } from "./ticket-ref";
 export type ReadDegrade =
 	| { readonly kind: "outage"; readonly detail: string }
 	| { readonly kind: "unreadable-blocking"; readonly tickets: number; readonly of: number }
-	/** Tickets held out of the answer because only a page of their blockers arrived — never recommended. */
+	/**
+	 * Tickets whose blocker list arrived as one page of a longer one. A set read holds these out of its answer, so
+	 * none is ever recommended; a single-ticket read returns the ticket with its blocking state unknown, because
+	 * that ticket is the answer — ADR-0037.
+	 */
 	| { readonly kind: "partial-blocking"; readonly refs: readonly TicketRef[] }
 	| { readonly kind: "contradicted-blocker"; readonly refs: readonly TicketRef[] };
 
@@ -32,6 +37,8 @@ export type ReadDegrade =
  * The ticket is always here, whatever its blocking field said. A set read holds a ticket out of the answer
  * when only a page of its blockers arrived; doing that here would refuse the one ticket the operator named,
  * so the graph is seeded unknown and `degraded` says a page is what came back — ADR-0037.
+ *
+ * Build one with `ticketRead` rather than by hand, which is what keeps the two halves agreeing.
  */
 export interface TicketRead {
 	readonly ticket: Ticket;
@@ -39,6 +46,56 @@ export interface TicketRead {
 	readonly graph: DependencyGraph;
 	/** Every way this read answered with less than it was asked, already reflected in `ticket` or in `graph`. */
 	readonly degraded: readonly ReadDegrade[];
+}
+
+/** One blocker's own openness, as the edge naming it carried; `"unknown"` where nothing confirmed it. */
+export interface BlockerOpenness {
+	readonly ref: TicketRef;
+	readonly open: boolean | "unknown";
+}
+
+/**
+ * One read of a named ticket, with the graph built from the ticket rather than beside it.
+ *
+ * This exists because `TicketRead`'s two halves can otherwise disagree, and one disagreement is the collapse
+ * `CONTEXT.md` forbids: a ticket carrying `blockers: "unknown"` beside a graph seeding that same node `[]`
+ * derives `unblocked`, and the override path then prints "blockers confirmed closed" over a read that confirmed
+ * nothing. Seeding the ticket's own node from `ticket.blockers` here makes that unreachable for every adapter
+ * and every test fixture, the way `seedGraph` makes an unread relation unreachable as `[]`.
+ *
+ * A blocker the ticket names but `blockers` does not carry an openness for reads `"unknown"`, which is the
+ * honest answer: the edge arrived without its state, or never arrived at all.
+ *
+ * @throws Error from `seedGraph` when two of `blockers` land on one graph id, which means the references do not
+ * distinguish what they name.
+ */
+export function ticketRead(input: {
+	readonly ticket: Ticket;
+	readonly blockers: readonly BlockerOpenness[];
+	readonly degraded: readonly ReadDegrade[];
+}): TicketRead {
+	const id = ticketId(input.ticket.ref);
+	return {
+		ticket: input.ticket,
+		graph: seedGraph([
+			{
+				id,
+				// Containment is not a blocking channel (ADR-0017), so the traversal's ancestor walk stops at one hop.
+				parent: null,
+				blockers: input.ticket.blockers === "unknown" ? "unknown" : input.ticket.blockers.map(ticketId),
+				open: input.ticket.state === "open",
+			},
+			// Its own blockers were never read, and saying so is the point: a closed one is pruned before they are
+			// consulted, and an open one blocks on its own.
+			...input.blockers.filter((blocker) => ticketId(blocker.ref) !== id).map((blocker) => ({
+				id: ticketId(blocker.ref),
+				parent: null,
+				blockers: "unknown" as const,
+				open: blocker.open,
+			})),
+		]),
+		degraded: input.degraded,
+	};
 }
 
 /**

@@ -65,8 +65,8 @@ not catch it and the diff is the only control.
 
 Three of the thirteen captures write rather than read: the claim landing on `write-target`, a claim naming an
 issue the tree does not have, and a claim against an unresolvable host. They come last, and the run releases
-`write-target` on the way out, including out of a capture that threw, because every read capture above recorded
-it unassigned. A release that itself fails says so **and fails the run**, so a stray claim cannot be mistaken
+`write-target` on the way out, including out of a capture that threw, because every capture that read the whole
+tree recorded it unassigned. A release that itself fails says so **and fails the run**, so a stray claim cannot be mistaken
 for a clean capture.
 
 Interrupting the run is the gap: a `finally` does not cover Ctrl-C or a kill. An interrupted run cannot quietly

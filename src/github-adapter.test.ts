@@ -601,8 +601,6 @@ describe("readGitHubTicket, over a single named ticket", () => {
 		expect(read.degraded).toEqual([]);
 	});
 
-	// The whole reason this is its own call rather than a lookup in the set read, which asks for open tickets
-	// only and so can answer about this ticket at all — ADR-0037.
 	test("answers about a closed ticket, which the set read cannot return", () => {
 		const read = viewing("ticket-view-closed");
 		expect(read.ticket.title).toBe(shapeTitle(GITHUB_TEST_TREE, "closed-blocker"));
@@ -634,11 +632,6 @@ describe("readGitHubTicket, over a single named ticket", () => {
 		expect(refused).toThrow(/retry will not fix/);
 	});
 
-	/**
-	 * An outage aborts here where the set read degrades past one. The set read has an answer to give with less
-	 * in it; this read's whole answer is the one ticket, so there is nothing to continue with — the same
-	 * reasoning `claimGitHubTicket` states for a failed write.
-	 */
 	test("aborts on an outage, saying which failure it was rather than degrading to an answer it does not have", () => {
 		const refused = () =>
 			readGitHubTicket({
@@ -672,10 +665,7 @@ describe("readGitHubTicket, over a single named ticket", () => {
 		expect(answering(JSON.stringify([issueRow()]))).toThrow(/one issue/);
 	});
 
-	/**
-	 * A page of blockers reads as unknown here rather than holding the ticket out of the answer, because the
-	 * ticket *is* the answer — ADR-0037, which also names what that costs.
-	 */
+	// ADR-0037, which also names what that costs.
 	test("reads a page of blockers as unknown, and says a page is what arrived", () => {
 		const runner: Runner = () => ({
 			code: 0,

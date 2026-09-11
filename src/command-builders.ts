@@ -328,9 +328,11 @@ export function githubIssueViewCommand(input: GitHubIssueCommandInput): readonly
  * bare `0` as much as non-digits.
  *
  * `gh` normalizes `037` to issue 37 while `compareTicketRefs` treats the two as different tickets, so a padded
- * key would act on one issue under a reference naming another and exit 0. Measured on both subcommands that
- * take one: ADR-0032 for `gh issue edit`, and `gh issue view --json number -- 012` answering `{"number":12}`
- * on gh 2.100.0. `--` does not help — it stops flag parsing, not number normalization.
+ * key would act on one issue under a reference naming another and exit 0. Measured on the read both times:
+ * ADR-0032 records `gh issue view --repo <repo> -- 022` answering issue 22, and the `--json` form answers
+ * `{"number":12}` for `-- 012` on gh 2.100.0. Not measured on `gh issue edit`, which shares the parser — and
+ * that inference is exactly why one guard covers both rather than each trusting its own subcommand. `--` does
+ * not help: it stops flag parsing, not number normalization.
  */
 function issueWord(key: string): string {
 	if (!/^[1-9][0-9]*$/.test(key)) {
@@ -350,8 +352,8 @@ export type GitHubClaimCommandInput = GitHubIssueCommandInput;
  *
  * The key goes last, after `--`, so that no spelling of it can be read as a flag rather than as the issue.
  *
- * @throws CommandBuilderError when `key` is not a canonical issue number, for the reason `issueWord` gives —
- * ADR-0032 is where that was measured of this subcommand.
+ * @throws CommandBuilderError when `key` is not a canonical issue number, for the reason `issueWord` gives.
+ * ADR-0032 has why a write refuses it here rather than sending it and reading the exit status.
  */
 export function githubClaimCommand(input: GitHubClaimCommandInput): readonly string[] {
 	return ["gh", "issue", "edit", "--repo", input.repo, "--add-assignee", "@me", "--", issueWord(input.key)];

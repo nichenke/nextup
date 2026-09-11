@@ -1,4 +1,12 @@
-import { type Argv, CommandBuilderError, DEFAULT_SLASH_COMMAND, WORKSPACE_HOST, formatCommand, isSlashCommand } from "./command-builders";
+import {
+	type Argv,
+	CommandBuilderError,
+	DEFAULT_SLASH_COMMAND,
+	WORKSPACE_HOST,
+	formatCommand,
+	githubIssueViewCommand,
+	isSlashCommand,
+} from "./command-builders";
 import type { BlockedState } from "./effective-blockedness";
 import { GitHubAdapterError, isReadableLimit, readGitHubTicket, readGitHubTicketSet } from "./github-adapter";
 import { GitHubClaimError, claimGitHubTicket } from "./github-claim";
@@ -9,9 +17,10 @@ import {
 	type LabelFilterSpec,
 	compileLabelFilter,
 } from "./label-filter";
+import { resolveOriginRemote } from "./git-remote";
 import { LaunchError, launch, planLaunch, requireSessionBinary, requireWorkspaceHost } from "./launcher";
 import { decideOverride } from "./override";
-import { type OverrideAnswer, forcedCaveats, overrideJson, renderOverride, renderRefusal } from "./override-output";
+import { type OverrideAnswer, forcedCaveats, overrideJson, renderForced, renderOverride, renderRefusal } from "./override-output";
 import type { Runner } from "./runner";
 import {
 	type Answer,
@@ -24,7 +33,7 @@ import {
 } from "./selection-output";
 import { SelectionError, select } from "./selector";
 import type { Ticket } from "./ticket";
-import { type TicketRef, TicketRefError, formatTicketRef, resolveTicketRef } from "./ticket-ref";
+import { type TicketRef, TicketRefError, formatTicketRef, githubTicketTarget, resolveTicketRef } from "./ticket-ref";
 import { WorktreeError, type WorktreeOutcome, ensure } from "./worktree";
 import { renderWorktree } from "./worktree-output";
 
@@ -94,10 +103,16 @@ refused, with every failed check named. --force starts past a claimed or blocked
 closed ticket — reopen that instead. A ticket whose blocking state the tracker could not report is not
 blocked and needs no flag; the pick's own line says which of the three it is.
 
+A named ticket has to live in the repository you are standing in, and one from anywhere else is refused:
+the claim would land there while the worktree and the session were made here.
+
 The flags that describe a ticket set — --include, --exclude, --limit — are refused beside a named ticket
-rather than ignored, since no set is read. --force without one is refused for the same reason. With a
-named ticket, --print-command reads no tracker at all: it writes nothing, so there is nothing to check,
-and it stays usable with no credentials.
+rather than ignored, since no set is read. --force is refused without a named ticket, and also beside
+--print-command, which runs no check for it to clear.
+
+With a named ticket, --print-command reads no ticket, so it cannot tell you that one is blocked. It does
+still resolve the reference — which reads this checkout's git remote, and for a pasted URL asks the gh and
+glab CLIs which hosts they are authenticated to, since that is what says which tracker a URL belongs to.
 
 A label may end in "*" to match a prefix. These exclusions always apply and --exclude adds to them
 rather than replacing them: 'wayfinder:*', so the planning and delivery tracks cannot compete for
@@ -220,17 +235,27 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
  * A run on the ticket the operator named: read that ticket, apply the checks, and start it. The ranking is not
  * consulted and neither is the label filter, because both decide what may be *recommended* — ADR-0037.
  *
- * The refusal is exit 2 rather than the 1 that means nothing to recommend: a named ticket that cannot be started
- * is a thing for a person to act on, and there was never a recommendation to be absent. A read that failed is
- * the same status for the same reason — the one ticket was the whole answer, so there is no degraded one to give.
+ * Neither a refusal nor a failed read is ever the 1 that means nothing to recommend, for the reason `USAGE` gives.
  */
 function runNamed(ref: TicketRef, options: Options, deps: CliDeps): CliResult {
+	// Before the print branch too, because what that prints is a line to paste and run in this checkout.
+	try {
+		requireTicketInThisCheckout(ref, deps);
+	} catch (cause) {
+		return failedStart(cause);
+	}
+
 	if (options.printCommand) {
-		// Starts nothing, creates nothing and claims nothing, and the command follows from the reference alone, so
-		// this reads no tracker and cannot refuse — ADR-0037, which is also why that costs nothing worth having.
+		// Starts nothing, creates nothing and claims nothing, so it reads no tracker — ADR-0037. The reference is
+		// still checked, because "reads nothing" is not "accepts anything": without this, a `jira:` reference or a
+		// padded key prints a command every other path refuses, and the refusal is pure and reads nothing either.
+		const target = githubTicketTarget(ref);
+		if (target.kind === "refused") return usageError(new CliError(target.reason));
 		try {
+			githubIssueViewCommand(target);
 			return namedResult({ kind: "printed", command: planLaunch({ ref, slashCommand: options.slashCommand }).command }, null, options);
 		} catch (cause) {
+			if (cause instanceof CommandBuilderError) return usageError(new CliError(cause.message));
 			return failedStart(cause);
 		}
 	}
@@ -250,10 +275,15 @@ function runNamed(ref: TicketRef, options: Options, deps: CliDeps): CliResult {
 
 	const override = answer.override;
 	if (override.kind === "refused") {
-		return { code: 2, stdout: "", stderr: renderRefusal(override.refusals, override.target) };
+		// Under --json this is an answer rather than a failure: the checks ran and said no, so a consumer gets the
+		// same document a started run gets, and the exit status is what tells the two apart. The human form keeps
+		// the prose on stderr, where every other refusal this command makes is written.
+		return options.json
+			? { ...namedResult(null, answer, options), code: 2 }
+			: { code: 2, stdout: "", stderr: renderRefusal(answer) };
 	}
 
-	let start: StartOutcome;
+	let start: StartedSomething;
 	try {
 		start = startPick(
 			{
@@ -271,24 +301,41 @@ function runNamed(ref: TicketRef, options: Options, deps: CliDeps): CliResult {
 }
 
 /**
- * What a named run wrote, and what it did about the ticket — `null` where `--print-command` answered before
- * anything was read, so the override block is absent rather than reported empty.
+ * What a named run decided and what it wrote, as one result. Either half may be missing, and each says so as an
+ * explicit `null` rather than a dropped key, the way `selectionJson` does and for the same reason: `answer` is
+ * null where `--print-command` answered before anything was read, and `start` is null where a refusal stopped the
+ * run before the writes. Neither is ever reported as an empty version of itself.
+ *
+ * `start` cannot be `nothing-to-start`: that arm means the ladder had nothing to recommend, and a named ticket is
+ * what there was to start. Excluding it is what makes `USAGE`'s "a named ticket is never 1" a type fact.
  *
  * `readDegraded` sits at the same key the ranked answer puts it at, so one consumer reads both paths.
  */
-function namedResult(start: StartOutcome, answer: OverrideAnswer | null, options: Options): CliResult {
+function namedResult(start: StartedSomething | null, answer: OverrideAnswer | null, options: Options): CliResult {
 	const json = {
 		override: answer === null ? null : overrideJson(answer.override),
 		readDegraded: answer === null ? [] : readDegradedJson(answer.readDegraded),
-		start: startJson(start),
+		start: start === null ? null : startJson(start),
 	};
 	return {
 		code: 0,
 		stdout: options.json
 			? `${JSON.stringify(json, null, "\t")}\n`
-			: `${answer === null ? "" : renderOverride(answer)}${renderStart(start)}`,
+			: `${answer === null ? "" : renderOverride(answer)}${forced(start, answer)}${start === null ? "" : renderStart(start)}`,
 		stderr: "",
 	};
+}
+
+/** A `StartOutcome` from a run that had something to start, which every named run has by construction. */
+type StartedSomething = Exclude<StartOutcome, { readonly kind: "nothing-to-start" }>;
+
+/**
+ * What a `--force` cleared, reported only by a run that went through with it — `renderForced` has why a declined
+ * run must not claim to have forced anything, and the gate is where that run was told instead.
+ */
+function forced(start: StartedSomething | null, answer: OverrideAnswer | null): string {
+	if (answer === null || start === null || start.kind !== "requested") return "";
+	return renderForced(answer.override);
 }
 
 /**
@@ -337,9 +384,9 @@ function startWork(answer: Answer, options: Options, deps: CliDeps): StartOutcom
 }
 
 /**
- * The ticket a run is about to start, reduced to what starting it needs — whichever path chose it. The ranking
- * path's pick and the override path's target have nothing else in common: one carries a runner-up and a rung,
- * the other the checks a `--force` cleared, and neither belongs in the write sequence below.
+ * The ticket a run is about to start, reduced to what starting it needs — whichever path chose it. The two paths
+ * agree on nothing else: one arrives beside a `Decision` naming the rung and the runner-up, the other beside the
+ * `Override.forced` a `--force` cleared, and neither belongs in the write sequence below.
  */
 interface StartPick {
 	readonly ticket: Pick<Ticket, "ref" | "title" | "labels">;
@@ -350,7 +397,7 @@ interface StartPick {
 }
 
 /** The refusals, the gate, and then the three writes. `startWork`'s own comment is the contract for all of it. */
-function startPick(pick: StartPick, options: Options, deps: CliDeps): StartOutcome {
+function startPick(pick: StartPick, options: Options, deps: CliDeps): StartedSomething {
 	const ref = pick.ticket.ref;
 	// Built first, so the one input that can fail without touching anything fails while that is still true.
 	const { command } = planLaunch({ ref, slashCommand: options.slashCommand });
@@ -635,6 +682,37 @@ function parse(argv: readonly string[]): Options {
 	};
 }
 
+/**
+ * Refuses a named ticket that lives somewhere other than the checkout the command was invoked in.
+ *
+ * The two writes would otherwise go to different repositories: `ensure` builds the worktree in `deps.cwd`, and the
+ * claim lands wherever the reference names — so naming another repository's ticket claims it there while the
+ * worktree and the session are made here, which is the outcome `CliDeps.cwd` exists to prevent. The branch name
+ * carries only the key besides, so the worktree could collide with this repository's own ticket of that number.
+ *
+ * A bare short form can never trip this, because it was resolved from this remote; an explicit `repo#number` and a
+ * pasted URL can. Checked for `--print-command` too, which prints a line meant to be pasted and run.
+ *
+ * A `StartError` rather than a usage error, though a reference is what triggers it: the remedy is to run the
+ * command somewhere else, not to spell the line differently, and the usage beside it would bury that.
+ *
+ * @throws StartError when the reference names another repository, and when the remote cannot be resolved at all —
+ * the second because a reference that may or may not belong here is not one to start work on.
+ */
+function requireTicketInThisCheckout(ref: TicketRef, deps: CliDeps): void {
+	if (ref.repo === null) return;
+	const origin = resolveOriginRemote(deps.runner);
+	if (origin === null) {
+		throw new StartError(
+			`${formatTicketRef(ref)} names a repository, and this checkout's own remote could not be resolved to compare it against, so nothing was started`,
+		);
+	}
+	if (origin.repo === ref.repo) return;
+	throw new StartError(
+		`${formatTicketRef(ref)} is in ${ref.repo} and this checkout is ${origin.repo}, so nothing was started — the worktree and the session would be made here while the claim landed there. Run this inside ${ref.repo} instead.`,
+	);
+}
+
 /** The flags each path has no use for, which every one of the three describes a ticket set or the override. */
 const ABOUT_THE_SET: readonly string[] = ["--limit", "--include", "--exclude"];
 
@@ -657,6 +735,10 @@ function requireFlagsThatApply(named: string | null, given: ReadonlySet<string>)
 		throw new CliError(
 			`${aboutTheSet.join(" and ")} describe the ticket set a run ranks, and naming ${named} reads no set at all`,
 		);
+	}
+	// Same rule as above, one path along: --print-command runs no check, so there is nothing for --force to clear.
+	if (given.has("--force") && given.has("--print-command")) {
+		throw new CliError("--print-command runs no check on the named ticket, so --force has nothing to clear");
 	}
 }
 

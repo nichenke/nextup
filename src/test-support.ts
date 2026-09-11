@@ -83,6 +83,9 @@ function responseOf(recording: Recording): CommandResult {
  * Deliberately not taken from the recording's own argv, for the reason `github-claim.test.ts` gives about the
  * claim — `replayRunner` answers only the argv it captured, so a key read off that argv would match by
  * construction and assert nothing about what the read asks for.
+ *
+ * @throws RecordingError when the recording's response names no issue number, which means it is not a
+ * single-ticket read.
  */
 export function recordedIssue(recording: Recording): string {
 	const number = (JSON.parse(recording.stdout) as { number?: unknown }).number;

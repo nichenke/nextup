@@ -21,9 +21,8 @@ export interface OverrideAnswer {
 /**
  * The named ticket and what starting it takes, as the lines printed before the start's own.
  *
- * No counts line, no deciding rung: nothing was ranked, so there is no ticket set to account for and no
- * runner-up to have beaten — ADR-0037. What replaces them is the line saying the ranking was skipped, because
- * a reader who sees a ticket they did not expect needs to know which path chose it.
+ * No counts line and no deciding rung — ADR-0037. What replaces them is the line saying the ranking was
+ * skipped, because a reader who sees a ticket they did not expect needs to know which path chose it.
  */
 export function renderOverride(answer: OverrideAnswer): string {
 	const { target } = answer.override;
@@ -32,11 +31,20 @@ export function renderOverride(answer: OverrideAnswer): string {
 	lines.push("  named directly, so the ranking was not consulted");
 	lines.push(`  ${blockingPhrase(target)}, ${claimPhrase(target.ticket)}`);
 	lines.push("");
-	if (answer.override.kind === "startable") {
-		for (const refusal of answer.override.forced) lines.push(forcedLine(refusal));
-	}
 	for (const caveat of readCaveats(answer.readDegraded)) lines.push(degradedLine(caveat));
 	return `${lines.join("\n")}\n`;
+}
+
+/**
+ * What `--force` cleared, one greppable line each, for a run that went through with it.
+ *
+ * Separate from `renderOverride` because the decision is not the outcome: a run whose gate was declined cleared
+ * nothing, and printing these beside "was not started" contradicted it on the next line — while `FORCED_PREFIX`
+ * promises that line marks a forced start. The caller emits these only for a run that started.
+ */
+export function renderForced(override: Override): string {
+	if (override.kind !== "startable") return "";
+	return override.forced.map((refusal) => `${forcedLine(refusal)}\n`).join("");
 }
 
 /**
@@ -45,10 +53,15 @@ export function renderOverride(answer: OverrideAnswer): string {
  * The advice is decided by `clearedByForce` rather than written per kind, so a refusal cannot offer `--force`
  * for something the flag does not reach — which is the one wrong thing this message could say.
  */
-export function renderRefusal(refusals: NonEmpty<Refusal>, target: Target): string {
-	const what = formatTicketRef(target.ticket.ref);
-	const reasons = refusals.map((refusal) => `  ${refusalReason(refusal)}`).join("\n");
-	return `${what} was not started, and nothing was claimed or created:\n${reasons}\n${advice(refusals)}\n`;
+export function renderRefusal(answer: OverrideAnswer): string {
+	const override = answer.override;
+	if (override.kind !== "refused") return "";
+	const what = formatTicketRef(override.target.ticket.ref);
+	const reasons = override.refusals.map((refusal) => `  ${refusalReason(refusal)}`).join("\n");
+	// The read's degrades come too: without them a refusal advises forcing past a claim while saying nothing about
+	// a blocking read that arrived incomplete, which is the one caveat that changes whether forcing is wise.
+	const caveats = readCaveats(answer.readDegraded).map((caveat) => `${degradedLine(caveat)}\n`);
+	return `${what} was not started, and nothing was claimed or created:\n${reasons}\n${caveats.join("")}${advice(override.refusals)}\n`;
 }
 
 function advice(refusals: NonEmpty<Refusal>): string {
@@ -80,8 +93,6 @@ function refusalReason(refusal: Refusal): string {
 		case "closed":
 			return "closed, so there is no work to start";
 		case "claimed":
-			// A tracker can record a claim without recording whose, and reading that as unclaimed is what `Claim`
-			// exists to prevent — so the absence is stated rather than left to an empty name.
 			return refusal.by === null ? "claimed, by a claimant the tracker did not name" : `claimed by ${refusal.by}`;
 		case "blocked":
 			return `blocked by ${refusal.blockers.map(formatTicketRef).join(", ") || "a blocker that is open"}`;

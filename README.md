@@ -42,8 +42,16 @@ not reach a closed ticket: that is the tracker saying the work is done, so the r
 the named ticket is read by its own single-issue call rather than looked up inside the set read, and why
 `--print-command` on a named ticket reads no tracker at all.
 
-A ticket whose blocking state the tracker could not report is not blocked and needs no flag. The line under
-the pick says which of the three it is, in the same words the ranking path uses.
+A ticket whose blocking state the tracker could not report is not blocked and needs no flag. The line under the
+pick says which of the three it is, sharing its wording with the ranking path — which has only two of the three
+to say, since a confirmed-blocked ticket is never a candidate there.
+
+The ticket has to be in the repository you are standing in. One from anywhere else is refused rather than split
+across two: the claim would land in its repository while the worktree and the session were made in yours.
+
+A claim is a claim whether or not it is yours — nothing here compares identities, per
+[ADR-0018](./docs/adr/0018-concurrent-claim-arbitration-is-out-of-scope.md) — so picking a ticket you already
+claimed back up takes `--force`, and the refusal names who holds it rather than assuming it is somebody else.
 
 The session runs in a cmux workspace, and cmux is required rather than optional: a host that does not answer
 fails the run, with no fallback. Starting writes in three places — the worktree, the claim, then the session —

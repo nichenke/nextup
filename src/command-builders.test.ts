@@ -264,8 +264,6 @@ describe("githubIssueViewCommand", () => {
 		expect(argv.slice(argv.indexOf("--"))).toEqual(["--", "7"]);
 	});
 
-	// Measured on gh 2.100.0: `gh issue view --json number -- 012` answers `{"number":12}`, so a padded key
-	// reads one issue under a reference naming another, exactly as ADR-0032 measured for the claim.
 	test("refuses a key the CLI would resolve to a different issue, or read as a flag", () => {
 		expect(() => githubIssueViewCommand({ repo: "example/repo", key: "012" })).toThrow(/canonical/);
 		expect(() => githubIssueViewCommand({ repo: "example/repo", key: "0" })).toThrow(/canonical/);

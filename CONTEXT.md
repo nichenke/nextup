@@ -87,9 +87,9 @@ stay: closed, claimed, and confirmed blocked.
 _Avoid_: manual pick, bypass, direct start
 
 **Force**:
-The instruction to start an override past the claimed and blocked checks, reported loudly and claiming the
-ticket regardless. It never reaches a closed ticket. Names the flag and the decision, not the path — the path
-is **Override**, which exists with or without it.
+The instruction to start an override past the checks that can be overruled — ADR-0037 has which those are and
+what it still does. Names the flag and the decision, not the path: the path is **Override**, which exists with
+or without it.
 _Avoid_: skip checks, unsafe mode
 
 ### Claiming and launching

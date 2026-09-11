@@ -24,7 +24,7 @@ export interface OverrideInput {
  */
 export type Refusal =
 	| { readonly kind: "closed" }
-	/** `by` is null where the tracker records a claim without recording whose — still a claim. */
+	/** Null where the tracker records a claim without naming whose — still a claim; `Claim` has why. */
 	| { readonly kind: "claimed"; readonly by: string | null }
 	| { readonly kind: "blocked"; readonly blockers: readonly TicketRef[] };
 
@@ -51,9 +51,16 @@ export type Override =
 	| {
 			readonly kind: "startable";
 			readonly target: Target;
-			/** The checks `--force` cleared, to be reported loudly; empty where it cleared none. */
-			readonly forced: readonly Refusal[];
+			/**
+			 * The checks `--force` cleared, to be reported loudly; empty where it cleared none. `Clearable` rather
+			 * than `Refusal`, so a started run cannot be constructed claiming to have forced past a closed ticket —
+			 * the one rule ADR-0037 treats as categorical is then a type fact rather than this function's promise.
+			 */
+			readonly forced: readonly Clearable[];
 	  };
+
+/** A check `--force` is allowed past, which is every one but the closed ticket — ADR-0037. */
+export type Clearable = Exclude<Refusal, { readonly kind: "closed" }>;
 
 /**
  * Whether `--force` is allowed past one check.
@@ -62,16 +69,27 @@ export type Override =
  * the flag offers — a refusal advising `--force` where the flag would not help is worse than no advice.
  *
  * A closed ticket is the one it does not reach: ADR-0037 has why, and that the repair is to reopen it.
+ *
+ * A switch rather than `kind !== "closed"`, and a predicate rather than a boolean, so that the policy is not
+ * permissive by default: a check added to `Refusal` later fails to compile here until somebody decides whether
+ * the flag clears it, where the inequality would have silently admitted it.
  */
-export function clearedByForce(refusal: Refusal): boolean {
-	return refusal.kind !== "closed";
+export function clearedByForce(refusal: Refusal): refusal is Clearable {
+	switch (refusal.kind) {
+		case "closed":
+			return false;
+		case "claimed":
+		case "blocked":
+			return true;
+	}
 }
 
 /**
  * Whether work can start on the named ticket, and what had to be overruled for it to.
  *
  * Every failed check is reported rather than the first, so fixing one does not reveal the next — and a closed
- * ticket that is also claimed says both, since `--force` answers only half of that.
+ * ticket that is also claimed says both, since `--force` answers only half of that. They come back in the order
+ * `refusalsFor` fixes, which is the order a refusal prints them in.
  */
 export function decideOverride(input: OverrideInput): Override {
 	const ticket = input.read.ticket;
@@ -80,7 +98,10 @@ export function decideOverride(input: OverrideInput): Override {
 
 	const [first, ...rest] = refusals;
 	if (first === undefined) return { kind: "startable", target, forced: [] };
-	if (input.force && refusals.every(clearedByForce)) return { kind: "startable", target, forced: refusals };
+	// Filtered rather than `every`, which answers the same question without narrowing the array it answered it
+	// about: the comparison is what says every refusal survived, and `filter` is what gives `forced` its type.
+	const clearable = refusals.filter(clearedByForce);
+	if (input.force && clearable.length === refusals.length) return { kind: "startable", target, forced: clearable };
 	return { kind: "refused", target, refusals: [first, ...rest] };
 }
 
