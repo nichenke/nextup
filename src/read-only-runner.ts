@@ -10,8 +10,10 @@ const READS: readonly (readonly string[])[] = [
 	// named as its own prefix because `gh issue` also holds `edit`, `close` and `comment`.
 	["gh", "issue", "view"],
 	["gh", "api"],
-	// `reconstruct.ts` resolves the repository from the remote when `--repo` is absent.
-	["git", "remote", "get-url"],
+	// `reconstruct.ts` resolves the repository from the remote when `--repo` is absent. `--get-all` is part of the
+	// prefix rather than trailing detail: it is what puts `git config` in a mode that cannot write, so without it
+	// the same entry would admit `git config --local <key> <value>`.
+	["git", "config", "--local", "--get-all"],
 ];
 
 /**
@@ -35,7 +37,11 @@ const READABLE_API_FLAGS: ReadonlySet<string> = new Set(["--paginate", "--slurp"
 export function readOnlyRunner(runner: Runner): Runner {
 	return (argv) => {
 		const program = argv[0]?.split("/").at(-1);
-		const words = [program, ...argv.slice(1)];
+		// `git -C <directory>` is skipped before the prefix is matched, so a directory nobody can enumerate does
+		// not sit between the program and the subcommand that decides whether this is a read. Skipping it admits
+		// nothing: what follows is matched exactly as it would be without one.
+		const rest = program === "git" && argv[1] === "-C" ? argv.slice(3) : argv.slice(1);
+		const words = [program, ...rest];
 		const read = READS.find((prefix) => prefix.every((word, index) => words[index] === word));
 		if (read === undefined) {
 			throw new NotAReadError(`${formatCommand(argv)} is not one of the reads this check may issue`);

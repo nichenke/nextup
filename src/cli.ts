@@ -46,11 +46,12 @@ export interface CliDeps {
 	/** `null` where there is nobody to ask — a pipe, a cron entry, a sandbox with no terminal. */
 	readonly confirm: Confirm | null;
 	/**
-	 * The checkout the command was invoked in, which the worktree step resolves the primary one from.
+	 * The checkout the command was invoked in: both the repository the run's tickets are read from and the one the
+	 * worktree step resolves the primary checkout from.
 	 *
-	 * Must be where the process itself is standing. The read resolves its repository from the process's own
-	 * directory, per ADR-0029 — so a `cwd` naming anywhere else would claim a ticket in one repository and build
-	 * the worktree in another.
+	 * One value for both, rather than an invariant that they agree. The origin read is given this directory too —
+	 * ADR-0041 — so a `cwd` naming somewhere else moves the whole run there instead of claiming a ticket in one
+	 * repository and building the worktree in another.
 	 */
 	readonly cwd: string;
 }
@@ -187,7 +188,7 @@ function checkoutResolver(deps: CliDeps): Checkout {
 	// Only the success is remembered. Caching the failure was tried and removed: it would hand a later caller the
 	// first one's error class, which is the collapse the `refuse` callback exists to prevent, and it can buy
 	// nothing because every caller here ends the run on the first throw.
-	return (refuse) => (resolved ??= resolveCheckoutIdentity(deps.runner, refuse));
+	return (refuse) => (resolved ??= resolveCheckoutIdentity(deps.runner, deps.cwd, refuse));
 }
 
 export function run(argv: readonly string[], deps: CliDeps): CliResult {
@@ -204,9 +205,9 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 
 	let named: TicketRef | null;
 	try {
-		// Resolved here rather than in `parse`, which is handed no runner: a bare `gh:12` is resolved against the
-		// working directory's remote, and a pasted URL against the tracker CLIs' authenticated hosts.
-		named = options.named === null ? null : resolveTicketRef(options.named, { runner: deps.runner, checkout });
+		// Resolved here rather than in `parse`, which is handed no runner: a bare `gh:12` is resolved against this
+		// checkout's remote, and a pasted URL against the tracker CLIs' authenticated hosts.
+		named = options.named === null ? null : resolveTicketRef(options.named, { runner: deps.runner, directory: deps.cwd, checkout });
 	} catch (cause) {
 		return usageError(cause);
 	}

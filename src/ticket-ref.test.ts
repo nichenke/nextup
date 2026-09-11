@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import type { CommandResult } from "./runner";
+import { originRemoteCommand } from "./command-builders";
+import type { CommandResult, Runner } from "./runner";
 import { routedRunner } from "./test-support";
 import { GITHUB_HOST } from "./repo-address";
 import {
+	type ResolveDeps,
 	type TicketRef,
 	TicketRefError,
 	compareTicketRefs,
@@ -13,9 +15,15 @@ import {
 	resolveTicketRef,
 } from "./ticket-ref";
 
+/** The checkout every bare short form below is resolved against, which `resolveTicketRef` is told rather than infers. */
+const HERE = "/checkout";
+
+const here = (routes: Record<string, CommandResult>): ResolveDeps => ({ runner: routedRunner(routes), directory: HERE });
+
 // GitHub's own host is spelled through the constant, in git's scp form, so no spelling of it appears in this
-// file for the identifier guard to read.
-const remote = (address: string) => ({ "git remote get-url origin": { code: 0, stdout: `${address}\n`, stderr: "" } });
+// file for the identifier guard to read. The route key comes from the builder, so a change to what the origin
+// read asks cannot leave this answering an argv nothing issues.
+const remote = (address: string) => ({ [originRemoteCommand(HERE).join(" ")]: { code: 0, stdout: `${address}\n`, stderr: "" } });
 const GIT_REMOTE = remote(`git@${GITHUB_HOST}:example/repo.git`);
 const GIT_REMOTE_NO_OWNER = remote(`git@${GITHUB_HOST}:justrepo.git`);
 const GIT_REMOTE_ELSEWHERE = remote("https://example.com/example/repo.git");
@@ -35,23 +43,33 @@ function merge(...routes: Record<string, CommandResult>[]): Record<string, Comma
 
 describe("resolveTicketRef: short forms", () => {
 	test("gh: relative form resolves the repo from the git remote", () => {
-		const ref = resolveTicketRef("gh:1", { runner: routedRunner(GIT_REMOTE) });
+		const ref = resolveTicketRef("gh:1", here(GIT_REMOTE));
 		expect(ref).toEqual({ tracker: "github", repo: "example/repo", key: "1" });
 	});
 
 	test("gh: absolute form normalizes identically to the relative form", () => {
-		const relative = resolveTicketRef("gh:1", { runner: routedRunner(GIT_REMOTE) });
-		const absolute = resolveTicketRef("gh:example/repo#1", { runner: routedRunner({}) });
+		const relative = resolveTicketRef("gh:1", here(GIT_REMOTE));
+		const absolute = resolveTicketRef("gh:example/repo#1", here({}));
 		expect(absolute).toEqual(relative);
 	});
 
 	test("gh: relative form fails loudly with no git remote", () => {
-		expect(() => resolveTicketRef("gh:1", { runner: routedRunner({}) })).toThrow(TicketRefError);
+		expect(() => resolveTicketRef("gh:1", here({}))).toThrow(TicketRefError);
+	});
+
+	// `debug-ref.ts` calls this with no deps at all, so the default is a production path rather than a test
+	// convenience: reading a directory the caller did not choose would resolve a bare form against another
+	// repository.
+	test("gh: relative form asks about the process's own directory when the caller names none", () => {
+		const asked: string[][] = [];
+		const runner: Runner = (argv) => (asked.push([...argv]), { code: 0, stdout: `git@${GITHUB_HOST}:example/repo.git\n`, stderr: "" });
+		expect(resolveTicketRef("gh:1", { runner })).toEqual(githubTicketRef("example/repo", "1"));
+		expect(asked).toEqual([[...originRemoteCommand(process.cwd())]]);
 	});
 
 	test("gh: relative form accepts GitHub's remotes that carry a port, including its SSH endpoint", () => {
 		for (const address of [sshRemote(GITHUB_HOST, 22), sshRemote(`ssh.${GITHUB_HOST}`, 443)]) {
-			const ref = resolveTicketRef("gh:1", { runner: routedRunner(remote(address)) });
+			const ref = resolveTicketRef("gh:1", here(remote(address)));
 			expect(ref).toEqual({ tracker: "github", repo: "example/repo", key: "1" });
 		}
 	});
@@ -63,60 +81,60 @@ describe("resolveTicketRef: short forms", () => {
 	 */
 	test("gh: relative form refuses a remote at a port GitHub does not serve", () => {
 		for (const port of [8443, 2222, 80]) {
-			expect(() => resolveTicketRef("gh:1", { runner: routedRunner(remote(sshRemote(GITHUB_HOST, port))) })).toThrow(
+			expect(() => resolveTicketRef("gh:1", here(remote(sshRemote(GITHUB_HOST, port))))).toThrow(
 				TicketRefError,
 			);
 		}
 	});
 
 	test("gh: relative form refuses a remote on a host that is not GitHub, rather than reading that path there", () => {
-		expect(() => resolveTicketRef("gh:1", { runner: routedRunner(GIT_REMOTE_ELSEWHERE) })).toThrow(
+		expect(() => resolveTicketRef("gh:1", here(GIT_REMOTE_ELSEWHERE))).toThrow(
 			/the same name somewhere else/,
 		);
 	});
 
 	test("glab: relative form resolves the repo from the git remote", () => {
-		const ref = resolveTicketRef("glab:8", { runner: routedRunner(GIT_REMOTE_ELSEWHERE) });
+		const ref = resolveTicketRef("glab:8", here(GIT_REMOTE_ELSEWHERE));
 		expect(ref).toEqual({ tracker: "gitlab", repo: "example/repo", host: null, key: "8" });
 	});
 
 	test("glab: absolute form normalizes identically to the relative form", () => {
-		const relative = resolveTicketRef("glab:8", { runner: routedRunner(GIT_REMOTE_ELSEWHERE) });
-		const absolute = resolveTicketRef("glab:example/repo#8", { runner: routedRunner({}) });
+		const relative = resolveTicketRef("glab:8", here(GIT_REMOTE_ELSEWHERE));
+		const absolute = resolveTicketRef("glab:example/repo#8", here({}));
 		expect(absolute).toEqual(relative);
 	});
 
 	test("glab: absolute form accepts a nested namespace", () => {
-		const ref = resolveTicketRef("glab:group/project#8", { runner: routedRunner({}) });
+		const ref = resolveTicketRef("glab:group/project#8", here({}));
 		expect(ref).toEqual({ tracker: "gitlab", repo: "group/project", host: null, key: "8" });
 	});
 
 	test("gh: absolute form rejects a repo with no owner segment", () => {
-		expect(() => resolveTicketRef("gh:myrepo#1", { runner: routedRunner({}) })).toThrow(TicketRefError);
+		expect(() => resolveTicketRef("gh:myrepo#1", here({}))).toThrow(TicketRefError);
 	});
 
 	test("glab: absolute form rejects a repo with no namespace segment", () => {
-		expect(() => resolveTicketRef("glab:myrepo#1", { runner: routedRunner({}) })).toThrow(TicketRefError);
+		expect(() => resolveTicketRef("glab:myrepo#1", here({}))).toThrow(TicketRefError);
 	});
 
 	test("gh: absolute form rejects an empty leading segment", () => {
-		expect(() => resolveTicketRef("gh:/repo#1", { runner: routedRunner({}) })).toThrow(TicketRefError);
+		expect(() => resolveTicketRef("gh:/repo#1", here({}))).toThrow(TicketRefError);
 	});
 
 	test("gh: absolute form rejects an empty trailing segment", () => {
-		expect(() => resolveTicketRef("gh:owner/#1", { runner: routedRunner({}) })).toThrow(TicketRefError);
+		expect(() => resolveTicketRef("gh:owner/#1", here({}))).toThrow(TicketRefError);
 	});
 
 	test("gh: absolute form rejects more than two segments, since GitHub has no subgroups", () => {
-		expect(() => resolveTicketRef("gh:owner/sub/repo#1", { runner: routedRunner({}) })).toThrow(TicketRefError);
+		expect(() => resolveTicketRef("gh:owner/sub/repo#1", here({}))).toThrow(TicketRefError);
 	});
 
 	test("glab: absolute form rejects an empty middle segment", () => {
-		expect(() => resolveTicketRef("glab:group//repo#1", { runner: routedRunner({}) })).toThrow(TicketRefError);
+		expect(() => resolveTicketRef("glab:group//repo#1", here({}))).toThrow(TicketRefError);
 	});
 
 	test("gh: relative form rejects a git remote that doesn't resolve to owner/repo", () => {
-		expect(() => resolveTicketRef("gh:1", { runner: routedRunner(GIT_REMOTE_NO_OWNER) })).toThrow(TicketRefError);
+		expect(() => resolveTicketRef("gh:1", here(GIT_REMOTE_NO_OWNER))).toThrow(TicketRefError);
 	});
 
 	test("jira: short form parses the key verbatim", () => {
@@ -135,76 +153,76 @@ describe("resolveTicketRef: short forms", () => {
 
 describe("resolveTicketRef: pasted URLs", () => {
 	test("a GitLab issue URL resolves by /-/issues/ shape when the host is authenticated to glab", () => {
-		const ref = resolveTicketRef("https://example.com/group/project/-/issues/1", { runner: routedRunner(GLAB_AUTHED) });
+		const ref = resolveTicketRef("https://example.com/group/project/-/issues/1", here(GLAB_AUTHED));
 		expect(ref).toEqual({ tracker: "gitlab", repo: "group/project", host: "example.com", key: "1" });
 	});
 
 	test("a GitLab issue URL for a host nothing is authenticated to fails loudly", () => {
 		expect(() =>
-			resolveTicketRef("https://example.com/group/project/-/issues/1", { runner: routedRunner({}) }),
+			resolveTicketRef("https://example.com/group/project/-/issues/1", here({})),
 		).toThrow(TicketRefError);
 	});
 
 	test("a GitLab issue URL rejects a repo with no namespace segment", () => {
 		expect(() =>
-			resolveTicketRef("https://example.com/project/-/issues/1", { runner: routedRunner(GLAB_AUTHED) }),
+			resolveTicketRef("https://example.com/project/-/issues/1", here(GLAB_AUTHED)),
 		).toThrow(TicketRefError);
 	});
 
 	test("a GitLab issue URL rejects an empty middle segment", () => {
 		expect(() =>
-			resolveTicketRef("https://example.com/group//project/-/issues/1", { runner: routedRunner(GLAB_AUTHED) }),
+			resolveTicketRef("https://example.com/group//project/-/issues/1", here(GLAB_AUTHED)),
 		).toThrow(TicketRefError);
 	});
 
 	test("a redirect-style query string is never read as part of the repo path", () => {
 		expect(() =>
-			resolveTicketRef("https://example.com/?next=/group/project/-/issues/1", { runner: routedRunner(GLAB_AUTHED) }),
+			resolveTicketRef("https://example.com/?next=/group/project/-/issues/1", here(GLAB_AUTHED)),
 		).toThrow(TicketRefError);
 	});
 
 	test("a userinfo prefix on the URL authority is unsupported and fails the host-auth check, even with a real account authenticated", () => {
 		expect(() =>
-			resolveTicketRef("https://alice@example.com/group/project/-/issues/1", { runner: routedRunner(GLAB_AUTHED) }),
+			resolveTicketRef("https://alice@example.com/group/project/-/issues/1", here(GLAB_AUTHED)),
 		).toThrow(TicketRefError);
 	});
 
 	test("a Jira browse URL resolves when a Jira session exists", () => {
-		const ref = resolveTicketRef("https://example.com/browse/TEST-42", { runner: routedRunner(JIRA_AUTHED) });
+		const ref = resolveTicketRef("https://example.com/browse/TEST-42", here(JIRA_AUTHED));
 		expect(ref).toEqual({ tracker: "jira", host: "example.com", key: "TEST-42" });
 	});
 
 	test("a Jira browse URL under a context path resolves the same as one at the root", () => {
-		const ref = resolveTicketRef("https://example.com/jira/browse/TEST-42", { runner: routedRunner(JIRA_AUTHED) });
+		const ref = resolveTicketRef("https://example.com/jira/browse/TEST-42", here(JIRA_AUTHED));
 		expect(ref).toEqual({ tracker: "jira", host: "example.com", key: "TEST-42" });
 	});
 
 	test("an uppercase hostname normalizes to lowercase and still matches lowercase auth state", () => {
-		const ref = resolveTicketRef("https://EXAMPLE.com/group/project/-/issues/1", { runner: routedRunner(GLAB_AUTHED) });
+		const ref = resolveTicketRef("https://EXAMPLE.com/group/project/-/issues/1", here(GLAB_AUTHED));
 		expect(ref).toEqual({ tracker: "gitlab", repo: "group/project", host: "example.com", key: "1" });
 	});
 
 	test("a Jira browse URL fails loudly with no authenticated Jira session", () => {
-		expect(() => resolveTicketRef("https://example.com/browse/TEST-42", { runner: routedRunner({}) })).toThrow(
+		expect(() => resolveTicketRef("https://example.com/browse/TEST-42", here({}))).toThrow(
 			TicketRefError,
 		);
 	});
 
 	test("a URL matching none of the three shapes fails loudly", () => {
-		expect(() => resolveTicketRef("https://example.com/example/repo/pull/1", { runner: routedRunner({}) })).toThrow(
+		expect(() => resolveTicketRef("https://example.com/example/repo/pull/1", here({}))).toThrow(
 			TicketRefError,
 		);
 	});
 
 	test("an uppercase scheme resolves the same as lowercase", () => {
-		const ref = resolveTicketRef("HTTPS://example.com/group/project/-/issues/1", { runner: routedRunner(GLAB_AUTHED) });
+		const ref = resolveTicketRef("HTTPS://example.com/group/project/-/issues/1", here(GLAB_AUTHED));
 		expect(ref).toEqual({ tracker: "gitlab", repo: "group/project", host: "example.com", key: "1" });
 	});
 
 	test("a single-segment GitLab path is never misclassified as GitHub, and is rejected as an invalid repo shape rather than a host-auth failure", () => {
 		// If GENERIC_ISSUES_URL's negative lookahead ever failed to exclude "/-/issues/", this
 		// would instead resolve as tracker "github" (or throw a host-auth error), not this one.
-		expect(() => resolveTicketRef("https://example.com/group/-/issues/1", { runner: routedRunner(GLAB_AUTHED) })).toThrow(
+		expect(() => resolveTicketRef("https://example.com/group/-/issues/1", here(GLAB_AUTHED))).toThrow(
 			/not a GitLab namespace and project/,
 		);
 	});
@@ -212,6 +230,7 @@ describe("resolveTicketRef: pasted URLs", () => {
 	test("a legacy (no /-/) GitLab URL with a subgroup resolves as gitlab without needing disambiguation", () => {
 		const ref = resolveTicketRef("https://example.com/group/subgroup/project/issues/1", {
 			runner: routedRunner(GLAB_AUTHED),
+			directory: HERE,
 		});
 		expect(ref).toEqual({ tracker: "gitlab", repo: "group/subgroup/project", host: "example.com", key: "1" });
 	});
@@ -222,11 +241,11 @@ describe("resolveTicketRef: pasted URLs", () => {
 		const GITHUB_URL = githubUrl("example", "repo", "issues", "1");
 
 		test("resolves as github on GitHub's own host, asking no CLI whether it is authenticated there", () => {
-			expect(resolveTicketRef(GITHUB_URL, { runner: routedRunner({}) })).toEqual(githubTicketRef("example/repo", "1"));
+			expect(resolveTicketRef(GITHUB_URL, here({}))).toEqual(githubTicketRef("example/repo", "1"));
 		});
 
 		test("resolves as gitlab when glab is authenticated to the host", () => {
-			const ref = resolveTicketRef("https://example.com/example/repo/issues/1", { runner: routedRunner(GLAB_AUTHED) });
+			const ref = resolveTicketRef("https://example.com/example/repo/issues/1", here(GLAB_AUTHED));
 			expect(ref).toEqual(gitlabTicketRef("example/repo", "example.com", "1"));
 		});
 
@@ -234,7 +253,7 @@ describe("resolveTicketRef: pasted URLs", () => {
 		// Enterprise host used to make that URL a GitHub reference, which then reached a claim that carries no host.
 		test("refuses a GitHub Enterprise URL, naming the boundary rather than reporting an unrecognized URL", () => {
 			const refused = () =>
-				resolveTicketRef("https://example.com/example/repo/issues/1", { runner: routedRunner(GH_AUTHED) });
+				resolveTicketRef("https://example.com/example/repo/issues/1", here(GH_AUTHED));
 			expect(refused).toThrow(TicketRefError);
 			expect(refused).toThrow(/out of scope/);
 			expect(refused).not.toThrow(/does not match a GitHub, GitLab, or Jira issue URL shape/);
@@ -243,13 +262,14 @@ describe("resolveTicketRef: pasted URLs", () => {
 		test("is not ambiguous when both CLIs answer for the host: only glab's answer is consulted", () => {
 			const ref = resolveTicketRef("https://example.com/example/repo/issues/1", {
 				runner: routedRunner(merge(GH_AUTHED, GLAB_AUTHED)),
+				directory: HERE,
 			});
 			expect(ref).toEqual(gitlabTicketRef("example/repo", "example.com", "1"));
 		});
 
 		test("fails loudly when the host is neither GitHub's nor one glab answers for", () => {
 			expect(() =>
-				resolveTicketRef("https://example.com/example/repo/issues/1", { runner: routedRunner({}) }),
+				resolveTicketRef("https://example.com/example/repo/issues/1", here({})),
 			).toThrow(TicketRefError);
 		});
 	});
@@ -258,29 +278,29 @@ describe("resolveTicketRef: pasted URLs", () => {
 	// `requireCanonicalIssueKey` has the measurement and ADR-0039 has why the layer moved.
 	describe("a padded issue number, at every entry point that could mint one", () => {
 		test("the bare short form is refused", () => {
-			expect(() => resolveTicketRef("gh:037", { runner: routedRunner(GIT_REMOTE) })).toThrow(/canonical issue number/);
+			expect(() => resolveTicketRef("gh:037", here(GIT_REMOTE))).toThrow(/canonical issue number/);
 		});
 
 		test("the repo#number short form is refused", () => {
-			expect(() => resolveTicketRef("gh:example/repo#037", { runner: routedRunner({}) })).toThrow(
+			expect(() => resolveTicketRef("gh:example/repo#037", here({}))).toThrow(
 				/canonical issue number/,
 			);
 		});
 
 		test("a padded path segment in the two-segment URL form is refused", () => {
 			expect(() =>
-				resolveTicketRef(githubUrl("example", "repo", "issues", "037"), { runner: routedRunner({}) }),
+				resolveTicketRef(githubUrl("example", "repo", "issues", "037"), here({})),
 			).toThrow(/canonical issue number/);
 		});
 
 		test("a padded path segment in the GitLab URL form is refused", () => {
 			expect(() =>
-				resolveTicketRef("https://example.com/group/project/-/issues/037", { runner: routedRunner(GLAB_AUTHED) }),
+				resolveTicketRef("https://example.com/group/project/-/issues/037", here(GLAB_AUTHED)),
 			).toThrow(/canonical issue number/);
 		});
 
 		test("a bare zero is refused as much as a padded number, since it names no issue either", () => {
-			expect(() => resolveTicketRef("gh:example/repo#0", { runner: routedRunner({}) })).toThrow(
+			expect(() => resolveTicketRef("gh:example/repo#0", here({}))).toThrow(
 				/canonical issue number/,
 			);
 		});

@@ -20,9 +20,16 @@ export function parseRemote(remote: string): RemoteAddress | null {
 	return repo === "" ? null : { host: host.toLowerCase(), repo };
 }
 
-/** The origin remote, or null where there is none to read. A null is turned into a refusal by ADR-0040's resolver. */
-export function resolveOriginRemote(runner: Runner): RemoteAddress | null {
-	const result = runner([...originRemoteCommand()]);
+/**
+ * The origin remote of `directory`, or null where there is none to read. A null is turned into a refusal by
+ * ADR-0040's resolver.
+ *
+ * The first URL of however many the remote carries, which is the one git fetches from — `originRemoteCommand`
+ * has why the read asks for all of them.
+ */
+export function resolveOriginRemote(runner: Runner, directory: string): RemoteAddress | null {
+	const result = runner([...originRemoteCommand(directory)]);
 	if (result.code !== 0) return null;
-	return parseRemote(result.stdout.trim());
+	const first = result.stdout.split("\n")[0]?.trim();
+	return first ? parseRemote(first) : null;
 }

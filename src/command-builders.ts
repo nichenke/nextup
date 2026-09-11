@@ -147,9 +147,19 @@ export function jiraIdentityCommand(): readonly string[] {
 	return ["jira", "me"];
 }
 
-/** The remote a repository-scoped reference is resolved against. */
-export function originRemoteCommand(): readonly string[] {
-	return ["git", "remote", "get-url", "origin"];
+/**
+ * The remote a repository-scoped reference is resolved against: the URL the repository's own config spells.
+ *
+ * `config --local` rather than `remote get-url`, which reads the merged configuration and so answers from a
+ * global file a redirected `HOME` or `XDG_CONFIG_HOME` supplies — the wrong-ticket-set failure, at exit 0 and
+ * with no `GIT_` variable for the runner to strip. It also applies `url.<base>.insteadOf` rewriting, which
+ * `--local` does not. ADR-0041 has the measurements and what the second half costs.
+ *
+ * `--get-all` rather than `--get`, which answers with the *last* value where a remote carries several, while
+ * git fetches from the first. The caller takes the first, which is the one `get-url` answered with.
+ */
+export function originRemoteCommand(directory: string): readonly string[] {
+	return ["git", "-C", directory, "config", "--local", "--get-all", "remote.origin.url"];
 }
 
 export function worktreeListCommand(repo: string): readonly string[] {

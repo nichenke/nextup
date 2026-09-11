@@ -35,7 +35,7 @@ export interface CheckoutIdentity {
 export type RefuseCheckout = (reason: string) => Error;
 
 /**
- * The GitHub repository this checkout is, or a refusal.
+ * The GitHub repository the checkout at `directory` is, or a refusal.
  *
  * Reaches `resolveOriginRemote` through `checkoutRemote`, which is that function's only caller, so "which
  * repository am I standing in" is computed in one place and threaded rather than re-asked. Both failures are
@@ -44,13 +44,16 @@ export type RefuseCheckout = (reason: string) => Error;
  * `--repo`, so `owner/repo` read off a GitHub Enterprise or GitLab checkout addresses whatever sits at that
  * path on GitHub instead.
  *
+ * `directory` is named rather than left to the process's own: ADR-0041 has why the read stopped resolving from
+ * wherever git happened to be standing.
+ *
  * @throws whatever `refuse` builds, always as an Error.
  */
-export function resolveCheckoutIdentity(runner: Runner, refuse: RefuseCheckout): CheckoutIdentity {
-	const origin = checkoutRemote(runner, refuse);
+export function resolveCheckoutIdentity(runner: Runner, directory: string, refuse: RefuseCheckout): CheckoutIdentity {
+	const origin = checkoutRemote(runner, directory, refuse);
 	if (!isGitHubHost(origin.host)) {
 		throw refuse(
-			`this checkout's origin remote points at ${origin.host} rather than ${GITHUB_HOST}, so ${origin.repo} here is a repository of the same name somewhere else entirely — this works on ${GITHUB_HOST} only, so run it in a checkout of one`,
+			`this checkout's origin remote points at ${origin.host} rather than ${GITHUB_HOST}, so ${origin.repo} here is a repository of the same name somewhere else entirely — this works on ${GITHUB_HOST} only, so run it in a checkout of one${aliasNote(origin.host)}`,
 		);
 	}
 	if (!isValidRepoPath("github", origin.repo)) {
@@ -64,7 +67,22 @@ function checkoutIdentityOf(repo: string): CheckoutIdentity {
 }
 
 /**
- * The repository path this checkout's remote spells, on whatever host, as spelled.
+ * What a host refusal adds when the host cannot be a real one.
+ *
+ * The one shape this read answers differently from `git remote get-url`: a remote URL that is an alias only a
+ * global `url.<base>.insteadOf` rule expands, whose left-hand side is a bare word. The refusal is right either
+ * way — an alias is not evidence of a GitHub checkout — but without this it reports a tracker at a host nobody
+ * configured. A dot is the test because the aliases this meets are bare words; a dotless real host loses
+ * nothing, since the sentence is true of it too. ADR-0041.
+ */
+function aliasNote(host: string): string {
+	return host.includes(".")
+		? ""
+		: ` (${host} has no dot in it, which is the shape a url.<base>.insteadOf alias leaves behind — this reads the URL the repository's own config spells, and does not apply that rewriting)`;
+}
+
+/**
+ * The repository path the remote of the checkout at `directory` spells, on whatever host, as spelled.
  *
  * The one reading that is not a `CheckoutIdentity`, and it has exactly one caller: the bare `glab:<number>`
  * short form. A GitLab instance can be any host, so there is no host test to pass and nothing to fold — ADR-0039
@@ -72,12 +90,19 @@ function checkoutIdentityOf(repo: string): CheckoutIdentity {
  *
  * @throws whatever `refuse` builds, when the remote cannot be resolved.
  */
-export function resolveCheckoutRepoPath(runner: Runner, refuse: RefuseCheckout): string {
-	return checkoutRemote(runner, refuse).repo;
+export function resolveCheckoutRepoPath(runner: Runner, directory: string, refuse: RefuseCheckout): string {
+	return checkoutRemote(runner, directory, refuse).repo;
 }
 
-function checkoutRemote(runner: Runner, refuse: RefuseCheckout): RemoteAddress {
-	const origin = resolveOriginRemote(runner);
-	if (origin === null) throw refuse("the working directory's git remote could not be resolved — set an origin remote, or run this somewhere that has one");
+function checkoutRemote(runner: Runner, directory: string, refuse: RefuseCheckout): RemoteAddress {
+	const origin = resolveOriginRemote(runner, directory);
+	if (origin === null) {
+		// Names the directory, which used to be whichever one the process was standing in and is now a value a
+		// caller chose. "that checkout's own config" is the other half: an origin declared in a global file is
+		// deliberately not read, so a run that works elsewhere can fail here. ADR-0041.
+		throw refuse(
+			`the origin remote of ${directory} could not be resolved from that checkout's own git config — set an origin remote there, or run this somewhere that has one`,
+		);
+	}
 	return origin;
 }

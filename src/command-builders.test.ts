@@ -87,9 +87,9 @@ const CASES: readonly Case[] = [
 	},
 	{
 		name: "origin-remote",
-		description: "The remote a repository-scoped short form is resolved against.",
-		input: {},
-		build: () => originRemoteCommand(),
+		description: "The remote a repository-scoped short form is resolved against, read from the repository's own config so no global one can answer for it.",
+		input: { directory: "/repo" },
+		build: () => originRemoteCommand("/repo"),
 	},
 	{
 		name: "worktree-list",

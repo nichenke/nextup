@@ -50,7 +50,8 @@ function githubRef(key: string = WRITE_TARGET, repo: string = REPO): GitHubTicke
  */
 const HERE: CheckoutIdentity = resolveCheckoutIdentity(
 	() => ({ code: 0, stdout: `git@${GITHUB_HOST}:${REPO}.git\n`, stderr: "" }),
-	(reason) => new Error(reason),
+	"/checkout",
+	(reason: string) => new Error(reason),
 );
 
 /** A runner keeping every call it was handed, so a claim can be asserted to be one write and no read. */

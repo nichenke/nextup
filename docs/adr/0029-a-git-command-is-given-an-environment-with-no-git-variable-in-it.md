@@ -256,7 +256,8 @@ A `GIT_` variable a user set deliberately is ignored for git, not honoured and n
 this tool issues names the repository it means, so there is little for an ambient one to usefully *locate*.
 The exception is the origin read, `git remote get-url origin`, which carries no `-C` and so resolves from the
 current directory: asking "which repository am I in" is its purpose, and a scrubbed environment makes the
-answer the directory rather than an inherited variable. Under 0026 the same situation threw instead.
+answer the directory rather than an inherited variable. Under 0026 the same situation threw instead. (0041
+gave that read a `-C` too, so there is no exception left.)
 
 A variable can also carry configuration rather than a location, and that is removed too. The case that matters
 is a checkout owned by another uid, where
@@ -286,8 +287,9 @@ pointing at one holding `git/config`. Both made `git -C <intended> remote get-ur
 by a different door, and naming only the variables measured so far would repeat 0026's mistake at the level
 of vectors rather than variables.
 
-It is recorded rather than closed, because both fixes cost more than they buy and the choice belongs with
-whoever wires the adapter:
+Both were closed afterwards, by the second option below —
+[0041](./0041-the-origin-read-names-its-directory-and-reads-the-repositorys-own-config.md), which also answers
+the question this leaves open at the end. What follows is the reasoning as it stood here:
 
 - **`GIT_CONFIG_GLOBAL=/dev/null` in the environment this builds.** A positive assertion rather than another
   removal, and it closed both vectors in test. It also discards a legitimate global `safe.directory`, which

@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { originRemoteCommand } from "./command-builders";
 import { parseRemote, resolveOriginRemote } from "./git-remote";
+import type { Runner } from "./runner";
 import { fakeRunner } from "./test-support";
 
 const HTTPS_REMOTE = "https://example.com/example/repo.git";
@@ -49,11 +51,30 @@ describe("parseRemote", () => {
 describe("resolveOriginRemote", () => {
 	test("resolves the repo from a successful git remote lookup", () => {
 		const runner = fakeRunner({ code: 0, stdout: `${HTTPS_REMOTE}\n`, stderr: "" });
-		expect(resolveOriginRemote(runner)?.repo ?? null).toBe("example/repo");
+		expect(resolveOriginRemote(runner, "/repo")?.repo ?? null).toBe("example/repo");
+	});
+
+	test("asks about the directory it was given rather than wherever the process is standing", () => {
+		const asked: string[][] = [];
+		const runner: Runner = (argv) => (asked.push([...argv]), { code: 0, stdout: `${HTTPS_REMOTE}\n`, stderr: "" });
+		resolveOriginRemote(runner, "/elsewhere");
+		expect(asked).toEqual([[...originRemoteCommand("/elsewhere")]]);
 	});
 
 	test("returns null when there is no origin remote", () => {
 		const runner = fakeRunner({ code: 1, stdout: "", stderr: "fatal: No such remote 'origin'\n" });
-		expect(resolveOriginRemote(runner)?.repo ?? null).toBeNull();
+		expect(resolveOriginRemote(runner, "/repo")?.repo ?? null).toBeNull();
+	});
+
+	// `--get-all` lists every value; git fetches from the first, which is also the one `remote get-url` answered
+	// with. Taking the last — what a bare `--get` would have given — would resolve a run against a URL git never
+	// dials. ADR-0041.
+	test("takes the first of several urls, which is the one git fetches from", () => {
+		const runner = fakeRunner({ code: 0, stdout: `${HTTPS_REMOTE}\n${NESTED_REMOTE}\n`, stderr: "" });
+		expect(resolveOriginRemote(runner, "/repo")?.repo ?? null).toBe("example/repo");
+	});
+
+	test("returns null when the read succeeds with nothing to parse", () => {
+		expect(resolveOriginRemote(fakeRunner({ code: 0, stdout: "\n", stderr: "" }), "/repo")).toBeNull();
 	});
 });

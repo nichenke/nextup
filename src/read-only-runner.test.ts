@@ -31,7 +31,21 @@ describe("readOnlyRunner", () => {
 
 	test("passes the origin remote read through, since the repository is resolved from it", () => {
 		const { run } = guarded();
-		expect(run([...originRemoteCommand()])).toEqual(answered);
+		expect(run([...originRemoteCommand("/repo")])).toEqual(answered);
+	});
+
+	// Every git command but this one already carried `-C`, so the allowlist had never had to see past it.
+	test("refuses a git command the -C skip would otherwise walk past", () => {
+		const { run, issued } = guarded();
+		expect(() => run(["git", "-C", "/repo", "push", "origin", "main"])).toThrow(NotAReadError);
+		expect(issued).toEqual([]);
+	});
+
+	// `--get-all` puts git config in a mode that cannot write, so the allowlist can name a prefix rather than
+	// enumerate the spellings of a set. Without it the same prefix would admit `git config --local <key> <value>`.
+	test("refuses a git config call that is not the get the read issues", () => {
+		const { run } = guarded();
+		expect(() => run(["git", "-C", "/repo", "config", "--local", "remote.origin.url", "x"])).toThrow(NotAReadError);
 	});
 
 	test("refuses the claim, which is the write this harness must never issue", () => {

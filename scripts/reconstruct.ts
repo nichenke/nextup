@@ -41,7 +41,7 @@ function repoFromArgv(argv: readonly string[]): string | null {
  */
 function resolveRepo(named: string | null): string {
 	if (named !== null) return named;
-	return resolveCheckoutIdentity(readOnly, (reason) => new ReconstructionError(`no repository was named, and ${reason}`)).repo;
+	return resolveCheckoutIdentity(readOnly, process.cwd(), (reason) => new ReconstructionError(`no repository was named, and ${reason}`)).repo;
 }
 
 const COLUMN = 12;

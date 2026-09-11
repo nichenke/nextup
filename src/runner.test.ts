@@ -1,8 +1,9 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "bun";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { originRemoteCommand } from "./command-builders";
 import { RunnerError, defaultRunner, gitEnvironment, refuseRedirectedGitHub } from "./runner";
 
 describe("defaultRunner", () => {
@@ -145,6 +146,13 @@ function printing(argv: readonly string[]): string {
 	return `process.stdout.write(defaultRunner(${JSON.stringify(argv)}).stdout);`;
 }
 
+/** A config file declaring `repo` as origin, written under the shared root and named so two cannot collide. */
+function globalConfigNaming(repo: string, name: string): string {
+	const path = join(shared().root, name);
+	writeFileSync(path, `[remote "origin"]\n\turl = ${repo}\n`);
+	return path;
+}
+
 /**
  * Against real git rather than a stub: each case exists for a behaviour of git's own — which variable
  * overrides `-C`, and which of this tool's commands it reaches — and a stub asserting those asserts only
@@ -152,7 +160,7 @@ function printing(argv: readonly string[]): string {
  */
 describe("a git variable exported before the tool started", () => {
 	test("does not redirect the origin read, which decides whose tickets a run considers", () => {
-		const { stdout } = inChildProcess(printing(["git", "-C", shared().intended, "remote", "get-url", "origin"]), {
+		const { stdout } = inChildProcess(printing([...originRemoteCommand(shared().intended)]), {
 			GIT_DIR: join(shared().other, ".git"),
 		});
 		expect(stdout.trim()).toBe(shared().intended);
@@ -167,10 +175,8 @@ describe("a git variable exported before the tool started", () => {
 	});
 
 	test("does not redirect the origin read through a global config file", () => {
-		const config = join(shared().root, "config-naming-other");
-		writeFileSync(config, `[remote "origin"]\n\turl = ${shared().other}\n`);
-		const { stdout } = inChildProcess(printing(["git", "-C", shared().intended, "remote", "get-url", "origin"]), {
-			GIT_CONFIG_GLOBAL: config,
+		const { stdout } = inChildProcess(printing([...originRemoteCommand(shared().intended)]), {
+			GIT_CONFIG_GLOBAL: globalConfigNaming(shared().other, "git-config-global"),
 		});
 		expect(stdout.trim()).toBe(shared().intended);
 	});
@@ -178,7 +184,7 @@ describe("a git variable exported before the tool started", () => {
 	test("is scrubbed for git named by an absolute path, not only by the bare word", () => {
 		const binary = Bun.which("git");
 		expect(binary).not.toBeNull();
-		const { stdout } = inChildProcess(printing([binary as string, "-C", shared().intended, "remote", "get-url", "origin"]), {
+		const { stdout } = inChildProcess(printing([binary as string, ...originRemoteCommand(shared().intended).slice(1)]), {
 			GIT_DIR: join(shared().other, ".git"),
 		});
 		expect(stdout.trim()).toBe(shared().intended);
@@ -186,7 +192,7 @@ describe("a git variable exported before the tool started", () => {
 
 	test("does not reach git as an empty value, which git rejects as a repository name at 128", () => {
 		const { stdout } = inChildProcess(
-			`process.stdout.write(String(defaultRunner(${JSON.stringify(["git", "-C", shared().intended, "remote", "get-url", "origin"])}).code));`,
+			`process.stdout.write(String(defaultRunner(${JSON.stringify([...originRemoteCommand(shared().intended)])}).code));`,
 			{ GIT_DIR: "" },
 		);
 		expect(stdout.trim()).toBe("0");
@@ -270,5 +276,38 @@ describe("refuseRedirectedGitHub", () => {
 
 	test("reads the binary's final path segment, so an absolute path is covered", () => {
 		expect(() => refuseRedirectedGitHub(["/opt/homebrew/bin/gh", "issue", "list"], { GH_HOST: "x" })).toThrow(RunnerError);
+	});
+});
+
+/**
+ * The two doors the runner cannot close: neither name carries a `GIT_` prefix, so both survive the scrub and
+ * reach git as a place to look for a global config. What refuses them is the origin read asking `config
+ * --local`, which reads the repository's own file and no other — ADR-0041.
+ *
+ * Real git in a child process for the reason the block above gives: the claim is about where git looks, and a
+ * stub would assert only what this file believes about that.
+ */
+describe("a config location redirected by a variable the scrub cannot name", () => {
+	test("does not decide the origin read through HOME", () => {
+		const home = mkdtempSync(join(tmpdir(), "nextup-home-"));
+		perTestRoots.push(home);
+		writeFileSync(join(home, ".gitconfig"), `[remote "origin"]\n\turl = ${shared().other}\n`);
+		const { stdout } = inChildProcess(printing([...originRemoteCommand(shared().intended)]), { HOME: home });
+		expect(stdout.trim()).toBe(shared().intended);
+	});
+
+	test("does not decide the origin read through XDG_CONFIG_HOME", () => {
+		const xdg = mkdtempSync(join(tmpdir(), "nextup-xdg-"));
+		perTestRoots.push(xdg);
+		mkdirSync(join(xdg, "git"));
+		writeFileSync(join(xdg, "git", "config"), `[remote "origin"]\n\turl = ${shared().other}\n`);
+		// git reads the XDG file only where `~/.gitconfig` is absent, and the developer running this has one.
+		const empty = mkdtempSync(join(tmpdir(), "nextup-nohome-"));
+		perTestRoots.push(empty);
+		const { stdout } = inChildProcess(printing([...originRemoteCommand(shared().intended)]), {
+			HOME: empty,
+			XDG_CONFIG_HOME: xdg,
+		});
+		expect(stdout.trim()).toBe(shared().intended);
 	});
 });

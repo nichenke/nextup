@@ -12,10 +12,20 @@ export function githubRecording(name: string): Recording {
  * A runner answering the origin-remote question with `remote`, and every other call from `answer`. One
  * definition of how that call is faked, so a change to the argv a read resolves its repository through
  * cannot leave some tests answering the old shape.
+ *
+ * Matched on the key rather than on the whole argv, which carries a directory the caller chooses, and on the
+ * key rather than on `git` alone, so any other git command still reaches `answer` and fails there visibly.
  */
 export function answeringOrigin(remote: string, answer: Runner): Runner {
-	return (argv) => (argv[0] === "git" ? { code: 0, stdout: `${remote}\n`, stderr: "" } : answer(argv));
+	return (argv) => (isOriginRead(argv) ? { code: 0, stdout: `${remote}\n`, stderr: "" } : answer(argv));
 }
+
+/** Whether an argv is the origin read, for a test faking or counting it. The key is the word only it carries. */
+export function isOriginRead(argv: readonly string[]): boolean {
+	return argv[0] === "git" && argv.includes(ORIGIN_URL_KEY);
+}
+
+const ORIGIN_URL_KEY = "remote.origin.url";
 
 /** The sentinel lines of a rendering, which is the contract `DEGRADED_PREFIX` exists to be tested through. */
 export function sentinelLines(text: string): string[] {
