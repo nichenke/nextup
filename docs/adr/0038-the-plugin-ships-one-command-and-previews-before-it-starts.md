@@ -1,11 +1,11 @@
 # The plugin ships one command, and it previews before it starts
 
 > Extended, **not** superseded, by
-> [0041](./0041-the-brief-is-slotted-and-the-tool-owns-every-slot-the-graph-can-write.md): the plain
-> rendering stays what a session relays, and 0041 makes it the spine of a composed brief rather than a
-> source to paraphrase — every line of it appears unedited, and `degraded: ` and `deadlock: ` stay at
-> line-start. What 0041 adds is paragraphs no rendering can produce, because only a reading of the ticket
-> body can write them. Everything below stands until the inputs those paragraphs need exist.
+> [0041](./0041-the-brief-is-slotted-and-the-tool-owns-every-slot-the-graph-can-write.md), which turns
+> what a session relays into a composed brief and restates the relay contract as two promises rather
+> than one. 0041's "What stays a contract" is where those are written; do not re-derive them from the
+> section below, which describes the rendering a brief is built from rather than the brief. Everything
+> below stands until the inputs 0041 names exist.
 
 Two manifests made this repository look like a plugin and a store. Neither shipped anything a person
 could invoke: the tree held no `commands/`, `skills/` or `agents/` directory that Claude Code would

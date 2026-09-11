@@ -1,9 +1,13 @@
 # The brief is slotted, and the tool owns every slot the graph can write
 
-The answer a session relays becomes a **brief**: the plain rendering's lines, unedited and in order,
-with composed paragraphs around them. It is assembled from a fixed list of slots, each owned by
-exactly one half — the tool, or the session composing. The session may not write a tool-owned slot,
-reorder one, or leave one out; the tool never writes a session-owned one.
+The answer a session relays becomes a **brief**: everything the plain rendering carries, with
+composed paragraphs around it. It is assembled from a fixed list of slots, each owned by exactly one
+half — the tool, or the session composing. The session may not write a tool-owned slot, reorder one,
+or leave one out; the tool never writes a session-owned one.
+
+The motivating example is the brief quoted in issue 80's body, emitted by the two skills this tool
+retires and captured verbatim from a sibling repository. Every phrase attributed to it below is from
+there.
 
 The split is not facts against prose, which is where this started. It is **the graph and the ladder
 against the ticket body.** Every sentence derivable from the ticket set is the tool's, said as a
@@ -18,8 +22,11 @@ them can get them wrong in a way no fixture would catch.
 
 ## The worked example
 
-Against a real pick, taken from this repository. Repository coordinates are elided in the blocks
-below; the identifier guard's allowlist is not widened for an example
+Against a real pick, taken from this repository on 2026-09-11. The tracker has moved on since —
+issues 39 and 50 are claimed now, which drops both out of the ranking — so the counts below are one
+run's snapshot rather than what a run today prints. Everything the example argues from is a property
+of that snapshot, and dating it is what lets a later reader tell drift from error. Repository
+coordinates are elided in the blocks; the identifier guard's allowlist is not widened for an example
 ([0006](./0006-provenance-prevents-leaks-the-guard-is-a-backstop.md)).
 
 Today's rendering, seven lines:
@@ -47,7 +54,8 @@ ADR-0013 promises a parametric absolute worktree root and, in the same decision,
 anywhere along it. On macOS /tmp, /var and /etc are symlinks into /private and $TMPDIR sits under
 /var/folders, so every natural absolute root is refused, naming a path the caller never typed. The
 default .worktrees escapes only because git hands back a realpath'd primary checkout — so the guard
-is inert where it is used and total everywhere else. The suite is green because the test helper
+is inert for the default and total for every absolute root under a system temp directory. The suite
+is green because the test helper
 realpaths every temporary root it makes, which is a workaround rather than coverage.
 
 Scope — a decision between two candidates, plus a status banner: ADR-0013's body is append-only, so
@@ -75,13 +83,27 @@ Two things this example settles that a richer pick would have hidden.
 **The best move in the motivating example is unavailable here.** That brief argued its pick by a
 chain to a downstream goal. On this pick every ranked candidate has `unblocks 0`: there is no chain,
 no goal, and nothing downstream. A shape that expects the chain argument invites a model to invent
-one. So the slot is *why this one*, not *what this unblocks*, and on a tie its honest content is
-that nothing chose it.
+one.
+
+So slot 6 has two forms and the input decides which, not the writer. Where a path runs from the pick
+to a downstream ticket, the slot names that ticket and what is left of it — *clearing this leaves
+`#216` waiting on one more* — which is what the rung cannot say. Where no path runs, the slot names
+the rung, and where the rung is the ladder's last it says the ladder separated nothing. Both forms
+are arithmetic over the same edges; the goal form is preferred and the rung form is the fallback,
+which is why slot 6's missing input is a path and not a judgement.
 
 **The alternatives slot earns its place even on a tie.** The ladder reads priority, unblocks and
 reference — [0003](./0003-ranking-ladder-fixed-in-code.md) — and nothing else. Here the runner-up
 carries `bug` and `ready-for-agent` and the pick carries neither, and no rung looked. Naming the
 labels the tie-break ignored is the most useful sentence in the whole brief, and it is arithmetic.
+
+This contradicts [0011](./0011-what-each-ranking-rung-reads.md), which says the human rendering
+shows only the pick's labels, "so tracing why a *losing* ticket was not ranked on its label is a
+`--json` question". Slot 7 answers it on the human surface instead. 0011's reasoning about what each
+rung *reads* is untouched and still binds; what changes is only where a reader goes to see a loser's
+labels, and the worked example is the argument — on a tie the labels the ladder ignored are the only
+thing left that distinguishes six candidates, and sending a person to `--json` for them hides the one
+fact the brief exists to surface.
 
 ## The slots
 
@@ -117,18 +139,23 @@ which is where `counts.claimed` comes from; what is missing is only who the view
 
 [0038](./0038-the-plugin-ships-one-command-and-previews-before-it-starts.md) chose the plain
 rendering as the thing a session relays, because it is not a lossy summary of `--json`. That holds,
-and the brief is built so it keeps holding: **every line of the plain rendering appears in the
-brief, unedited.** The brief adds, it does not replace.
+as two promises rather than one.
 
-`degraded: ` and `deadlock: ` lines stay at line-start, never wrapped in prose, never summarised,
-and never budgeted away. A composing session that cannot reach them still emits them, because they
-are slot 9 and slot 9 is the tool's.
+**No fact the plain rendering carries is dropped**, with one exception stated here rather than left
+to be discovered: a priority absent from *every* candidate leaves the standing line, because it
+distinguishes nothing, and returns the moment one candidate carries it. Everything else — the
+counts, the signals, the runner-up, the deciding rung, the deadlock chains — reaches the reader.
 
-The one edit to a rendered line is that standing folds the pick's signals into the counts line
-rather than keeping them on a line above it, which is a join of two tool-owned slots and changes no
-wording. Priority disappears from the standing line only when it is absent from every candidate, and
-returns the moment one carries it — an absent priority is worth a word when it distinguishes, and
-noise when it does not.
+**The lines a caller greps for are byte-identical.** `degraded: ` and `deadlock: ` stay at
+line-start, never wrapped in prose, never summarised, never budgeted away. A composing session that
+cannot reach them still emits them, because they are slot 9 and slot 9 is the tool's.
+
+Everything else is re-expressed rather than reproduced, and the worked example above shows it: slot
+2 folds the pick's signals into the counts line, and slot 6 says what the pick buys rather than
+which rung fired, handing the runner-up to slot 7. So a caller matching on `won on ` breaks. Nothing
+does — the prefixes are the contract and 0038 says so — but the difference between the two promises
+is exactly this, and stating only the stronger one would have promised a rendering the brief does
+not emit.
 
 References are qualified once, on the identity line, and bare thereafter. A run reads one
 repository's tickets — checkout identity is resolved once and a foreign ticket is refused
@@ -137,8 +164,9 @@ repeating the coordinates a dozen times restates something already fixed for the
 
 ## The length budget
 
-Twenty-five content lines is the ceiling and today's seven is the floor; the blank line between
-slots is not counted, and the slots below sum to twenty-three. The budget is allocated per slot
+Twenty-five content lines is the ceiling and today's six is the floor — the seven 0038 counts, less
+its blank. Blank lines between slots are not counted anywhere here, and the slots below sum to
+twenty-three. The budget is allocated per slot
 rather than to the brief as a whole, because slots 3 to 5 are the only ones a model writes and an
 unbudgeted brief is one where they absorb everything:
 
@@ -180,6 +208,11 @@ work" is not blocking state: no edge carries it, the tracker never reported it, 
 would be the collapse `CONTEXT.md` forbids under **Unknown**. It goes in slot 5, attributed and
 citable, which is what that slot is for.
 
+**A body with no criteria yields no slot 4.** Scope is a count *and a shape* — "7 items plus 3
+guard tests", or the worked example's "a decision between two candidates, plus a status banner" —
+and a body carrying neither has no scope to state. Counting the paragraphs, or calling the whole
+body the scope, produces a line that is true of every ticket and therefore says nothing.
+
 **With one candidate, slot 6 is omitted.** "It was the only one" is already slot 2's job.
 
 ## Consequences
@@ -187,8 +220,10 @@ citable, which is what that slot is for.
 The shipped answer is no longer deterministic end to end, and the scenario fixtures assume it is.
 They keep working: they assert `Selection`, and every slot they cover is tool-owned. What they no
 longer cover is the whole of what a reader sees. The composed slots need their own control, and
-naming it is out of scope here — but a fixture over slots 1, 2, 6, 7, 9 and 10 is the deterministic
-half and should stay exact.
+naming it is out of scope here — but a fixture over slots 1, 2, 6, 7, 8, 9 and 10 is the
+deterministic half and should stay exact. Slot 8 belongs in that list despite its missing input:
+what it needs is an identity, not a judgement, and once supplied the line it writes is as fixed as
+the counts.
 
 Nothing here ships yet. `skills/nextup/SKILL.md` still describes relaying the plain rendering, which
 is correct until the three missing inputs exist: a skill told to compose slot 3 today would compose
@@ -205,7 +240,7 @@ elsewhere is invisible, and that is the case where the line would have mattered 
 form proves useless, widening it is a decision of its own with a scope binding and a limit attached.
 
 Two sentences now live in TypeScript that a model would otherwise have written: the tie-break
-wording and the compression of the alternatives. That grows `selection-output.ts`, which is already more comment
-than code about exactly this kind of wording. It is the same trade the repository has already taken
+wording and the compression of the alternatives. That grows `selection-output.ts`, whose 173 lines
+of code already carry 114 lines of comment, most of them defending exactly this kind of wording. It is the same trade the repository has already taken
 for `degraded: ` and `blockingPhrase` — a sentence a fixture can assert is a sentence that cannot
 drift — and the alternative is a model deciding whether six tied candidates were separated.
