@@ -33,8 +33,11 @@ That entry is not in place yet.
 the next section belong to the binary and are reachable from a checkout rather than through the
 command.
 
-`bun`, `gh`, `cmux` and `claude` are expected on `PATH`. `/implement` has to come from somewhere else
-— this plugin declares that dependency rather than satisfying it.
+`bun`, `gh`, `cmux` and `claude` are expected on `PATH`.
+
+`/implement` has to come from somewhere else — this plugin declares that dependency rather than
+satisfying it. One provider is `mattpocock-skills` in the `claude-plugins-official` marketplace; any
+skill of that name will do, and `--slash-command` points the launch at a different one.
 
 ## From a checkout
 
