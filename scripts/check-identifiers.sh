@@ -21,6 +21,12 @@ set -euo pipefail
 # Removed here rather than through the tool's runner: this runs before any dependency install. ADR-0029.
 unset "${!GIT_@}"
 
+# `git ls-files` lists what is under the current directory, so a run from a subdirectory would scan a subset
+# and pass -- 30 of this repository's 146 files, measured from `docs/`. The whole tree or nothing.
+if toplevel=$(git rev-parse --show-toplevel 2>/dev/null); then
+	cd "$toplevel"
+fi
+
 # Both scan pipelines below end in `|| true`, so anything leaving them without input reads as nothing found.
 # ADR-0029 has why each cause gets its own message.
 if ! tracked=$(git ls-files); then
@@ -43,6 +49,40 @@ if [ "$(git config --bool --get core.sparseCheckout || true)" = "true" ]; then
 	printf 'check-identifiers: this is a sparse checkout, so a scan would cover part of the tree\n' >&2
 	exit 1
 fi
+
+# A tracked file the scan cannot open is skipped exactly as an absent one is, and the scan discards the error.
+# An unstaged deletion is the one shape of that worth tolerating, because it leaves no content on disk. Two
+# questions, because no single test answers both: `[ -e ]` cannot see through an unreadable directory, and git
+# reports a path behind one as deleted.
+#
+# git's own lstat first. A path it cannot examine goes to stderr, where a genuine deletion goes to stdout --
+# measured with a file under a mode-000 directory, which `[ -e ]` called absent and the guard passed over.
+unstattable=$(git ls-files --deleted 2>&1 >/dev/null)
+if [ -n "$unstattable" ]; then
+	printf 'check-identifiers: %s\n' "$unstattable" >&2
+	printf 'check-identifiers: a tracked path cannot be examined, so a scan would cover part of the tree\n' >&2
+	exit 1
+fi
+
+# Then the paths git could examine: a mode-000 file can be stat'ed and not read, so it reaches neither the
+# error above nor the deleted list.
+deleted=$(git ls-files --deleted)
+while IFS= read -r -d '' path; do
+	# The `--` the scan passes stops grep reading a leading hyphen as an option, but not this one name:
+	# POSIX gives `-` as standard input, and both greps here still read it that way after `--`, so the
+	# file's contents never reached the scan and the guard printed `ok` over an identifier in it. Measured.
+	# Prefixing every path with `./` would scan it instead of refusing it, and needs a NUL-safe stream
+	# editor to keep `xargs -0`'s separation -- macOS awk truncates at the first NUL and BSD sed has no
+	# `-z`, so there is none to reach for here.
+	if [ "$path" = '-' ]; then
+		printf 'check-identifiers: a tracked file named - is read as standard input, so a scan would cover part of the tree\n' >&2
+		exit 1
+	fi
+	if [ ! -r "$path" ] && ! printf '%s\n' "$deleted" | grep -qxF -- "$path"; then
+		printf 'check-identifiers: %s is tracked but cannot be read, so a scan would cover part of the tree\n' "$path" >&2
+		exit 1
+	fi
+done < <(git ls-files -z)
 
 ALLOWED='
 https://github.com/nichenke/nextup
@@ -126,7 +166,10 @@ PATTERN='([a-z][a-z0-9+.-]*://[^[:space:]]+)|([A-Za-z0-9._%+/-]+@[A-Za-z0-9.-]*\
 # segment has to become a slash before the segment is a URL worth splitting out. It also means a
 # comment in this file cannot quote an escaped-slash URL -- normalization would turn the quote into
 # a real one and the guard would flag its own source.
-normalized=$(git ls-files -z | xargs -0 grep -Ih '' 2>/dev/null |
+# `--` because a tracked filename may begin with a hyphen, which grep would otherwise read as an option: a
+# file named `-d` made BSD grep reject its own argument list, the error went to /dev/null, and the guard
+# printed `ok` over the identifier inside it. Measured.
+normalized=$(git ls-files -z | xargs -0 grep -Ih '' -- 2>/dev/null |
 	awk '{ gsub(/\\\//, "/"); gsub(/\\[nrt]/, "\n"); print }' || true)
 
 # Surrounding markup travels with a token: a markdown link wraps it in parentheses, prose ends it

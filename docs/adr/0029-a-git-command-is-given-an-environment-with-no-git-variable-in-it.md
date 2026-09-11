@@ -123,8 +123,8 @@ and the guard printed `ok`, so the repository's first check silently checked no 
 It also now refuses to report on a scan that saw less than the tree, because the redirect was a cause and not
 the class. Both pipelines in that script end in `|| true`, so anything leaving them without input reads as
 nothing found: run in a directory that is not a repository at all, it printed `fatal: not a git repository`,
-then `ok`, and exited 0. Three causes are now told apart, each with its own message, because "the repository
-is empty" and "git is broken" are not the same report:
+then `ok`, and exited 0. Each cause is now told apart, with its own message, because "the repository is
+empty" and "git is broken" are not the same report:
 
 - `git ls-files` failing at all, which is where a redirected environment, a missing `git`, or a checkout that
   produced no worktree lands. Reported as a listing failure rather than as a claim about the contents — under
@@ -136,6 +136,42 @@ is empty" and "git is broken" are not the same report:
   `core.sparseCheckout` rather than inferred from a file being absent, because an unstaged deletion looks
   identical on disk and refusing that would refuse an everyday tree; a file merely deleted is scanned as the
   absence it is, which `ADR-0006`'s "the files as they stood when it ran" already scopes.
+- a tracked file the scan cannot open, which it skips exactly as it skips an absent one. A mode-000 file
+  holding an identifier passed, and so did one under a mode-000 *directory*. Both measured.
+
+Before any of that, the scan starts at the repository root rather than wherever it was invoked. `git ls-files`
+lists what is under the current directory, so a run from a subdirectory scanned that subtree and reported a
+pass — 30 of this repository's 146 files, measured from `docs/`. CI and the package script both happen to run
+at the root, so what this closes is a direct invocation by a person or an agent. It is a correction rather
+than a refusal because `rev-parse --show-toplevel` either answers or there is no worktree to scan, and the
+latter fails the listing into the first cause above.
+
+The property is that the scan read every tracked file it could have, and it took three attempts to state it
+without a hole, which is worth recording as its own lesson. `xargs -0 ls` answered "is the path there", not
+"can it be read", so a mode-000 file passed. `[ -e ] && [ ! -r ]` answered readability but cannot see through
+an unreadable directory, so a path behind one read as absent and was tolerated — the branch deliberately left
+open for an unstaged deletion. Each fix closed the case it was shown and left the sibling of the same property.
+
+It is now asked as two questions, because no single test answers both, and git does the classifying rather
+than a predicate standing in for it: `git ls-files --deleted` puts a path it cannot examine on stderr and a
+genuinely deleted one on stdout, so the first refuses and the second is tolerated. What remains after that is
+a path git could stat, where `[ -r ]` is the whole question — a mode-000 file reaches neither the error nor
+the deleted list.
+
+Separately, the scan now passes `--` to `grep`. A tracked filename may begin with a hyphen, and `git ls-files`
+happily reports one: with a file named `-d`, BSD `grep` rejected its own argument list, `2>/dev/null` ate the
+error, `|| true` ate the status, and the guard printed `ok` over the identifier inside it. Measured. This is
+older than the work here, but a change claiming whole-tree coverage owns it.
+
+`--` does not rescue every such name, and the one it leaves is refused rather than scanned. A file named
+exactly `-` is standard input to `grep` under POSIX, and both the `grep` on this machine's `PATH` and
+`/usr/bin/grep` still read it that way after `--`, so its contents never reached the scan and the guard
+printed `ok` over the identifier in it. Measured, with the fixed `--` in place. Scanning it instead would mean
+prefixing every path with `./`, which needs a NUL-safe stream editor to keep `xargs -0`'s separation — macOS
+`awk` truncates at the first NUL and BSD `sed` has no `-z`, both measured — so it joins the refusals above at
+the cost of a filename nothing here needs.
+
+Together these make the `GIT_` removal above a second line of defence rather than the only one.
 
 `scripts/guard-harness.ts` spawns git raw to build a throwaway fixture repository. It asks `src/runner.ts`
 for the scrubbed environment rather than owning a list. It hands the guard script the environment whole, on

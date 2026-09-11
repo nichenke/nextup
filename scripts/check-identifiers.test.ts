@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "bun";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { defaultRunner } from "../src/runner";
@@ -107,6 +107,15 @@ describe("check-identifiers under a redirected git environment", () => {
 		expect(result.stderr.toString()).toContain("sparse checkout");
 	});
 
+	// `git ls-files` lists what is under the current directory, so a run from a subdirectory scanned a subset
+	// and passed. The identifier sits outside the directory the guard is invoked from.
+	test("scans the whole tree when run from a subdirectory, not the subtree it was started in", () => {
+		const root = repositoryWith({ "keep/a.md": "clean\n", "drop/b.md": `leak at ${unknownHttpsUrl}\n` });
+		const result = guardIn(join(root, "keep"));
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr.toString()).toContain("internal.corp.test");
+	});
+
 	test("refuses a sparse checkout, rather than scanning the part of the tree it has", () => {
 		const root = repositoryWith({ "keep/a.md": "clean\n", "drop/b.md": `leak at ${unknownHttpsUrl}\n` });
 		expect(defaultRunner(["git", "-C", root, "sparse-checkout", "init", "--cone"]).code).toBe(0);
@@ -114,6 +123,54 @@ describe("check-identifiers under a redirected git environment", () => {
 		const result = guardIn(root);
 		expect(result.exitCode).toBe(1);
 		expect(result.stderr.toString()).toContain("sparse checkout");
+	});
+
+	// Present but unreadable is skipped by the scan exactly as absent is, and only one of the two is a state
+	// worth refusing. Root would bypass the mode bits, which `src/test-preload.ts` refuses the suite under.
+	test("refuses a tracked file it cannot read, naming the file", () => {
+		const root = repositoryWith({ "a.md": "clean\n", "secret.md": `leak at ${unknownHttpsUrl}\n` });
+		chmodSync(join(root, "secret.md"), 0o000);
+		const result = guardIn(root);
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr.toString()).toContain("secret.md");
+	});
+
+	// The sibling of the case above, and the one `[ -e ]` could not answer: a path behind an unreadable
+	// directory cannot be stat'ed at all, so it read as absent and was tolerated.
+	test("refuses a tracked file hidden behind a directory it cannot enter", () => {
+		const root = repositoryWith({ "a.md": "clean\n", "sub/b.md": `leak at ${unknownHttpsUrl}\n` });
+		chmodSync(join(root, "sub"), 0o000);
+		const result = guardIn(root);
+		chmodSync(join(root, "sub"), 0o755);
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr.toString()).toContain("cannot be examined");
+	});
+
+	// Deleting a file without staging it is an everyday state, so the scan covers what is there.
+	test("scans a tree with a tracked file deleted but not staged", () => {
+		const root = repositoryWith({ "a.md": "clean\n", "b.md": `leak at ${unknownHttpsUrl}\n` });
+		rmSync(join(root, "a.md"));
+		const result = guardIn(root);
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr.toString()).toContain("internal.corp.test");
+	});
+
+	// `xargs` reads a leading hyphen as an option, so the scan rejected its own argument list, the error went
+	// to /dev/null and the guard passed over the file.
+	test("scans a tracked file whose name begins with a hyphen", () => {
+		const root = repositoryWith({ "-d": `leak at ${unknownHttpsUrl}\n` });
+		const result = guardIn(root);
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr.toString()).toContain("internal.corp.test");
+	});
+
+	// The one name `--` does not rescue, because grep reads it as standard input rather than as an option:
+	// the file above is scanned, this one was passed over with `ok`.
+	test("refuses a tracked file named as a lone hyphen, which grep would read as standard input", () => {
+		const root = repositoryWith({ "-": `leak at ${unknownHttpsUrl}\n` });
+		const result = guardIn(root);
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr.toString()).toContain("read as standard input");
 	});
 
 	test("scans the fixture rather than reporting ok on nothing", () => {
