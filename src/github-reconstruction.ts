@@ -133,6 +133,12 @@ function request(runner: Runner, argv: readonly string[], where: string): readon
  * is the tempting simplification and it defeats the check: the two sides would agree about a repository by
  * construction rather than by both reading it right.
  */
+function repoOf(address: string, where: string): string {
+	const repo = /\/repos\/([^/\s?#]+\/[^/\s?#]+)$/.exec(address)?.[1];
+	if (repo === undefined) throw new GitHubReconstructionError(`${where} names no owner and repository: ${address}`);
+	return repo;
+}
+
 /**
  * One reference built from a row this side read independently, reported as a bad response the way every other
  * reader here does — `github-adapter.ts` has the same helper for the same reason.
@@ -146,12 +152,6 @@ function githubRef(repo: string, key: string, where: string): GitHubTicketRef {
 		if (cause instanceof TicketRefError) throw new GitHubReconstructionError(`${where}: ${cause.message}`);
 		throw cause;
 	}
-}
-
-function repoOf(address: string, where: string): string {
-	const repo = /\/repos\/([^/\s?#]+\/[^/\s?#]+)$/.exec(address)?.[1];
-	if (repo === undefined) throw new GitHubReconstructionError(`${where} names no owner and repository: ${address}`);
-	return repo;
 }
 
 function object(raw: unknown, where: string): Record<string, unknown> {

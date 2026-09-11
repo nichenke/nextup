@@ -318,7 +318,7 @@ const JIRA_KEY = /^[A-Za-z][A-Za-z0-9]*-\d+$/;
 const GITLAB_ISSUE_URL = /^https?:\/\/([^/?#]+)\/([^?#]+?)\/-\/issues\/(\d+)(?:[/?#].*)?$/i;
 // Two or more segments before /issues/, and never a "/-/issues/" path (that's GITLAB_ISSUE_URL's
 // shape). Exactly two segments is genuinely ambiguous between GitHub and a GitLab instance still
-// on the pre-11.0 route with no "/-/" (shape alone can't tell them apart — see disambiguateHost).
+// on the pre-11.0 route with no "/-/" (shape alone can't tell them apart — see whichTracker).
 // Three or more can only be GitLab: GitHub has no subgroups, so it never has more than owner/repo.
 const GENERIC_ISSUES_URL = /^https?:\/\/([^/?#]+)\/(?!.*\/-\/issues\/)([^/?#]+(?:\/[^/?#]+)+?)\/issues\/(\d+)(?:[/?#].*)?$/i;
 // A self-hosted Jira Server/Data Center instance is commonly deployed under a context path
