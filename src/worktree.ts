@@ -1,5 +1,5 @@
-import { existsSync, lstatSync, readdirSync } from "node:fs";
-import { dirname, join, resolve, sep } from "node:path";
+import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { dirname, isAbsolute, join, parse, sep } from "node:path";
 import {
 	type Argv,
 	refExistsCommand,
@@ -308,16 +308,16 @@ function refuseUnlessOrdinaryLayout(runner: Runner, main: Registration): string 
 /**
  * The directory worktrees go in, with every rule about a root applied.
  *
- * `resolve` takes an absolute root as given and a relative one against the primary checkout, and
- * normalizes either, so a trailing slash or a `..` is the same path rather than another spelling of it.
- * It also discards an empty segment, and `??` does not fire for `""` — the two together turned a blank
- * root, which is what an unset variable or an empty flag hands over, into the primary checkout itself.
+ * An absolute root is taken as given and a relative one is read against the primary checkout; either is
+ * then canonicalized, so a trailing slash, a `.` and a `..` are the same path rather than three spellings
+ * of it. A blank root — what an unset variable or an empty flag hands over — means the default rather than
+ * the primary checkout itself.
  *
- * Blankness is detected by trimming, and a root that is not blank is then resolved untrimmed. Whitespace
- * can be part of a directory's name, so trimming one away would resolve a different path than the caller
- * named while reporting success — the opposite of taking an absolute root as given.
+ * Blankness is detected by trimming, and a root that is not blank is then read untrimmed. Whitespace can
+ * be part of a directory's name, so trimming one away would name a different path than the caller gave
+ * while reporting success — the opposite of taking an absolute root as given.
  *
- * @throws WorktreeError `"stale-directory"` for the three roots no caller wants:
+ * @throws WorktreeError `"stale-directory"` for the two roots no caller wants:
  *
  * - **The primary checkout itself**, which `"."` also reaches. Worktrees would land beside the checkout's
  *   own tracked files at its top level, where nothing ignores them. Not because the root is inside the
@@ -330,18 +330,28 @@ function refuseUnlessOrdinaryLayout(runner: Runner, main: Registration): string 
  *   ancestor of that name — `/srv/.git/repo` keeps its administration at `/srv/.git/repo/.git` — and a
  *   component scan refused it. Skipped for a bare repository, whose git directory *is* the primary, so
  *   containment would hold for every root including the default — the exemption ADR-0025 records.
- * - **Reached through a symlink**, per `refuseIfReachedThroughLink`.
+ *
+ * Both are compared against the canonical container rather than the spelling given, so neither is escaped
+ * by a root reaching its target through a symlink. `canonical` also refuses a root the filesystem will not
+ * answer for. A root merely outside the checkout is not refused — ADR-0041 records that as deliberate.
  */
 function resolveContainer(primary: string, root: string | null | undefined, gitDir: string): string {
 	const given = root ?? "";
-	const container = resolve(primary, given.trim() === "" ? DEFAULT_WORKTREE_ROOT : given);
+	const named = given.trim() === "" ? DEFAULT_WORKTREE_ROOT : given;
+	const container = canonical(isAbsolute(named) ? named : `${primary}${sep}${named}`);
 	if (folded(container) === folded(primary)) {
 		throw new WorktreeError(`${primary} is the primary checkout, so it cannot also be the worktree root`, "stale-directory");
 	}
 	if (gitDir !== primary && within(container, gitDir)) {
 		throw new WorktreeError(`${container} is inside ${gitDir}, which a worktree cannot be`, "stale-directory");
 	}
-	refuseIfReachedThroughLink(container);
+	// Asked of the container, not left to the leaf checks: those would report `<container>/<leaf>`, naming a
+	// path no caller typed for a mistake the caller made one level up. Absent is the ordinary case — the root
+	// is usually what this run creates — so only something there and not a directory is refused.
+	const entry = inspect(container);
+	if (entry !== undefined && !entry.isDirectory()) {
+		throw new WorktreeError(`${container} is not a directory, so a worktree root cannot be there`, "stale-directory");
+	}
 	return container;
 }
 
@@ -538,31 +548,68 @@ function adoptableFromOrigin(runner: Runner, repo: string, branch: string): bool
 }
 
 /**
- * @throws WorktreeError `"stale-directory"` where any component of `root` is a symlink.
+ * `path`, which must be absolute, with the symlinks along it resolved — the spelling git registers a
+ * worktree under. ADR-0041 has why that is computed rather than refused, why the worktree's own leaf is
+ * still refused, and the measurements behind the two rules below.
  *
- * Refused rather than resolved, per ADR-0013: git registers a worktree under the path with its symlinks
- * resolved, so a root reached through one registers where this would not look for it, and the next run
- * reports the branch checked out elsewhere instead of attaching to what the last one made.
+ * Do not replace this with one `realpathSync` call over the whole path. Bun resolves `<link>/..` to the
+ * link's own parent where git names the target's parent, and Bun's `realpathSync.native` agrees with Bun
+ * rather than with git, so there is no escape hatch in the API. One segment at a time, `realpathSync`
+ * never sees a `..` and the divergence cannot arise.
  *
- * Asked component by component rather than by comparing the path against its resolved form. That
- * comparison cannot tell a dangling symlink from a component that does not exist yet — both make
- * `realpath` raise `ENOENT` — and it also rejects a path merely spelled differently, such as one
- * carrying the trailing slash a shell completion adds.
+ * A segment that is not there is appended and the walk continues, rather than the remainder being taken
+ * as written: a `..` can cancel that segment out and hand a symlink back to a walk that then has to
+ * resolve it.
  *
- * Walking to `/` costs ADR-0013 the absolute root it promises in the same breath: on macOS `/tmp`,
- * `/var` and `/etc` are symlinks, so every root under a system temp directory is refused. Inert for the
- * default, which git hands back already resolved. nichenke/nextup issue 39 owes the decision.
+ * `..` is the one segment resolved without asking the filesystem, so what it climbs out of is asked about
+ * separately. Nothing may be reached through a regular file — `git worktree add` refuses such a path with
+ * "Not a directory", as `ls` and `realpath` do — and string arithmetic alone would step over one and carry
+ * on to a sibling that does exist. A segment that is merely absent is climbed out of, which is what git
+ * does with it.
  */
-function refuseIfReachedThroughLink(root: string): void {
-	let at = root;
-	for (;;) {
-		if (inspect(at)?.isSymbolicLink() === true) {
-			throw new WorktreeError(`${at} is a symlink, and a worktree root has to be reached without one`, "stale-directory");
+function canonical(path: string): string {
+	// `parse().root` rather than `sep`, so the volume a platform puts before the first separator survives the
+	// walk. Identical on POSIX, where the root is `sep`; nothing here is otherwise portable — the suite sets
+	// mode bits to make its conditions — so this buys correctness at the seam, not a supported platform.
+	const { root } = parse(path);
+	let at: string = root;
+	for (const segment of path.slice(root.length).split(sep)) {
+		if (segment === "" || segment === ".") continue;
+		if (segment === "..") {
+			const entry = inspect(at);
+			if (entry !== undefined && !entry.isDirectory()) {
+				throw new WorktreeError(
+					`${at} is not a directory, so a worktree root cannot be reached through it`,
+					"stale-directory",
+				);
+			}
+			at = dirname(at);
+			continue;
 		}
-		const parent = dirname(at);
-		if (parent === at) return;
-		at = parent;
+		const candidate = join(at, segment);
+		at = resolvedIfThere(candidate) ?? candidate;
 	}
+	return at;
+}
+
+/**
+ * `path` resolved, or `undefined` where nothing is there at all — which the caller reads as a segment to
+ * append and go on from, so the two answers are not interchangeable.
+ *
+ * `realpathSync` raises `ENOENT` for a segment that does not exist yet — the ordinary case, since the root
+ * is usually what this run creates — and for a symlink to nothing, which is a refusal. Neither is told from
+ * the other by catching that, so the two are separated before it is called: `lstat` sees a link to nothing
+ * where `stat` does not, and nothing at all where neither does.
+ *
+ * @throws WorktreeError `"stale-directory"` for a link to nothing, and for every other answer the
+ * filesystem gives, `refusingOnError` classifying those.
+ */
+function resolvedIfThere(path: string): string | undefined {
+	if (inspect(path) === undefined) return undefined;
+	if (refusingOnError(path, "resolved", () => statSync(path, { throwIfNoEntry: false })) === undefined) {
+		throw new WorktreeError(`${path} is a symlink to nothing, so no worktree can be reached through it`, "stale-directory");
+	}
+	return refusingOnError(path, "resolved", () => realpathSync(path));
 }
 
 /**
