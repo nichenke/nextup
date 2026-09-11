@@ -9,25 +9,23 @@ The motivating example is the brief quoted in issue 80's body, emitted by the tw
 retires and captured verbatim from a sibling repository. Every phrase attributed to it below is from
 there.
 
-The split is not facts against prose, which is where this started. It is **the graph and the ladder
-against the ticket body.** Every sentence derivable from the ticket set is the tool's, said as a
-sentence rather than as a field, deterministic and fixture-tested. The session's whole territory is
-the paragraphs that can only be written by reading a free-text body.
+The split is not facts against prose. It is **the graph and the ladder against the ticket body**:
+every sentence derivable from the ticket set is the tool's, said as a sentence rather than a field
+and fixture-tested, and the session's whole territory is what can only be written by reading a
+free-text body.
 
-That line falls where it does because most of what looked like judgment is arithmetic the ranking
-already does. "The wave narrows nothing; the tie-break did the work" is `decision.rung` compared
-against the ladder's last rung. Compressing twenty-two also-rans into one clause is grouping
-`ranked` by the ladder's own keys. Both are deterministic data checks, and a model asked to make
-them can get them wrong in a way no fixture would catch.
+The line falls there because most of what looked like judgment is arithmetic the ranking already
+does. "The wave narrows nothing; the tie-break did the work" is `decision.rung` against the ladder's
+last rung; compressing twenty-two also-rans into one clause is grouping `ranked` by the ladder's own
+keys. Both are deterministic data checks, and a model asked to make them can get them wrong in a way
+no fixture would catch.
 
 ## The worked example
 
-Against a real pick, taken from this repository on 2026-09-11. The tracker has moved on since — the
-tickets below have been claimed and closed in the ordinary way — so this is one run's snapshot rather
-than what a run today prints. Everything the example argues from is a property of that snapshot, and
-the date is what lets a later reader tell drift from error. The caveat deliberately names no ticket's
-current state, because that is the half of a dated example that rots twice. Repository
-coordinates are elided in the blocks; the identifier guard's allowlist is not widened for an example
+Against a real pick from this repository, captured 2026-09-11. It is that day's snapshot, not what a
+run prints now — the date is what lets a later reader tell drift from error, and naming no ticket's
+current state is what stops the caveat rotting too. Repository coordinates are elided in the blocks,
+since the identifier guard's allowlist is not widened for an example
 ([0006](./0006-provenance-prevents-leaks-the-guard-is-a-backstop.md)).
 
 Today's rendering, seven lines:
@@ -86,54 +84,16 @@ chain to a downstream goal. On this pick every ranked candidate has `unblocks 0`
 no goal, and nothing downstream. A shape that expects the chain argument invites a model to invent
 one.
 
-So slot 6 has two forms and the input decides which, not the writer. Where a path runs from the pick
-to a downstream ticket, the slot names that ticket and what is left of it — *clearing this leaves
-`#216` waiting on one more* — which is what the rung cannot say. Where no path runs, the slot names
-the rung, and where the rung is the ladder's last it says the ladder separated nothing. Both forms
-are arithmetic over the same edges; the goal form is preferred and the rung form is the fallback,
-which is why slot 6's missing input is a path and not a judgement.
-
-A pick can reach several downstream tickets, so the goal form needs one endpoint rather than any
-reachable one. Choosing it is an algorithm, and this ADR does not write one — the input does not
-exist yet, nothing here could run it, and a walk specified in prose hides the decisions a signature
-would force. What this ADR fixes is the requirements the walk has to satisfy, so that whoever
-supplies the path can be held to them:
-
-- **Farthest, not nearest.** The endpoint carries the most work stacked behind the pick. This is the
-  binding one: the nearest reachable ticket is usually a formality, and a walk that returns it is
-  wrong however deterministically it got there. The implementation states the distance it measures;
-  this ADR requires only which end of it wins.
-- **Total.** One endpoint for one selection, whatever the graph's shape or the traversal's order, and
-  `compareTicketRefs` breaks a tie — the ladder's last rung, and already how `fromLowestRef` makes
-  the deadlock walk assertable, having rejected `localeCompare` for depending on locale data no
-  fixture can hold.
-- **Terminating on a cycle.** The blocking graph permits them ([0030](./0030-a-deadlock-is-named-beside-the-answer.md)),
-  so the walk answers on a set holding one rather than diverging. Which policy reaches that is the
-  implementation's to choose and to write down.
-- **Consistent with the standing line.** The path may not claim value the counts beside it deny —
-  every dependent it traverses is open, because `countUnblocks` skips the ones that are not
-  ([0011](./0011-what-each-ranking-rung-reads.md)) and a goal reached through a closed ticket is not
-  advanced by clearing the pick.
-
-Verify it at the three shapes that break a naive walk: two endpoints at equal distance, a set holding
-a cycle, and a path whose intermediate ticket has closed. A fixture at each is what makes the four
-requirements checkable rather than advisory.
-
-Requiring the far end rather than the near one also points the duplicate-derivation risk below in the
-useful direction, since a rung ranking on distance to an entry point wants the same reading.
-
 **The alternatives slot earns its place even on a tie.** The ladder reads priority, unblocks and
 reference — [0003](./0003-ranking-ladder-fixed-in-code.md) — and nothing else. Here the runner-up
 carries `bug` and `ready-for-agent` and the pick carries neither, and no rung looked. Naming the
 labels the tie-break ignored is the most useful sentence in the whole brief, and it is arithmetic.
 
-This contradicts [0011](./0011-what-each-ranking-rung-reads.md), which says the human rendering
-shows only the pick's labels, "so tracing why a *losing* ticket was not ranked on its label is a
-`--json` question". Slot 7 answers it on the human surface instead. 0011's reasoning about what each
-rung *reads* is untouched and still binds; what changes is only where a reader goes to see a loser's
-labels, and the worked example is the argument — on a tie the labels the ladder ignored are the only
-thing left that distinguishes six candidates, and sending a person to `--json` for them hides the one
-fact the brief exists to surface.
+This contradicts [0011](./0011-what-each-ranking-rung-reads.md) — "tracing why a *losing* ticket was
+not ranked on its label is a `--json` question" — and slot 7 answers it on the human surface instead.
+What each rung *reads* is untouched; only where a reader goes to see a loser's labels moves. On a tie
+those labels are the only thing distinguishing six candidates, so sending a person to `--json` hides
+the one fact the brief exists to surface.
 
 ## The slots
 
@@ -152,31 +112,21 @@ Ten, in this order. "Present" means the tool can already produce the input today
 | 9 | Contract lines | tool | `degraded: `, `deadlock: ` | yes |
 | 10 | Action | tool | the session command | yes |
 
-Slot 1 has two forms, the way slot 6 does, and `Selection.pick` decides which. With a pick it is the
-reference, the title and the URL. With none it is what the rendering already says — `no candidate to
-recommend` — and *why*. Today that is five reasons, not four: a quiet day, a wholly blocked set, a
-deadlock, a read that failed, and a read that came back incomplete. The last two are one class in
-[0038](./0038-the-plugin-ships-one-command-and-previews-before-it-starts.md) and two in
-`skills/nextup/SKILL.md`, which splits them because they want different things said — a failed read
-is retried, while an incomplete one held tickets back that were really there, and reporting it as a
-quiet day presents withheld work as an empty queue. Slot 1 follows the skill and keeps them apart.
+**Slot 1 has two forms and `Selection.pick` decides which.** With a pick it is the reference, the
+title and the URL. With none it is `no candidate to recommend` and *why* — five reasons today: a
+quiet day, a wholly blocked set, a deadlock, a read that failed, and a read that came back
+incomplete. [0038](./0038-the-plugin-ships-one-command-and-previews-before-it-starts.md) makes the
+last two one class and `skills/nextup/SKILL.md` splits them, because their remedies differ: a failed
+read is retried, while an incomplete one held back tickets that were really there. Slot 1 follows the
+skill.
 
-The reason is an open class rather than an enum fixed here: a scope that resolves to nothing is a
-further member, and the slot takes it without a shape change.
-
-More than one can hold at once — a wholly blocked set whose blockers form a cycle is both, and an
-incomplete read can sit beside a blocked remainder. Which is why the class is open: an enum fixed
-here would have to be re-cut every time two members overlap. The requirement instead is that the
-outcome be **total** — one headline for one answer, not one per applicable reason and not whichever
-the implementation tests first. Whether a precedence order or a combined sentence reaches that is the
-renderer's decision, made where a fixture can assert it.
-
-A precedence order drops its losers, so it is worth saying why that costs nothing here rather than
-adding a structure to carry them. Each of the five is *already* independently visible elsewhere in
-the brief: a deadlock, a failed read and an incomplete read each print their own slot 9 line, and a
-quiet day and a wholly blocked set are read off slot 2's counts. The headline chooses which to lead
-with; none of them can go missing. That is the standing requirement on the open class too — a reason
-may join it only if slot 2 or slot 9 already carries it, or it brings its own line.
+Reasons overlap — a blocked set whose blockers form a cycle is two of them — so the requirement is
+that the headline be **total**: one for one answer, not one per applicable reason and not whichever
+the implementation tests first. Precedence or a combined sentence is the renderer's choice, and
+either is safe because each reason is independently visible anyway, three on their own slot 9 line
+and two off slot 2's counts. That is also the joining rule for the class, which is open rather than
+an enum: a new reason may enter only if slot 2 or slot 9 already carries it, or it brings its own
+line.
 
 **Slot 1 is the one slot that is never omitted.** Every other slot disappears when its input is
 absent; this one has no absent case, because "there is no pick" is itself the answer. A no-pick brief
@@ -184,6 +134,32 @@ is therefore slots 1 and 2, and at most slots 8 and 9 — those two keep obeying
 a quiet day with nothing in flight and no degrade prints two slots, not four. There is no action
 line, and that needs no rule: the tool already suppresses it on its own (`renderStart` returns the
 empty string for `nothing-to-start`).
+
+**Slot 6 has two forms too, and the path decides which.** Where one runs from the pick to a
+downstream ticket, the slot names that ticket and what is left of it — *clearing this leaves `#216`
+waiting on one more* — which is what a rung cannot say. Where none runs, it names the rung, and where
+the rung is the ladder's last it says the ladder separated nothing.
+
+A pick can reach several downstream tickets, so the goal form needs one endpoint rather than any
+reachable one. Choosing it is an algorithm and this ADR does not write one: the input does not exist
+yet, nothing here can run it, and a walk set down in prose hides the decisions a signature would
+force. What is fixed here is what the walk must satisfy, so whoever supplies it can be held to this:
+
+- **Farthest, not nearest.** The endpoint carries the most work stacked behind the pick. The nearest
+  reachable ticket is usually a formality, and a walk returning it is wrong however deterministically
+  it got there. The implementation states the distance it measures; this fixes only which end wins.
+- **Total.** One endpoint per selection whatever the graph's shape or the traversal's order, ties
+  broken by `compareTicketRefs` — the ladder's last rung, and already how `fromLowestRef` makes the
+  deadlock walk assertable.
+- **Terminating on a cycle.** The blocking graph permits them
+  ([0030](./0030-a-deadlock-is-named-beside-the-answer.md)), so the walk answers rather than
+  diverging. Which policy reaches that is the implementation's to choose and to write down.
+- **Consistent with the standing line.** Every dependent the path traverses is open, because
+  `countUnblocks` skips the ones that are not ([0011](./0011-what-each-ranking-rung-reads.md)) and a
+  goal reached through a closed ticket is not advanced by clearing the pick.
+
+Three fixtures make those checkable rather than advisory: two endpoints at equal distance, a set
+holding a cycle, and a path whose intermediate ticket has closed.
 
 The reason comes before the alternatives, which inverts the motivating example's order. "Also on the
 frontier" is not readable until you know whether the ranking decided anything: on a tie it is the
@@ -196,18 +172,15 @@ ticket**
 rather than the count `unblocks` already is. Every other slot reads something the selector holds.
 Slot 7 in particular needs nothing new — `ranked` already carries each candidate's labels.
 
-Slot 8 costs no extra ticket read, but it needs more than an identity, and the earlier draft of this
-ADR said otherwise. Three things are missing and all three are plumbing over rows already fetched:
-who the viewer is; the claimed tickets' references, which `select` reduces to the bare number
-`counts.claimed` so that not one of them reaches `Answer`; and every assignee rather than the first,
-because `readClaim` keeps only `assignees[0]` and a ticket the viewer shares is still in flight for
-them.
+Slot 8 needs three things, not one, and all three are plumbing over rows already fetched rather than
+a second read: who the viewer is; the claimed tickets' references, which `select` reduces to the bare
+`counts.claimed` so none reaches `Answer`; and every assignee rather than the first, since
+`readClaim` keeps only `assignees[0]` and a ticket the viewer shares is still in flight for them.
 
-That last one is a repurposing rather than an addition, and worth naming as such. `readClaim`'s own
-comment says which assignee it reports "is display, and every reading that decides anything asks only
-whether a claim exists" — true of every reader it has today. Slot 8 is the first that needs the
-claimant's identity to decide something, so the field acquires a second meaning unless the read
-widens. Widen the read.
+That last is a repurposing rather than an addition. `readClaim`'s comment says which assignee it
+reports "is display, and every reading that decides anything asks only whether a claim exists" — true
+of every reader it has. Slot 8 would be the first needing the claimant to decide something, so the
+field gains a second meaning unless the read widens. Widen the read.
 
 Slot 6's path is the one missing input another ticket may derive first, for its own reasons — a rung
 ranking on distance to a named entry point needs the same walk over the same edges. **One derivation
@@ -216,13 +189,12 @@ written down here, is what keeps the brief from arguing a chain the ranking disp
 one function agree whatever the function decided, and two implementations of one graph fact do not,
 however carefully each was specified.
 
-This ADR therefore declines to define the walk — the distance measured, whether paths are simple, how
-a cycle is collapsed. Doing so was proposed and rejected twice in review, and the reasoning is worth
-keeping so it is not reopened a third time. An algorithm in prose has no compiler and no fixture, so
-each clause of it is unverified the moment it is written; three of this ADR's own review findings
-came from one such paragraph, and two of those were defects in the fix for the first. The
-requirements above are what a fixture can hold. The walk belongs in the ticket that has the input to
-run it against.
+Defining the walk here — the distance measured, whether paths are simple, how a cycle is collapsed —
+was proposed in review and is declined, recorded so it is not reopened. An algorithm in prose has no
+compiler and no fixture, so every clause is unverified the moment it is written: one such paragraph
+in an earlier draft of this ADR drew three findings, two of them defects in the fix for the first.
+The requirements above are what a fixture can hold, and the walk belongs in the ticket with the input
+to run it against.
 
 ## What stays a contract
 
@@ -262,12 +234,12 @@ example above already prints both lines qualified.
 
 ## The length budget
 
-Twenty-five content lines is the ceiling and today's six is the floor on a run that picked something
-— the seven 0038 counts, less its blank. A run that picked nothing floors lower still, at the two
-slots that always print, and is not padded up to meet this. Blank lines between slots are not counted anywhere here, and the slots below sum to
-twenty-three. The budget is allocated per slot
-rather than to the brief as a whole, because slots 3 to 5 are the only ones a model writes and an
-unbudgeted brief is one where they absorb everything:
+Twenty-five content lines is the ceiling; blank lines between slots count nowhere here, and the
+slots below sum to twenty-three. The floor on a run that picked something is today's six — the seven
+0038 counts, less its blank — and a run that picked nothing floors lower still, at the two slots that
+always print, rather than being padded up to meet it. The budget is per slot rather than whole,
+because slots 3 to 5 are the only ones a model writes and an unbudgeted brief is one where they
+absorb everything:
 
 | Slot | Lines |
 | ---- | ----- |
@@ -318,29 +290,26 @@ body the scope, produces a line that is true of every ticket and therefore says 
 ## Consequences
 
 The shipped answer is no longer deterministic end to end, and the scenario fixtures assume it is.
-They keep working: they assert `Selection`, and every slot they cover is tool-owned. What they no
-longer cover is the whole of what a reader sees. The composed slots need their own control, and
-naming it is out of scope here — but a fixture over slots 1, 2, 6, 7, 8, 9 and 10 is the
-deterministic half and should stay exact. Slot 8 belongs in that list despite its missing input:
-what it needs is an identity, not a judgement, and once supplied the line it writes is as fixed as
-the counts.
+They keep working — they assert `Selection`, and every slot they cover is tool-owned — but they no
+longer cover the whole of what a reader sees. Every tool-owned slot should stay exact under fixture,
+slot 8 included: what it lacks is an identity, not a judgement. Controlling the three composed slots
+is out of scope here.
 
 Nothing here ships yet. `skills/nextup/SKILL.md` still describes relaying the plain rendering, which
 is correct until the three missing inputs exist: a skill told to compose slot 3 today would compose
 it from the title. [0038](./0038-the-plugin-ships-one-command-and-previews-before-it-starts.md)'s
 relay instruction stands until then.
 
-Slot 8 is scoped to the ticket set already read, and says so — "in this repository" — so an empty
-slot is not read as "you are holding nothing anywhere". The wider query the motivating example
-implied, assigned-to-me across every repository, is refused for the reason
+Slot 8 says "in this repository", so an empty slot is not read as holding nothing anywhere. The
+wider query the motivating example implied — assigned to me across every repository — is refused for
+the reason
 [0040](./0040-checkout-identity-is-resolved-once-and-a-write-cannot-happen-without-one.md) refuses a
 foreign ticket: the tool's world is the checkout it stands in, and it would be reporting on ticket
-sets it has not read and cannot say anything true about. The cost is real — in-flight work
-elsewhere is invisible, and that is the case where the line would have mattered most. If the narrow
-form proves useless, widening it is a decision of its own with a scope binding and a limit attached.
+sets it has not read. The cost is real, since in-flight work elsewhere is exactly where the line
+would have mattered most. Widening it is a decision of its own, with a scope binding and a limit.
 
 Two sentences now live in TypeScript that a model would otherwise have written: the tie-break
-wording and the compression of the alternatives. That grows `selection-output.ts`, whose 173 lines
-of code already carry 114 lines of comment, most of them defending exactly this kind of wording. It is the same trade the repository has already taken
-for `degraded: ` and `blockingPhrase` — a sentence a fixture can assert is a sentence that cannot
-drift — and the alternative is a model deciding whether six tied candidates were separated.
+wording, and the compression of the alternatives. That grows `selection-output.ts`, whose 173 lines
+of code already carry 114 of comment, most defending this same kind of wording. It is the trade the
+repository already took for `degraded: ` and `blockingPhrase` — a sentence a fixture can assert
+cannot drift — against a model deciding whether six tied candidates were separated.
