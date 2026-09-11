@@ -443,6 +443,9 @@ describe("a start that could not finish", () => {
 		const result = run([...LIMIT, "--yes"], deps(runner));
 		expect(result.code).toBe(2);
 		expect(result.stderr).toContain("running this again");
+		// The claim state as well as the recovery: a ranked pick is unclaimed by construction, and this is the
+		// sentence that tells the operator what the tracker holds.
+		expect(result.stderr).toContain("the ticket is still unclaimed");
 		expect(result.stderr).toContain(`${PRIMARY}/.worktrees/`);
 		expect(of("new-workspace")).toEqual([]);
 	});
@@ -969,5 +972,74 @@ describe("starting a ticket named on the command line", () => {
 		expect(of("issue", "view")).toEqual([]);
 		expect(of("worktree", "add")).toEqual([]);
 		expect(of("issue", "edit")).toEqual([]);
+	});
+});
+
+/**
+ * What a failure after the worktree tells the operator, over every combination that changes the answer.
+ *
+ * Four inputs decide it: which step failed, whether the ticket carried a claim before this run, and whether the
+ * operator named it. Three rounds of review landed on this wording because each round saw one combination, so the
+ * cases are gathered here rather than left beside the test of whichever path introduced them.
+ *
+ * One arm is deliberately absent: a `Claim` whose `by` is null. `readClaim` demands a login string from GitHub's
+ * assignees, so this tracker cannot produce one, and the wording handles it for an adapter that later can.
+ */
+describe("the recovery a failure after the worktree leaves open", () => {
+	const TREE = openIssues(GITHUB_TEST_TREE).length;
+	const LIMIT = ["--limit", String(TREE)];
+	const FAILED_CLAIM = (argv: string[]): CommandResult | null =>
+		argv[1] === "issue" && argv[2] === "edit" ? { code: 1, stdout: "", stderr: "HTTP 403: Resource not accessible" } : null;
+
+	function namedTicket(recording: string): string {
+		return `gh:${GITHUB_TEST_TREE.repo}#${recordedIssue(githubRecording(recording))}`;
+	}
+
+	// A named ticket that nobody held: the claim state is the ranked path's, so the wording has to be too — the
+	// override path is not a reason to report a claim that was never there.
+	test("a named unclaimed ticket whose claim failed reads as unclaimed, like a ranked one", () => {
+		const { runner } = startSequence(FAILED_CLAIM, "ticket-view");
+		const result = run([namedTicket("ticket-view"), "--yes"], deps(runner));
+
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("the ticket is still unclaimed");
+		expect(result.stderr).not.toContain("among its assignees");
+	});
+
+	/**
+	 * A failure of neither class, after the worktree exists. It is returned untouched so it keeps the stack that is
+	 * all it has — and must not pick up a recovery sentence, since nobody has classified what recovers.
+	 */
+	test("an unclassified failure keeps its stack and gains no recovery sentence", () => {
+		const { runner, of } = startSequence((argv) => {
+			if (argv[1] === "issue" && argv[2] === "edit") throw new TypeError("undefined is not a function");
+			return null;
+		}, "ticket-view");
+		const result = run([namedTicket("ticket-view"), "--yes"], deps(runner));
+
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("undefined is not a function");
+		expect(result.stderr).toContain("    at ");
+		expect(result.stderr).not.toContain("running this again");
+		expect(result.stderr).not.toContain("would pick a different ticket");
+		// Past the worktree, which is what makes this the pass-through path rather than an earlier refusal.
+		expect(of("worktree", "add")).toHaveLength(1);
+	});
+
+	// Both error branches name the worktree, because it is the leftover a failure is allowed to have and the only
+	// thing a re-run continues from. Asserted across the branches rather than inside one, so neither can lose it.
+	test("every classified failure names the worktree it left behind", () => {
+		const failures: readonly (readonly [string, (argv: string[]) => CommandResult | null])[] = [
+			["a claim that would not land", FAILED_CLAIM],
+			["a session that would not start", (argv) => (argv[1] === "new-workspace" ? { code: 1, stdout: "", stderr: "no window" } : null)],
+		];
+		for (const [, over] of failures) {
+			for (const argv of [[...LIMIT, "--yes"], [namedTicket("ticket-view"), "--yes"]]) {
+				const read = argv[0] === "--limit" ? "ticket-set" : "ticket-view";
+				const result = run(argv, deps(startSequence(over, read).runner));
+				expect(result.code).toBe(2);
+				expect(result.stderr).toContain(`${PRIMARY}/.worktrees/`);
+			}
+		}
 	});
 });

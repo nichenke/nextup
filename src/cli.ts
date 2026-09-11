@@ -514,6 +514,10 @@ function startedNothing(cause: unknown, pick: StartPick, worktree: WorktreeOutco
 		// That it is claimed, and no count of by how many: `readClaim` keeps the first assignee and says that which
 		// one it reports is display, so a `Claim` cannot establish that there was only one. The claimant is named as
 		// one of them rather than as the holder, which is what that field can support.
+		//
+		// The unnamed-claimant arm has no test and cannot get one here: `readClaim` demands a login from GitHub's
+		// assignees, so this tracker cannot produce a `Claim` without one. It is written for an adapter that can,
+		// which is the case `Claim.by` exists for.
 		const standing =
 			pick.claim === null
 				? "the ticket is still unclaimed"
