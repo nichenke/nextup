@@ -93,21 +93,34 @@ the rung, and where the rung is the ladder's last it says the ladder separated n
 are arithmetic over the same edges; the goal form is preferred and the rung form is the fallback,
 which is why slot 6's missing input is a path and not a judgement.
 
-A pick can reach several downstream tickets, so "a path" has to be one path or the slot is not
-deterministic and could name a different goal each run off nothing but iteration order. The endpoint
-is **the farthest open ticket reachable from the pick over blocking edges, ties broken by
-`compareTicketRefs`** — and both halves are borrowed rather than invented. Open only, because
-`countUnblocks` already skips a ticket that is not open and a brief arguing toward a closed goal
-would contradict the count beside it ([0011](./0011-what-each-ranking-rung-reads.md)).
-`compareTicketRefs` because it is the ladder's last rung and is already how this repository makes a
-graph walk's output pinnable: `fromLowestRef` turns a deadlock cycle with it, having rejected
-`localeCompare` for depending on runtime locale data and so not being assertable in a fixture.
+A pick can reach several downstream tickets, so the goal form needs one endpoint rather than any
+reachable one. Choosing it is an algorithm, and this ADR does not write one — the input does not
+exist yet, nothing here could run it, and a walk specified in prose hides the decisions a signature
+would force. What this ADR fixes is the requirements the walk has to satisfy, so that whoever
+supplies the path can be held to them:
 
-Farthest rather than nearest is the substantive half. The nearest downstream ticket is often a
-formality, while the far end is what says how much is stacked behind the pick. It also settles the
-duplicate-derivation risk below in the right direction: a rung ranking on distance to an entry point
-wants the longest path too, so one walk serves both and the brief cannot argue a chain the ranking
-disputes.
+- **Farthest, not nearest.** The endpoint carries the most work stacked behind the pick. This is the
+  binding one: the nearest reachable ticket is usually a formality, and a walk that returns it is
+  wrong however deterministically it got there. The implementation states the distance it measures;
+  this ADR requires only which end of it wins.
+- **Total.** One endpoint for one selection, whatever the graph's shape or the traversal's order, and
+  `compareTicketRefs` breaks a tie — the ladder's last rung, and already how `fromLowestRef` makes
+  the deadlock walk assertable, having rejected `localeCompare` for depending on locale data no
+  fixture can hold.
+- **Terminating on a cycle.** The blocking graph permits them ([0030](./0030-a-deadlock-is-named-beside-the-answer.md)),
+  so the walk answers on a set holding one rather than diverging. Which policy reaches that is the
+  implementation's to choose and to write down.
+- **Consistent with the standing line.** The path may not claim value the counts beside it deny —
+  every dependent it traverses is open, because `countUnblocks` skips the ones that are not
+  ([0011](./0011-what-each-ranking-rung-reads.md)) and a goal reached through a closed ticket is not
+  advanced by clearing the pick.
+
+Verify it at the three shapes that break a naive walk: two endpoints at equal distance, a set holding
+a cycle, and a path whose intermediate ticket has closed. A fixture at each is what makes the four
+requirements checkable rather than advisory.
+
+Requiring the far end rather than the near one also points the duplicate-derivation risk below in the
+useful direction, since a rung ranking on distance to an entry point wants the same reading.
 
 **The alternatives slot earns its place even on a tie.** The ladder reads priority, unblocks and
 reference — [0003](./0003-ranking-ladder-fixed-in-code.md) — and nothing else. Here the runner-up
@@ -151,6 +164,20 @@ quiet day presents withheld work as an empty queue. Slot 1 follows the skill and
 The reason is an open class rather than an enum fixed here: a scope that resolves to nothing is a
 further member, and the slot takes it without a shape change.
 
+More than one can hold at once — a wholly blocked set whose blockers form a cycle is both, and an
+incomplete read can sit beside a blocked remainder. Which is why the class is open: an enum fixed
+here would have to be re-cut every time two members overlap. The requirement instead is that the
+outcome be **total** — one headline for one answer, not one per applicable reason and not whichever
+the implementation tests first. Whether a precedence order or a combined sentence reaches that is the
+renderer's decision, made where a fixture can assert it.
+
+A precedence order drops its losers, so it is worth saying why that costs nothing here rather than
+adding a structure to carry them. Each of the five is *already* independently visible elsewhere in
+the brief: a deadlock, a failed read and an incomplete read each print their own slot 9 line, and a
+quiet day and a wholly blocked set are read off slot 2's counts. The headline chooses which to lead
+with; none of them can go missing. That is the standing requirement on the open class too — a reason
+may join it only if slot 2 or slot 9 already carries it, or it brings its own line.
+
 **Slot 1 is the one slot that is never omitted.** Every other slot disappears when its input is
 absent; this one has no absent case, because "there is no pick" is itself the answer. A no-pick brief
 is therefore slots 1 and 2, and at most slots 8 and 9 — those two keep obeying the omission rule, so
@@ -183,9 +210,19 @@ claimant's identity to decide something, so the field acquires a second meaning 
 widens. Widen the read.
 
 Slot 6's path is the one missing input another ticket may derive first, for its own reasons — a rung
-ranking on distance to a named entry point needs the same walk over the same edges. Whichever lands
-first owns the derivation and the other reads it. Two implementations of one graph fact is how the
-brief comes to argue a chain the ranking does not agree with.
+ranking on distance to a named entry point needs the same walk over the same edges. **One derivation
+serves both, and the second consumer reads it rather than repeating it.** That, rather than a metric
+written down here, is what keeps the brief from arguing a chain the ranking disputes: two callers of
+one function agree whatever the function decided, and two implementations of one graph fact do not,
+however carefully each was specified.
+
+This ADR therefore declines to define the walk — the distance measured, whether paths are simple, how
+a cycle is collapsed. Doing so was proposed and rejected twice in review, and the reasoning is worth
+keeping so it is not reopened a third time. An algorithm in prose has no compiler and no fixture, so
+each clause of it is unverified the moment it is written; three of this ADR's own review findings
+came from one such paragraph, and two of those were defects in the fix for the first. The
+requirements above are what a fixture can hold. The walk belongs in the ticket that has the input to
+run it against.
 
 ## What stays a contract
 
