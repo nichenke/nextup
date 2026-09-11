@@ -3,8 +3,9 @@
 > Amended by [0041](./0041-a-worktree-root-is-resolved-and-only-the-worktree-refuses-a-link.md) on the
 > symlink sentence below. Read "refused rather than resolved, at the root and at the worktree itself" as
 > refused at the worktree itself, with the root resolved instead — taken literally, the sentence refused
-> every root under a system temp directory, contradicting the third bullet in the same body. The rest
-> stands, the hazard it records included.
+> every root under a system temp directory, contradicting the third bullet in the same body. 0041 also
+> reads the title as describing the default rather than binding a named root: `--worktree-root ..` sites a
+> worktree beside this checkout and is accepted. The rest stands, the hazard it records included.
 
 Ticket 08 had to pick a default worktree root. The spec (nichenke/nextup issue 2) instructs one:
 "Root is parametric, defaulting to the harness's worktree directory so that native session-exit

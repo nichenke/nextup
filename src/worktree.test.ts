@@ -725,8 +725,11 @@ describe("ensure", () => {
 		symlinkSync(join(repo, "never-created"), join(repo, "dangling"));
 		const git = stubGit(state);
 
-		expect(kindOf(() => ensure({ runner: git.runner, repo, ticket: READER, root: join(repo, "dangling") }))).toBe(
-			"stale-directory",
+		// The message is pinned, not just the kind: `realpathSync` reports `ENOENT` for a link to nothing
+		// exactly as it does for a path that is not there, and a caller told "no such file" about a link
+		// they can see has no way to act on it.
+		expect(() => ensure({ runner: git.runner, repo, ticket: READER, root: join(repo, "dangling") })).toThrow(
+			`${join(repo, "dangling")} is a symlink to nothing`,
 		);
 	});
 
@@ -1040,6 +1043,18 @@ describe("ensure against real git", () => {
 
 		// `nope/..` cancels out and hands `link` back to a walk that has to keep resolving; taking the
 		// remainder as written instead leaves the link in the path and git registers under its target.
+		expect(first.path).toBe(join(outer, "real", "trees", READER_LEAF));
+		expect(registeredPaths(repo)).toContain(first.path);
+	});
+
+	test("resolves a root whose parent segments pop back out of the prefix already resolved", () => {
+		const repo = realRepo();
+		const outer = tempDir("nextup-pop-past-prefix-");
+		mkdirSync(join(outer, "real"), { recursive: true });
+		symlinkSync(join(outer, "real"), join(outer, "link"));
+		const root = ["real", "nope", "..", "..", "link", "trees"].reduce((at, one) => `${at}${sep}${one}`, outer);
+		const first = ensure({ runner: defaultRunner, repo, ticket: READER, root });
+
 		expect(first.path).toBe(join(outer, "real", "trees", READER_LEAF));
 		expect(registeredPaths(repo)).toContain(first.path);
 	});

@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readdirSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, sep } from "node:path";
 import {
 	type Argv,
@@ -571,14 +571,19 @@ function canonical(path: string): string {
 /**
  * `path` resolved, or `undefined` where nothing is there at all.
  *
- * Absence is read from `lstat` rather than from a caught `ENOENT`, which cannot tell a segment that does
- * not exist yet — the ordinary case, since a root is usually created here — from a symlink to nothing,
- * which is a refusal. `realpathSync` raises `ENOENT` for both.
+ * `realpathSync` raises `ENOENT` for a segment that does not exist yet — the ordinary case, since the root
+ * is usually what this run creates — and for a symlink to nothing, which is a refusal. Neither is told from
+ * the other by catching that, so the two are separated before it is called: `lstat` sees a link to nothing
+ * where `stat` does not, and nothing at all where neither does.
  *
- * @throws WorktreeError `"stale-directory"` for every other answer, `refusingOnError` classifying it.
+ * @throws WorktreeError `"stale-directory"` for a link to nothing, and for every other answer the
+ * filesystem gives, `refusingOnError` classifying those.
  */
 function resolved(path: string): string | undefined {
 	if (inspect(path) === undefined) return undefined;
+	if (refusingOnError(path, "resolved", () => statSync(path, { throwIfNoEntry: false })) === undefined) {
+		throw new WorktreeError(`${path} is a symlink to nothing, so no worktree can be reached through it`, "stale-directory");
+	}
 	return refusingOnError(path, "resolved", () => realpathSync(path));
 }
 

@@ -57,7 +57,7 @@ untrue — a root that is the primary checkout, a root inside the git directory,
 ## Resolution is not `realpathSync`
 
 Handing the whole path to `realpathSync` produces a different answer than git, and not for a rare shape.
-For `<link>/..`, Bun 1.4.2 and Node both name the link's own parent, while `realpath(3)` on macOS 25.4,
+For `<link>/..`, Bun 1.4.2 and Node both name the link's own parent, while `realpath(3)` on Darwin 25.4,
 Python's `os.path.realpath` and `git worktree add` all name the target's parent. Node's
 `realpathSync.native` is the one API in that set that agrees with git — and Bun's does not, so on this
 runtime there is no escape hatch. Measured on all six rather than reasoned about. Walking a segment at a
@@ -76,6 +76,11 @@ from a caught `ENOENT`, because `realpathSync` raises `ENOENT` for a dangling li
 not there alike, and only the second is a root to create.
 
 ## Consequences
+
+Issue 39 also asks whether the `.git` refusal covers `--separate-git-dir` or `GIT_DIR`. It does not need
+to: `refuseUnlessOrdinaryLayout` already turns away any repository whose common directory is not
+`<primary>/.git` (ADR-0025), and ADR-0029 strips every `GIT_` variable before git is run, so neither
+reaches a root at all.
 
 ADR-0013's third bullet holds on macOS for the first time. Its symlink sentence is amended: read "at the
 root and at the worktree itself" as "at the worktree itself", with the root resolved instead. Ticket 10's
