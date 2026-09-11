@@ -11,11 +11,29 @@ export type Tracker = "github" | "gitlab" | "jira";
 export const GITHUB_HOST = "github.com";
 
 /**
- * Whether a git remote's host is GitHub's. The port is dropped before comparing, and GitHub's `ssh.` endpoint is
- * accepted beside the web host: an SSH remote naming port 22 explicitly, and GitHub's published port-443
- * workaround for a firewalled 22, are both ordinary remotes that comparing the authority whole refused.
+ * The ports a GitHub remote may carry: SSH's and HTTPS's, either spelled out or left implicit.
+ *
+ * A closed set rather than a pattern, because port-hosted GitHub is out of scope — so these are the whole rule
+ * rather than a first approximation of one.
+ */
+const GITHUB_PORTS: ReadonlySet<string> = new Set(["22", "443"]);
+
+/**
+ * Whether a git remote's host is GitHub's, at a port GitHub serves.
+ *
+ * GitHub's `ssh.` endpoint is accepted beside the web host, and an explicit `:22` or `:443` alongside either:
+ * both are ordinary remotes — GitHub publishes the port-443 endpoint as the workaround for a firewalled 22 — and
+ * comparing the authority whole refused them.
+ *
+ * Any other port is refused rather than dropped. Dropping every port accepted the web host at port 8443, which
+ * is not an endpoint GitHub answers on, while every caller reads a pass as "this checkout is the GitHub
+ * repository at that path" and writes the claim from it — ADR-0032 has why the host is the check that matters.
+ * Measured before the narrowing: a named run whose origin was an SSH remote naming that port exited 0, having
+ * claimed the path through GitHub's own API.
  */
 export function isGitHubHost(host: string): boolean {
+	const port = /:(\d+)$/.exec(host);
+	if (port !== null && !GITHUB_PORTS.has(port[1] as string)) return false;
 	const bare = host.replace(/:\d+$/, "");
 	return bare === GITHUB_HOST || bare === `ssh.${GITHUB_HOST}`;
 }

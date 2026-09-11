@@ -45,6 +45,19 @@ describe("resolveTicketRef: short forms", () => {
 		}
 	});
 
+	/**
+	 * A port GitHub does not answer on is not GitHub, and every caller reads acceptance as "this checkout is the
+	 * repository at that path" before writing a claim from it. Port-hosted GitHub is out of scope, so the two
+	 * published endpoint ports above are the whole set rather than a floor.
+	 */
+	test("gh: relative form refuses a remote at a port GitHub does not serve", () => {
+		for (const port of [8443, 2222, 80]) {
+			expect(() => resolveTicketRef("gh:1", { runner: routedRunner(remote(sshRemote(GITHUB_HOST, port))) })).toThrow(
+				TicketRefError,
+			);
+		}
+	});
+
 	test("gh: relative form refuses a remote on a host that is not GitHub, rather than reading that path there", () => {
 		expect(() => resolveTicketRef("gh:1", { runner: routedRunner(GIT_REMOTE_ELSEWHERE) })).toThrow(/not github/i);
 	});
