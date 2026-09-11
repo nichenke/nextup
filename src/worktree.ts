@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
-import { dirname, isAbsolute, join, sep } from "node:path";
+import { dirname, isAbsolute, join, parse, sep } from "node:path";
 import {
 	type Argv,
 	refExistsCommand,
@@ -345,6 +345,13 @@ function resolveContainer(primary: string, root: string | null | undefined, gitD
 	if (gitDir !== primary && within(container, gitDir)) {
 		throw new WorktreeError(`${container} is inside ${gitDir}, which a worktree cannot be`, "stale-directory");
 	}
+	// Asked of the container, not left to the leaf checks: those would report `<container>/<leaf>`, naming a
+	// path no caller typed for a mistake the caller made one level up. Absent is the ordinary case — the root
+	// is usually what this run creates — so only something there and not a directory is refused.
+	const entry = inspect(container);
+	if (entry !== undefined && !entry.isDirectory()) {
+		throw new WorktreeError(`${container} is not a directory, so a worktree root cannot be there`, "stale-directory");
+	}
 	return container;
 }
 
@@ -555,8 +562,12 @@ function adoptableFromOrigin(runner: Runner, repo: string, branch: string): bool
  * resolve it.
  */
 function canonical(path: string): string {
-	let at: string = sep;
-	for (const segment of path.split(sep)) {
+	// `parse().root` rather than `sep`, so the volume a platform puts before the first separator survives the
+	// walk. Identical on POSIX, where the root is `sep`; nothing here is otherwise portable — the suite sets
+	// mode bits to make its conditions — so this buys correctness at the seam, not a supported platform.
+	const { root } = parse(path);
+	let at: string = root;
+	for (const segment of path.slice(root.length).split(sep)) {
 		if (segment === "" || segment === ".") continue;
 		if (segment === "..") {
 			at = dirname(at);

@@ -703,6 +703,22 @@ describe("ensure", () => {
 		);
 	});
 
+	test("refuses a file named as the root itself, naming the root rather than a path under it", () => {
+		const { repo, state } = primaryOn();
+		const afile = join(repo, "not-a-directory");
+		writeFileSync(afile, "a file where the root should be\n");
+		symlinkSync(afile, join(repo, "link-to-file"));
+		const git = stubGit(state);
+
+		// The caller typed the root, so the root is what the refusal has to name. Left to the leaf checks it
+		// reported `<root>/<leaf>`, a path no caller wrote and none can go and look at.
+		for (const root of [afile, join(repo, "link-to-file")]) {
+			expect(() => ensure({ runner: git.runner, repo, ticket: READER, root })).toThrow(
+				`${afile} is not a directory, so a worktree root cannot be there`,
+			);
+		}
+	});
+
 	test("refuses a root reaching past a file, which is a segment that exists and cannot be walked through", () => {
 		const { repo, state } = primaryOn();
 		writeFileSync(join(repo, "not-a-directory"), "a file where a root's segment should be\n");

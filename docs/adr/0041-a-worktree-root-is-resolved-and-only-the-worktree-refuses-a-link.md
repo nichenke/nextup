@@ -71,9 +71,18 @@ which a lexical remainder misses. Continuing the walk gets both right, including
 the resolved prefix.
 
 A segment the filesystem answers about with anything other than absence is refused rather than walked
-past: a symlink to nothing, a loop, a file where a directory belongs. Absence is read from `lstat`, not
-from a caught `ENOENT`, because `realpathSync` raises `ENOENT` for a dangling link and for a path that is
-not there alike, and only the second is a root to create.
+past: a symlink to nothing, a loop, a file a later segment would have to be reached through. Absence is
+read from `lstat`, not from a caught `ENOENT`, because `realpathSync` raises `ENOENT` for a dangling link
+and for a path that is not there alike, and only the second is a root to create.
+
+The container itself is then asked whether it is a directory, which the walk cannot answer for it: a file
+named as the root has no later segment to be walked through, so it resolves like any other and only the
+leaf checks would catch it — reporting `<root>/<leaf>`, a path the caller never typed for a mistake they
+made one level up. A root that is not there stays the ordinary case and is not refused.
+
+The walk seeds from `parse().root` rather than from a separator, so a volume or UNC prefix survives it.
+That is correctness at a seam, not a supported platform: CI runs Linux only, and the suite sets mode bits
+to build its own conditions, so nothing here would run on Windows anyway.
 
 ## Consequences
 
