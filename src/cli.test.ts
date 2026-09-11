@@ -779,6 +779,40 @@ describe("starting a ticket named on the command line", () => {
 		}
 	});
 
+	/**
+	 * The recovery a failed claim leaves open has to describe the tracker, not a ranked pick's assumptions: a forced
+	 * start overruled a claim that is still the only one on the ticket.
+	 */
+	test("does not call a forced ticket unclaimed when its claim failed", () => {
+		const { runner, of } = starting("ticket-view-claimed", (argv) =>
+			argv[1] === "issue" && argv[2] === "edit" ? { code: 1, stdout: "", stderr: "HTTP 403: Resource not accessible" } : null,
+		);
+		const result = run([named("ticket-view-claimed"), "--force", "--yes"], deps(runner));
+
+		expect(result.code).toBe(2);
+		expect(result.stderr).not.toContain("still unclaimed");
+		expect(result.stderr).toContain("still the only one on it");
+		// The worktree is the leftover a failed claim is allowed to have, and the message has to name it.
+		expect(result.stderr).toContain(".worktrees");
+		expect(of("worktree", "add")).toHaveLength(1);
+	});
+
+	/**
+	 * And the recovery a failed session leaves: a named ticket is named again by a re-run, where a ranked one has
+	 * left the candidate set. Saying it would pick a different ticket is false here.
+	 */
+	test("says what a re-run does for a named ticket whose session could not start", () => {
+		const { runner } = starting("ticket-view", (argv) =>
+			argv[1] === "new-workspace" ? { code: 1, stdout: "", stderr: "no window" } : null,
+		);
+		const result = run([named(), "--yes"], deps(runner));
+
+		expect(result.code).toBe(2);
+		expect(result.stderr).not.toContain("pick a different ticket");
+		expect(result.stderr).toContain("refuse it as claimed");
+		expect(result.stderr).toContain("cd ");
+	});
+
 	test("reports a ticket the tracker does not have as something for a person, not as a quiet day", () => {
 		const { runner } = starting("ticket-view-defect");
 		const result = run([`gh:${GITHUB_TEST_TREE.repo}#999999`, "--yes"], deps(runner));

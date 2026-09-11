@@ -32,7 +32,7 @@ import {
 	renderAnswer,
 } from "./selection-output";
 import { SelectionError, select } from "./selector";
-import type { Ticket } from "./ticket";
+import type { Claim, Ticket } from "./ticket";
 import {
 	GITHUB_HOST,
 	type TicketRef,
@@ -298,6 +298,8 @@ function runNamed(ref: TicketRef, options: Options, deps: CliDeps): CliResult {
 				ticket: override.target.ticket,
 				blocked: override.target.blocked,
 				caveats: [...forcedCaveats(override), ...readCaveats(answer.readDegraded, "kept")],
+				claim: override.target.ticket.claim,
+				named: true,
 			},
 			options,
 			deps,
@@ -393,7 +395,9 @@ export type StartOutcome =
 function startWork(answer: Answer, options: Options, deps: CliDeps): StartOutcome {
 	const pick = answer.selection.pick;
 	if (pick === null) return { kind: "nothing-to-start" };
-	return startPick({ ticket: pick, blocked: pick.blocked, caveats: answerCaveats(answer) }, options, deps);
+	// `claim: null` is a fact rather than a default: `place` puts a claimed ticket outside the candidate set, so a
+	// pick that reached here carried no claim when it was read.
+	return startPick({ ticket: pick, blocked: pick.blocked, caveats: answerCaveats(answer), claim: null, named: false }, options, deps);
 }
 
 /**
@@ -407,6 +411,18 @@ interface StartPick {
 	readonly blocked: BlockedState;
 	/** The lines the gate has to carry, because nothing has printed them when it is asked. */
 	readonly caveats: readonly string[];
+	/**
+	 * The claim the ticket already carried, so a failed claim can say what is on the ticket instead of asserting it
+	 * is unclaimed. Always null on the ranking path, where a claimed ticket is not a candidate at all; a forced
+	 * start is the one way this is set.
+	 */
+	readonly claim: Claim | null;
+	/**
+	 * Whether the operator named this ticket. It decides what a failed *session* leaves open, which is the one
+	 * recovery the two paths do not share: a named ticket is named again by a re-run, where a ranked one is no
+	 * longer a candidate once claimed and a re-run would pick something else.
+	 */
+	readonly named: boolean;
 }
 
 /** The refusals, the gate, and then the three writes. `startWork`'s own comment is the contract for all of it. */
@@ -427,7 +443,7 @@ function startPick(pick: StartPick, options: Options, deps: CliDeps): StartedSom
 		launch({ runner: deps.runner, ref, command, worktree: worktree.path });
 		return { kind: "requested", ref, worktree, command };
 	} catch (cause) {
-		throw startedNothing(cause, worktree, command);
+		throw startedNothing(cause, pick, worktree, command);
 	}
 }
 
@@ -490,17 +506,28 @@ class StartError extends Error {}
  * ADR-0032, and re-wrapping it to add a worktree path would spend exactly that. Anything else unclassified is
  * returned untouched for the same reason — `ensure` is idempotent, so the worktree is recoverable without it.
  */
-function startedNothing(cause: unknown, worktree: WorktreeOutcome, command: Argv): unknown {
+function startedNothing(cause: unknown, pick: StartPick, worktree: WorktreeOutcome, command: Argv): unknown {
 	if (cause instanceof GitHubClaimError) {
+		// What the tracker holds, not what a ranked pick would have held: a forced start overruled a claim that is
+		// still the only one on the ticket, and telling the operator it is unclaimed would be plainly false.
+		const standing =
+			pick.claim === null
+				? "the ticket is still unclaimed"
+				: `the claim it already carried is still the only one on it${pick.claim.by === null ? "" : `, held by ${pick.claim.by}`}`;
 		return new StartError(
-			`${cause.message}\n${worktree.path} is in place on ${worktree.branch} and the ticket is still unclaimed, so running this again continues from there.`,
+			`${cause.message}\n${worktree.path} is in place on ${worktree.branch} and ${standing}, so running this again continues from there.`,
 		);
 	}
 	if (cause instanceof LaunchError) {
+		// A re-run does different things on the two paths, and this is the only place that says so: a named ticket is
+		// named again and is now claimed, where a ranked one has left the candidate set entirely.
+		const rerun = pick.named
+			? "Running this again would refuse it as claimed, since the claim above is now yours"
+			: "Running this again would pick a different ticket, because a claimed one is no longer a candidate";
 		return new StartError(
 			// The `cd` goes through `formatCommand` too: this line is the only recovery offered for an already-claimed
 			// ticket, so it has to survive a checkout path holding a space, which is ordinary rather than exotic.
-			`${cause.message}\nThe ticket is claimed and ${worktree.path} is in place on ${worktree.branch}. Running this again would pick a different ticket, because a claimed one is no longer a candidate — so start this session yourself instead:\n  ${formatCommand(["cd", worktree.path])} && ${formatCommand(command)}`,
+			`${cause.message}\nThe ticket is claimed and ${worktree.path} is in place on ${worktree.branch}. ${rerun} — so start this session yourself instead:\n  ${formatCommand(["cd", worktree.path])} && ${formatCommand(command)}`,
 		);
 	}
 	return cause;
