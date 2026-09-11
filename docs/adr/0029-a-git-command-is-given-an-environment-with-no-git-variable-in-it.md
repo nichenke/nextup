@@ -141,7 +141,8 @@ empty" and "git is broken" are not the same report:
 
 Before any of that, the scan starts at the repository root rather than wherever it was invoked. `git ls-files`
 lists what is under the current directory, so a run from a subdirectory scanned that subtree and reported a
-pass — 30 of this repository's 146 files, measured from `docs/`. CI and the package script both happen to run
+pass — 43 of this repository's 209 tracked files, measured from `docs/` at the time of writing. CI and the
+package script both happen to run
 at the root, so what this closes is a direct invocation by a person or an agent. It is a correction rather
 than a refusal because `rev-parse --show-toplevel` either answers or there is no worktree to scan, and the
 latter fails the listing into the first cause above.
@@ -153,23 +154,38 @@ an unreadable directory, so a path behind one read as absent and was tolerated �
 open for an unstaged deletion. Each fix closed the case it was shown and left the sibling of the same property.
 
 It is now asked as two questions, because no single test answers both, and git does the classifying rather
-than a predicate standing in for it: `git ls-files --deleted` puts a path it cannot examine on stderr and a
-genuinely deleted one on stdout, so the first refuses and the second is tolerated. What remains after that is
-a path git could stat, where `[ -r ]` is the whole question — a mode-000 file reaches neither the error nor
-the deleted list.
+than a predicate standing in for it. The streams are not a partition and it matters that they are not: a path
+git cannot lstat appears on stdout *and* stderr, while a genuine deletion appears on stdout alone. Measured.
+The ordering is therefore load-bearing — the stderr test runs first and exits, so what reaches the
+deleted-list test is only ever a genuine deletion. Reverse the two and an unstattable path lands in that list,
+matches it, and is tolerated, which is the hole this closes. What remains after that is a path git could stat,
+where `[ -r ]` is the whole question — a mode-000 file reaches neither the error nor the deleted list.
+
+The stderr test cannot say *why* git complained, so it does not try. A broken `core.fsmonitor` writes there
+too, and both it and an unreadable path exit 0, so the guard prints git's own text verbatim and then refuses
+without naming a cause. Measured. That is a departure from the one-message-per-cause rule above, and the
+honest one: the two causes are indistinguishable at this point, and both are reasons to refuse.
+
+A dangling symlink is refused by the `[ -r ]` test rather than tolerated the way an unstaged deletion is, and
+that is deliberate rather than incidental. git tracks the link's target path as the file's content, while the
+scan follows the link and reads whatever it points at, so a tracked symlink carries text no scan here covers.
+Nothing in this repository tracks one, so the refusal is latent; it is named because it looks at first like
+the everyday state the deleted branch exists to tolerate.
 
 Separately, the scan now passes `--` to `grep`. A tracked filename may begin with a hyphen, and `git ls-files`
 happily reports one: with a file named `-d`, BSD `grep` rejected its own argument list, `2>/dev/null` ate the
 error, `|| true` ate the status, and the guard printed `ok` over the identifier inside it. Measured. This is
 older than the work here, but a change claiming whole-tree coverage owns it.
 
-`--` does not rescue every such name, and the one it leaves is refused rather than scanned. A file named
-exactly `-` is standard input to `grep` under POSIX, and both the `grep` on this machine's `PATH` and
-`/usr/bin/grep` still read it that way after `--`, so its contents never reached the scan and the guard
-printed `ok` over the identifier in it. Measured, with the fixed `--` in place. Scanning it instead would mean
-prefixing every path with `./`, which needs a NUL-safe stream editor to keep `xargs -0`'s separation — macOS
-`awk` truncates at the first NUL and BSD `sed` has no `-z`, both measured — so it joins the refusals above at
-the cost of a filename nothing here needs.
+`--` does not rescue every such name, and the one it leaves is refused rather than scanned. `grep` reads a
+file named exactly `-` as standard input even after `--`, so its contents never reached the scan and the guard
+printed `ok` over the identifier in it. Measured, with the fixed `--` in place.
+
+It is refused on cost, not because scanning it is impossible — the distinction is worth stating, because a
+reader who tries the alternative will find it works. Prefixing every path with `./` scans it, and the
+one-liners that would do the prefixing do not survive NUL separation: macOS `awk` truncates at the first NUL
+and BSD `sed` has no `-z`, both measured. What does work is a second NUL-safe reader in the scan's hot path,
+in the same idiom as the loop above. That is the price, and a filename nothing here needs does not justify it.
 
 Together these make the `GIT_` removal above a second line of defence rather than the only one.
 

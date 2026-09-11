@@ -22,9 +22,12 @@ set -euo pipefail
 unset "${!GIT_@}"
 
 # `git ls-files` lists what is under the current directory, so a run from a subdirectory would scan a subset
-# and pass -- 30 of this repository's 146 files, measured from `docs/`. The whole tree or nothing.
+# and pass. The whole tree or nothing; ADR-0029 carries the count that showed it.
 if toplevel=$(git rev-parse --show-toplevel 2>/dev/null); then
-	cd "$toplevel"
+	if ! cd "$toplevel"; then
+		printf 'check-identifiers: cannot enter %s, so no file was scanned\n' "$toplevel" >&2
+		exit 1
+	fi
 fi
 
 # Both scan pipelines below end in `|| true`, so anything leaving them without input reads as nothing found.
@@ -55,12 +58,17 @@ fi
 # questions, because no single test answers both: `[ -e ]` cannot see through an unreadable directory, and git
 # reports a path behind one as deleted.
 #
-# git's own lstat first. A path it cannot examine goes to stderr, where a genuine deletion goes to stdout --
-# measured with a file under a mode-000 directory, which `[ -e ]` called absent and the guard passed over.
-unstattable=$(git ls-files --deleted 2>&1 >/dev/null)
-if [ -n "$unstattable" ]; then
-	printf 'check-identifiers: %s\n' "$unstattable" >&2
-	printf 'check-identifiers: a tracked path cannot be examined, so a scan would cover part of the tree\n' >&2
+# The order is the mechanism here, not the streams. A path git cannot lstat appears on stdout *and* stderr; a
+# genuine deletion appears on stdout alone. Measured. So the stderr test has to run before the deleted-list
+# test below -- reversed, an unstattable path lands in that list, matches it, and is tolerated, which is the
+# hole this closes.
+#
+# What git wrote is reported verbatim and the second line does not name a cause, because this cannot tell an
+# unreadable path from a broken git: a bad `core.fsmonitor` also writes here, and both exit 0. Measured.
+listing_diagnostic=$(git ls-files --deleted 2>&1 >/dev/null)
+if [ -n "$listing_diagnostic" ]; then
+	printf 'check-identifiers: %s\n' "$listing_diagnostic" >&2
+	printf 'check-identifiers: git could not list the tree cleanly, so a scan would cover part of it\n' >&2
 	exit 1
 fi
 
@@ -68,12 +76,13 @@ fi
 # error above nor the deleted list.
 deleted=$(git ls-files --deleted)
 while IFS= read -r -d '' path; do
-	# The `--` the scan passes stops grep reading a leading hyphen as an option, but not this one name:
-	# POSIX gives `-` as standard input, and both greps here still read it that way after `--`, so the
-	# file's contents never reached the scan and the guard printed `ok` over an identifier in it. Measured.
-	# Prefixing every path with `./` would scan it instead of refusing it, and needs a NUL-safe stream
-	# editor to keep `xargs -0`'s separation -- macOS awk truncates at the first NUL and BSD sed has no
-	# `-z`, so there is none to reach for here.
+	# The `--` the scan passes stops grep reading a leading hyphen as an option, but not this one name: grep
+	# reads `-` as standard input even after `--`, so the file's contents never reached the scan and the guard
+	# printed `ok` over an identifier in it. Measured, with the `--` in place.
+	#
+	# Refused rather than scanned, on cost. Prefixing every path with `./` would scan it, but not cheaply: the
+	# one-line forms do not survive NUL separation -- macOS awk truncates at the first NUL and BSD sed has no
+	# `-z`, both measured -- so it takes a second reader in the scan's hot path for a filename nothing needs.
 	if [ "$path" = '-' ]; then
 		printf 'check-identifiers: a tracked file named - is read as standard input, so a scan would cover part of the tree\n' >&2
 		exit 1

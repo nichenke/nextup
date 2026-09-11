@@ -115,11 +115,14 @@ claiming broader coverage gets cited later to justify what the guard actually al
 `check-identifiers: ok` is not assurance, and treating it as such is the most likely way this repo leaks
 again. It printed exactly that on the day of the leak — the guard had been written, had been run, and had
 passed, and `bun.lock` was generated afterwards. The line means one narrow class was not found in the
-files as they stood when it ran. "The files" is now every tracked file rather than whichever subset the
-scan happened to reach: the guard refuses instead of reporting on a partial scan, and
+files as they stood when it ran. "The files" no longer means whichever subset the scan happened to reach:
+the guard refuses instead of reporting when it could not read the whole tracked tree, and
 [0029](./0029-a-git-command-is-given-an-environment-with-no-git-variable-in-it.md) records the ways it
-used to reach only part of a tree and still print this line. That widens what `ok` covers, not what it
-recognises — the recognition list above stays frozen. It says nothing about tracker keys, obfuscated
+used to reach only part of one and still print this line. That widens what `ok` covers, not what it
+recognises — the recognition list above stays frozen. It stops short of every tracked *byte*: the scan
+passes `grep -I`, so a tracked binary file is read past in silence and none of those refusals fire on it,
+since it is readable, stattable and present. Latent while every tracked file here is text, and live the
+first time an image or a compiled fixture is committed. It says nothing about tracker keys, obfuscated
 encodings, bare hostnames, or anything written after it. A reviewer who reads it as a clean bill of health has been given
 a worse signal than no signal, which is why the scope above is stated in the negative as well as the
 positive.
