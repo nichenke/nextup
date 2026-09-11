@@ -10,11 +10,17 @@ const adrDir = join(import.meta.dir, "..", "docs", "adr");
  * name the pattern cannot read has no number to compare and would otherwise leave the directory
  * half-checked.
  *
- * Exactly four digits, anchored. A five-digit prefix is a malformed name rather than a number in the
- * thousands — accepting it would let `00411` and `0041` sort as neighbours and read as unrelated.
+ * A five-digit prefix is a malformed name rather than a number in the thousands — accepting it would
+ * let `00411` and `0041` sort as neighbours and read as unrelated.
  *
  * Gaps are not a fault. This repository has none at 0014 or 0015 and both are deliberate: a number is
  * spent when an ADR is drafted, and one that never lands leaves a hole rather than a renumbering.
+ *
+ * What this cannot catch is the shape that caused the collision it exists to prevent: two branches each
+ * adding the same number pass their own runs, and CI checks a merge commit only on a run made after the
+ * sibling landed. A pull request whose last run predates that merge stays green. Closing it needs
+ * branch protection requiring branches be up to date; until then the run on `main` is an after-the-fact
+ * backstop rather than a gate.
  */
 function adrNumberFaults(filenames: readonly string[]): {
 	readonly malformed: readonly string[];
@@ -55,8 +61,6 @@ describe("ADR numbers are unique", () => {
 	});
 
 	test("a name the pattern cannot read is reported rather than skipped", () => {
-		// Each of these once looked like a number to a laxer pattern: an unnumbered note, a short
-		// prefix, a long one, a slugless name, and a number carried by something that is not markdown.
 		const faults = adrNumberFaults(["README.md", "041-short.md", "00411-long.md", "0042.md", "0043-x.txt"]);
 		expect(faults.malformed).toEqual(["00411-long.md", "0042.md", "0043-x.txt", "041-short.md", "README.md"]);
 		expect(faults.duplicated).toEqual([]);
