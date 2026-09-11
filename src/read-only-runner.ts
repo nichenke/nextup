@@ -13,7 +13,7 @@ const READS: readonly (readonly string[])[] = [
 	// `reconstruct.ts` resolves the repository from the remote when `--repo` is absent. `--get-all` is part of the
 	// prefix rather than trailing detail: it is what puts `git config` in a mode that cannot write, so without it
 	// the same entry would admit `git config --local <key> <value>`.
-	["git", "config", "--local", "--includes", "--get-all"],
+	["git", "config", "--show-scope", "--includes", "--get-all"],
 ];
 
 /**

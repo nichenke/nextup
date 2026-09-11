@@ -1,6 +1,8 @@
 # The origin read names its directory and reads the repository's own config
 
-`git remote get-url origin` is replaced by `git -C <directory> config --local --get-all remote.origin.url`.
+`git remote get-url origin` is replaced by
+`git -C <directory> config --show-scope --includes --get-all remote.origin.url`, whose answer is filtered to
+the scopes this checkout configures for itself.
 
 The two halves reach [0029](./0029-a-git-command-is-given-an-environment-with-no-git-variable-in-it.md)
 differently. Its "What the prefix does not cover" left the config source open, putting the choice with whoever
@@ -10,46 +12,67 @@ one deferred. 0029 carries a banner saying so.
 
 ## The decision
 
-**`config --local` rather than `remote get-url`.** `get-url` reads merged configuration, so a global file
-answers for a repository the checkout is not, at exit 0, through two names the runner's `GIT_` scrub cannot
-reach. `--local` reads the repository's own config, and nothing it did not ask for.
+**`config` rather than `remote get-url`.** `get-url` reads merged configuration, so a global file answers for
+a repository the checkout is not, at exit 0, through two names the runner's `GIT_` scrub cannot reach.
+
+**The scope boundary is the decision, and it is stated once.** In contract: `local` — `.git/config` and every
+file it names, since git labels an included value by the file that included it — and `worktree`, a linked
+worktree's own `config.worktree`. Out of contract: `global`, `system`, and `command`. That line exists so a
+later question about a scope has an answer here rather than a patch: what this refuses is configuration the
+checkout never asked for, and an include or a worktree config is the checkout asking.
+
+**`--show-scope` rather than `--local`.** Selecting `--local` reads one *file*, which is narrower than the
+boundary above in two measured ways, and both were found one at a time by review after this decision first
+shipped with `--local`:
+
+| `.git/config` reaches origin via | `get-url` | `--local --get-all` | `--show-scope`, filtered |
+| --- | --- | --- | --- |
+| an ordinary `url =` | found | found | found |
+| `[include]` or `[includeIf "gitdir:"]` | found | nothing, exit 1 | found |
+| a linked worktree's `config.worktree`, with none in the common file | found | nothing, exit 1 | found |
+
+Reading the label git already prints ends that sequence: a scope nobody has thought of yet is rejected by
+default and admitted by one line here, rather than by discovering that `--local` did not cover it. Measured on
+git 2.50.1 and 2.55, which is the span this had to hold across.
+
+The safety property is what makes the wider read affordable, and it is unchanged. `--show-scope` labels the
+ambient value rather than hiding it, and the filter drops it:
+
+```
+global      <other>      <- rejected
+local       <intended>   <- taken
+```
+
+A repository that configures nothing of its own is refused, not answered for by `HOME`. The one way an ambient
+file is read is that `.git/config` names it in an `[include]`, which `get-url` did too — so the boundary costs
+none of what this decision buys. It also newly rejects `command` scope, which `-c` and `GIT_CONFIG_PARAMETERS`
+supply; the runner already strips the latter, so that is belt and braces rather than a second guard.
 
 **`-C <directory>` rather than the ambient one.** This was the only one of the eight git commands the tool
 builds that named no repository. The directory is now a value a caller supplies — `CliDeps.cwd` in a run,
 `process.cwd()` in `scripts/reconstruct.ts` and in `resolveTicketRef`'s default.
 
-**`--get-all`, taking the first value.** A remote may carry several URLs. `get-url` answers with the first and
-a bare `--get` with the *last*, so `--get` alone would have silently changed which URL identifies a run's
-repository. git fetches from the first.
+**`--get-all`, taking the first value in contract.** A remote may carry several URLs. `get-url` answers with
+the first and a bare `--get` with the *last*, so `--get` alone would have silently changed which URL identifies
+a run's repository. `--show-scope` emits values in scope order and, within a scope, in file order, so the first
+line bearing a contract scope is the one git takes.
 
-**`--includes`, because naming a scope turns it off.** Measured: with `remote.origin.url` reached through an
-`[include]` or an `[includeIf "gitdir:"]` in `.git/config`, `get-url` answers and `--local --get-all` reports
-nothing at exit 1 — so without this the run refuses a checkout git resolves, and tells its operator to set an
-origin they can see in `git remote -v`.
+An empty first value is refused rather than stepped over. Skipping it shipped briefly, on a review's reading
+that `remote get-url` skips empties — which reproduces on git 2.50.1 and 2.55, and is beside the point: the
+result is that the run answers with a URL the checkout does not fetch from, which is a wrong repository at exit
+0 bought in exchange for a configuration nobody has. Refusing is the answer this decision gives everywhere
+else, and it is the answer here.
 
-Honouring it is the decision rather than an exception to it. What this refuses is configuration the repository
-never asked for; an include is the repository naming a file, which is the same statement of identity as
-writing the URL inline. The distinction is measured rather than asserted, because it is the one that matters:
-
-| `.git/config` | `--local --includes` | `get-url` |
-| --- | --- | --- |
-| ordinary, with `HOME` naming another origin | `<intended>` | `<other>` |
-| explicitly carrying `[include] path = ~/.gitconfig` | `<other>` | `<other>` |
-
-A repository that names no include is unaffected by a redirected `HOME`, which is the whole property this
-decision buys. The only way an ambient file is read is that `.git/config` names it, which `get-url` did too —
-so the flag costs none of the safety and buys back the shape. Refusing the shape instead was weighed and
-declined: nothing here uses an include, but omitting the flag buys nothing either, and refusing *honestly*
-would cost more than honouring it, since naming the include in a refusal means reading it first.
-
-`--includes` does not weaken what the allowlist leans on: every write flag is still rejected beside `--get-all`.
+`--includes` is git's default with no scope selected, and is spelled anyway so the read does not change meaning
+if that default does. It does not weaken what the allowlist leans on: every write flag is still rejected beside
+`--get-all`.
 
 ## The measurement
 
 git 2.55, against a repository whose own `origin` is `<intended>`, with a real `~/.gitconfig` present.
 `<other>` is a second repository. Each vector set on its own.
 
-| Vector | `remote get-url origin` | `config --local --get-all remote.origin.url` |
+| Vector | `remote get-url origin` | the scope-filtered read |
 | --- | --- | --- |
 | clean | `<intended>` | `<intended>` |
 | `GIT_DIR`, `GIT_COMMON_DIR` | `<other>` | `<other>` |
@@ -67,35 +90,38 @@ Two further readings, measured the same way:
 - **Several URLs on one remote.** `get-url` → the first; `config --get` → the last; `config --get-all` → both,
   in file order, first first.
 - **A per-worktree override.** With `extensions.worktreeConfig` set and `remote.origin.url` written through
-  `config --worktree` inside a linked worktree, neither `get-url` nor `--local` reported it; only a merged
-  `git config --get` did. So reading from a worktree is not where the two commands part.
+  `config --worktree` inside a linked worktree, `get-url` answered and `--local` reported nothing. This is one
+  of the two shapes that moved the read off `--local`, and an earlier draft of this ADR said the opposite —
+  that neither command saw the worktree value — from a fixture that wrote the URL into the common config *and*
+  the worktree config, so `get-url` answered from the common one and the worktree scope was never exercised.
+  The claim was wrong because the fixture could not have shown it either way.
 
 ## What it costs
 
-`get-url` applies `url.<base>.insteadOf` rewriting and `--local` does not, and that cuts both ways. The two
+`get-url` applies `url.<base>.insteadOf` rewriting and this read does not, and that cuts both ways. The two
 shapes, measured:
 
 - **A rewrite to a mirror**, where `<base>` is a real URL prefix. `get-url` answered with the mirror's host.
   That is a repository this tool would refuse as not being on GitHub, or — where the rewrite lands on another
-  GitHub path — a different ticket set at exit 0. `--local` answered with the repository's own URL. This is
+  GitHub path — a different ticket set at exit 0. This read answered with the repository's own URL. This is
   the case the decision is right about.
 - **A rewrite that expands an alias**, where the local URL is a bare word and a colon and an `insteadOf` rule
-  is what makes it a URL at all. `get-url` answered with the expanded URL; `--local` answered with the alias,
+  is what makes it a URL at all. `get-url` answered with the expanded URL; this read answered with the alias,
   whose host is the bare word. This is the case the decision is wrong about, and it is a regression: a
   checkout configured that way worked before and is refused now.
 
   The rule's own scope does not matter, which is worth stating because the rest of this decision turns on
   scope. Measured with the `insteadOf` rule in the *repository's* config and `HOME` pointed at nothing:
-  `get-url` still expanded it and `--local` still answered with the alias. `--local` narrows where the URL is
-  read from; it does not apply rewriting from anywhere, so "reads what the repository configured" is true of
-  the value and not of the rewriting.
+  `get-url` still expanded it and this read still answered with the alias. Narrowing the scope decides where
+  the URL is read from; it applies rewriting from nowhere, so "reads what the repository configured" is true
+  of the value and not of the rewriting.
 
 A third regression, narrower and measured: a repository that declares a local `[remote "origin"]` section
 carrying no `url` — a bare fetch refspec, say — while the URL itself sits in global config. `get-url` answered
-at exit 0; `--local` finds nothing and the run refuses. An origin living *only* in global config is not part of
+at exit 0; this read finds nothing in contract and the run refuses. An origin living *only* in global config is not part of
 this: `get-url` already refused that, because it requires the remote to be configured in the repository.
 
-It is accepted rather than closed, and the asymmetry is why. On the GitHub path `--local` fails loud — the
+It is accepted rather than closed, and the asymmetry is why. On the GitHub path this fails loud — the
 alias cannot pass the host test, so the run stops and says what it read. `get-url` fails silently in the mirror case and in
 both config-location rows above, which is the wrong-ticket-set failure
 [0026](./0026-a-redirected-git-environment-is-refused-at-the-runner.md) exists for. A loud refusal on a
@@ -121,8 +147,8 @@ have to arbitrate is exactly the alias case — where refusing is what this alre
 ## What else moved
 
 `readOnlyRunner` matches its allowlist after skipping a leading `git -C <directory>`, because a directory
-cannot be enumerated in a prefix. Its entry is `git config --local --includes --get-all`: `--get-all` is what
-puts `git config` in a mode that cannot write, so it is part of the prefix rather than trailing detail.
+cannot be enumerated in a prefix. Its entry is `git config --show-scope --includes --get-all`: `--get-all` is
+what puts `git config` in a mode that cannot write, so it is part of the prefix rather than trailing detail.
 
 `CliDeps.cwd` no longer carries an invariant that it must be where the process is standing. It is handed to
 the origin read, so a `cwd` naming somewhere else moves the whole run there rather than splitting it — the

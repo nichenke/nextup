@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { originRemoteCommand } from "./command-builders";
 import type { CommandResult, Runner } from "./runner";
-import { originRoute, routedRunner } from "./test-support";
+import { originRoute, originStdout, routedRunner } from "./test-support";
 import { GITHUB_HOST } from "./repo-address";
 import {
 	type ResolveDeps,
@@ -61,7 +61,7 @@ describe("resolveTicketRef: short forms", () => {
 	// repository.
 	test("gh: relative form asks about the process's own directory when the caller names none", () => {
 		const asked: string[][] = [];
-		const runner: Runner = (argv) => (asked.push([...argv]), { code: 0, stdout: `git@${GITHUB_HOST}:example/repo.git\n`, stderr: "" });
+		const runner: Runner = (argv) => (asked.push([...argv]), { code: 0, stdout: originStdout(`git@${GITHUB_HOST}:example/repo.git`), stderr: "" });
 		expect(resolveTicketRef("gh:1", { runner })).toEqual(githubTicketRef("example/repo", "1"));
 		expect(asked).toEqual([[...originRemoteCommand(process.cwd())]]);
 	});

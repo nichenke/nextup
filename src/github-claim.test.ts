@@ -3,7 +3,7 @@ import { type CheckoutIdentity, resolveCheckoutIdentity } from "./checkout-ident
 import { githubClaimCommand } from "./command-builders";
 import { GitHubClaimError, claimGitHubTicket } from "./github-claim";
 import type { Runner } from "./runner";
-import { fakeRunner, githubRecording, replayRunner, respondingRunner } from "./test-support";
+import { fakeRunner, githubRecording, originStdout, replayRunner, respondingRunner } from "./test-support";
 import { GITHUB_TEST_TREE } from "./test-tree";
 import { GITHUB_HOST } from "./repo-address";
 import { type GitHubTicketRef, formatTicketRef, githubTicketRef } from "./ticket-ref";
@@ -49,7 +49,7 @@ function githubRef(key: string = WRITE_TARGET, repo: string = REPO): GitHubTicke
  * through the real resolver off a fake remote, so no test needs a door into the brand that production lacks.
  */
 const HERE: CheckoutIdentity = resolveCheckoutIdentity(
-	() => ({ code: 0, stdout: `git@${GITHUB_HOST}:${REPO}.git\n`, stderr: "" }),
+	() => ({ code: 0, stdout: originStdout(`git@${GITHUB_HOST}:${REPO}.git`), stderr: "" }),
 	"/checkout",
 	(reason: string) => new Error(reason),
 );

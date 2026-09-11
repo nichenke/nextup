@@ -4,6 +4,8 @@ import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFile
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { originRemoteCommand } from "./command-builders";
+import { checkoutOriginUrl } from "./git-remote";
+import { originStdout } from "./test-support";
 import { RunnerError, defaultRunner, gitEnvironment, refuseRedirectedGitHub } from "./runner";
 
 describe("defaultRunner", () => {
@@ -162,7 +164,7 @@ describe("a git variable exported before the tool started", () => {
 		const { stdout } = inChildProcess(printing([...originRemoteCommand(shared().intended)]), {
 			GIT_DIR: join(shared().other, ".git"),
 		});
-		expect(stdout.trim()).toBe(shared().intended);
+		expect(checkoutOriginUrl(stdout)).toBe(shared().intended);
 	});
 
 	test("does not redirect the worktree root, where GIT_WORK_TREE reaches and worktree list does not", () => {
@@ -177,7 +179,7 @@ describe("a git variable exported before the tool started", () => {
 		const { stdout } = inChildProcess(printing([...originRemoteCommand(shared().intended)]), {
 			GIT_CONFIG_GLOBAL: originConfig(join(shared().root, "git-config-global"), shared().other),
 		});
-		expect(stdout.trim()).toBe(shared().intended);
+		expect(checkoutOriginUrl(stdout)).toBe(shared().intended);
 	});
 
 	test("is scrubbed for git named by an absolute path, not only by the bare word", () => {
@@ -186,7 +188,7 @@ describe("a git variable exported before the tool started", () => {
 		const { stdout } = inChildProcess(printing([binary as string, ...originRemoteCommand(shared().intended).slice(1)]), {
 			GIT_DIR: join(shared().other, ".git"),
 		});
-		expect(stdout.trim()).toBe(shared().intended);
+		expect(checkoutOriginUrl(stdout)).toBe(shared().intended);
 	});
 
 	test("does not reach git as an empty value, which git rejects as a repository name at 128", () => {
@@ -291,7 +293,7 @@ describe("a config location redirected by a variable the scrub cannot name", () 
 		perTestRoots.push(home);
 		originConfig(join(home, ".gitconfig"), shared().other);
 		const { stdout } = inChildProcess(printing([...originRemoteCommand(shared().intended)]), { HOME: home });
-		expect(stdout.trim()).toBe(shared().intended);
+		expect(checkoutOriginUrl(stdout)).toBe(shared().intended);
 	});
 
 	test("does not decide the origin read through XDG_CONFIG_HOME", () => {
@@ -307,7 +309,7 @@ describe("a config location redirected by a variable the scrub cannot name", () 
 			HOME: empty,
 			XDG_CONFIG_HOME: xdg,
 		});
-		expect(stdout.trim()).toBe(shared().intended);
+		expect(checkoutOriginUrl(stdout)).toBe(shared().intended);
 	});
 });
 
@@ -318,7 +320,7 @@ describe("a config location redirected by a variable the scrub cannot name", () 
  * Real git because the claim is about a git default: `--includes` is off once a scope is named, so `--local`
  * alone reports nothing here and the run would refuse a checkout `git remote get-url` resolves. ADR-0041.
  */
-describe("an origin the repository's config reaches through an include", () => {
+describe("an origin the repository configures somewhere other than .git/config", () => {
 	test("is read, because naming a file is the repository stating its identity as much as writing the url is", () => {
 		const root = realpathSync(mkdtempSync(join(tmpdir(), "nextup-include-")));
 		perTestRoots.push(root);
@@ -329,6 +331,27 @@ describe("an origin the repository's config reaches through an include", () => {
 
 		const result = defaultRunner([...originRemoteCommand(repo)]);
 		expect(result.code).toBe(0);
-		expect(result.stdout.trim()).toBe(repo);
+		// `local`, not a scope of its own: git labels an included value by the file that pulled it in.
+		expect(result.stdout).toBe(originStdout(repo));
+		expect(checkoutOriginUrl(result.stdout)).toBe(repo);
+	});
+
+	test("is read from a worktree's own config.worktree, which the repository's config file does not hold", () => {
+		const root = realpathSync(mkdtempSync(join(tmpdir(), "nextup-worktree-cfg-")));
+		perTestRoots.push(root);
+		const repo = join(root, "repo");
+		const linked = join(root, "linked");
+		expect(defaultRunner(["git", "init", "--quiet", "--initial-branch", "main", repo]).code).toBe(0);
+		const git = (...args: string[]) => expect(defaultRunner(["git", "-C", repo, ...args]).code).toBe(0);
+		git("-c", "user.email=n@invalid", "-c", "user.name=n", "commit", "--quiet", "--allow-empty", "-m", "init");
+		git("worktree", "add", "--quiet", linked, "-b", "linked");
+		git("config", "extensions.worktreeConfig", "true");
+		// The repository's own config names the remote without a url, so only the worktree scope carries one.
+		git("config", "--local", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
+		expect(defaultRunner(["git", "-C", linked, "config", "--worktree", "remote.origin.url", repo]).code).toBe(0);
+
+		const result = defaultRunner([...originRemoteCommand(linked)]);
+		expect(result.code).toBe(0);
+		expect(checkoutOriginUrl(result.stdout)).toBe(repo);
 	});
 });

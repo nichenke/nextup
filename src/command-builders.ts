@@ -148,25 +148,28 @@ export function jiraIdentityCommand(): readonly string[] {
 }
 
 /**
- * The remote a repository-scoped reference is resolved against: the URL the repository's own config spells.
+ * The remote a repository-scoped reference is resolved against: the URL this checkout itself configures.
  *
- * `config --local` rather than `remote get-url`, which reads the merged configuration and so answers from a
- * global file a redirected `HOME` or `XDG_CONFIG_HOME` supplies — the wrong-ticket-set failure, at exit 0 and
- * with no `GIT_` variable for the runner to strip. It also applies `url.<base>.insteadOf` rewriting, which
- * `--local` does not. ADR-0041 has the measurements and what the second half costs.
+ * `config` rather than `remote get-url`, which reads the merged configuration and so answers from a global
+ * file a redirected `HOME` or `XDG_CONFIG_HOME` supplies — the wrong-ticket-set failure, at exit 0 and with no
+ * `GIT_` variable for the runner to strip. It also applies `url.<base>.insteadOf` rewriting, which this does
+ * not. ADR-0041 has the measurements and what the second half costs.
+ *
+ * `--show-scope` because git's own label for where a value came from is the whole test, and `resolveOriginRemote`
+ * keeps the scopes ADR-0041 puts in contract. Selecting `--local` instead reads one *file*, which is narrower
+ * than this checkout in two measured ways — a value reached through an `[include]`, and one in a worktree's own
+ * `config.worktree` — and closing those one at a time is what this replaced.
+ *
+ * `--includes` is git's default with no scope selected, and is spelled anyway so the read does not change
+ * meaning if that default does.
  *
  * `--get-all` rather than `--get`, which answers with the *last* value where a remote carries several, while
- * git fetches from the first. The caller takes the first, which is the one `get-url` answered with.
- *
- * `--includes` because git defaults it *off* once a scope is named, so `--local` alone stops at the config
- * file and reports nothing for a repository that reaches its origin through an `[include]`. An include is the
- * repository naming the file itself, which is the same statement of identity as writing the URL inline — and
- * measured, honouring it leaves the vectors above closed: a repository that names no include is unaffected by
- * a redirected `HOME`.
+ * git takes the first.
  */
 export function originRemoteCommand(directory: string): readonly string[] {
-	return ["git", "-C", directory, "config", "--local", "--includes", "--get-all", "remote.origin.url"];
+	return ["git", "-C", directory, "config", "--show-scope", "--includes", "--get-all", "remote.origin.url"];
 }
+
 
 export function worktreeListCommand(repo: string): readonly string[] {
 	// `-z`, for the reason `parseWorktreeList` gives.

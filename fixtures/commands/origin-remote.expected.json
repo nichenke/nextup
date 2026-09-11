@@ -8,7 +8,7 @@
 		"-C",
 		"/repo",
 		"config",
-		"--local",
+		"--show-scope",
 		"--includes",
 		"--get-all",
 		"remote.origin.url"

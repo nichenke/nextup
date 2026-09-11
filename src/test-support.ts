@@ -18,7 +18,15 @@ export function githubRecording(name: string): Recording {
  * key rather than on `git` alone, so any other git command still reaches `answer` and fails there visibly.
  */
 export function answeringOrigin(remote: string, answer: Runner): Runner {
-	return (argv) => (isOriginRead(argv) ? { code: 0, stdout: `${remote}\n`, stderr: "" } : answer(argv));
+	return (argv) => (isOriginRead(argv) ? { code: 0, stdout: originStdout(remote), stderr: "" } : answer(argv));
+}
+
+/**
+ * What the origin read prints for a remote this checkout configures: one `--show-scope` line in the scope
+ * `resolveOriginRemote` keeps. One definition, so a test cannot fake a shape the parser no longer reads.
+ */
+export function originStdout(url: string, scope = "local"): string {
+	return `${scope}\t${url}\n`;
 }
 
 /**
@@ -35,7 +43,7 @@ const ORIGIN_READ = originRemoteCommand(ANY_DIRECTORY);
 
 /** The one `routedRunner` route that answers the origin read for `directory`, keyed off the builder. */
 export function originRoute(directory: string, url: string): Record<string, CommandResult> {
-	return { [originRemoteCommand(directory).join(" ")]: { code: 0, stdout: `${url}\n`, stderr: "" } };
+	return { [originRemoteCommand(directory).join(" ")]: { code: 0, stdout: originStdout(url), stderr: "" } };
 }
 
 /** The sentinel lines of a rendering, which is the contract `DEGRADED_PREFIX` exists to be tested through. */

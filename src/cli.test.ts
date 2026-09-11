@@ -10,6 +10,7 @@ import {
 	deadlockLines,
 	githubRecording,
 	isOriginRead,
+	originStdout,
 	recordedIssue,
 	replayRunner,
 	respondingRunner,
@@ -219,7 +220,7 @@ function startSequence(
 		if (argv[0] === "gh" && argv[1] === "issue" && argv[2] === "edit") return { code: 0, stdout: "", stderr: "" };
 		if (argv[0] === "gh") return respondingRunner(githubRecording(read))(argv);
 		if (argv[0] !== "git") throw new Error(`nothing answers ${argv.join(" ")}`);
-		if (isOriginRead(argv)) return { code: 0, stdout: `git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo}.git\n`, stderr: "" };
+		if (isOriginRead(argv)) return { code: 0, stdout: originStdout(`git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo}.git`), stderr: "" };
 		if (argv.includes("list")) return { code: 0, stdout: `worktree ${primary}\0branch refs/heads/main\0\0`, stderr: "" };
 		if (argv.includes("--git-common-dir")) return { code: 0, stdout: `${primary}/.git\n`, stderr: "" };
 		if (argv.includes("symbolic-ref")) return { code: 0, stdout: "refs/remotes/origin/main\n", stderr: "" };
@@ -251,7 +252,7 @@ describe("starting work on the pick", () => {
 	test("refuses to claim a ranked ticket whose rows name a repository this checkout is not", () => {
 		const renamed = (argv: string[]): CommandResult | null => {
 			if (!isOriginRead(argv)) return null;
-			return { code: 0, stdout: `git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo.replace(/[^/]+$/, "old-name")}.git\n`, stderr: "" };
+			return { code: 0, stdout: originStdout(`git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo.replace(/[^/]+$/, "old-name")}.git`), stderr: "" };
 		};
 		const asked = terminal(true);
 		const { runner, of } = startSequence(renamed);
@@ -766,7 +767,7 @@ describe("starting a ticket named on the command line", () => {
 	 */
 	const gitOnly: Runner = (argv) => {
 		if (isOriginRead(argv)) {
-			return { code: 0, stdout: `git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo}.git\n`, stderr: "" };
+			return { code: 0, stdout: originStdout(`git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo}.git`), stderr: "" };
 		}
 		throw new Error(`nothing may run ${argv.join(" ")} for a command that only prints`);
 	};
@@ -903,7 +904,7 @@ describe("starting a ticket named on the command line", () => {
 		// remote is spelled as the allowlisted synthetic one, which the identifier guard already accepts.
 		const elsewhere: Runner = (argv) => {
 			if (isOriginRead(argv)) {
-				return { code: 0, stdout: "https://example.com/example/repo.git\n", stderr: "" };
+				return { code: 0, stdout: originStdout("https://example.com/example/repo.git"), stderr: "" };
 			}
 			throw new Error(`nothing may run ${argv.join(" ")} for a checkout on another host`);
 		};
@@ -918,7 +919,7 @@ describe("starting a ticket named on the command line", () => {
 	test("accepts a named ticket whose repository the remote spells in another case", () => {
 		const shouted: Runner = (argv) =>
 			isOriginRead(argv)
-				? { code: 0, stdout: `git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo.toUpperCase()}.git\n`, stderr: "" }
+				? { code: 0, stdout: originStdout(`git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo.toUpperCase()}.git`), stderr: "" }
 				: { code: 1, stdout: "", stderr: "nothing else should be reached" };
 		const result = run([`gh:${GITHUB_TEST_TREE.repo}#1`, "--print-command"], deps(shouted));
 		expect(result.code).toBe(0);

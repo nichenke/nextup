@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { resolveCheckoutIdentity, resolveCheckoutRepoPath } from "./checkout-identity";
 import type { Runner } from "./runner";
-import { originRoute, routedRunner } from "./test-support";
+import { originRoute, originStdout, routedRunner } from "./test-support";
 import { GITHUB_HOST } from "./repo-address";
 
 const HERE = "/checkout";
@@ -66,7 +66,7 @@ describe("resolveCheckoutIdentity", () => {
 		const calls: string[][] = [];
 		const runner: Runner = (argv) => {
 			calls.push([...argv]);
-			return { code: 0, stdout: `git@${GITHUB_HOST}:example/repo.git\n`, stderr: "" };
+			return { code: 0, stdout: originStdout(`git@${GITHUB_HOST}:example/repo.git`), stderr: "" };
 		};
 		resolveCheckoutIdentity(runner, HERE, refuse);
 		expect(calls).toHaveLength(1);

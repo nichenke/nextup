@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { originRemoteCommand } from "./command-builders";
-import { parseRemote, resolveOriginRemote } from "./git-remote";
+import { checkoutOriginUrl, parseRemote, resolveOriginRemote } from "./git-remote";
 import type { Runner } from "./runner";
-import { fakeRunner } from "./test-support";
+import { fakeRunner, originStdout } from "./test-support";
 
 const HTTPS_REMOTE = "https://example.com/example/repo.git";
 const HTTPS_REMOTE_NO_SUFFIX = "https://example.com/example/repo";
@@ -50,13 +50,13 @@ describe("parseRemote", () => {
 
 describe("resolveOriginRemote", () => {
 	test("resolves the repo from a successful git remote lookup", () => {
-		const runner = fakeRunner({ code: 0, stdout: `${HTTPS_REMOTE}\n`, stderr: "" });
+		const runner = fakeRunner({ code: 0, stdout: originStdout(HTTPS_REMOTE), stderr: "" });
 		expect(resolveOriginRemote(runner, "/repo")?.repo ?? null).toBe("example/repo");
 	});
 
 	test("asks about the directory it was given rather than wherever the process is standing", () => {
 		const asked: string[][] = [];
-		const runner: Runner = (argv) => (asked.push([...argv]), { code: 0, stdout: `${HTTPS_REMOTE}\n`, stderr: "" });
+		const runner: Runner = (argv) => (asked.push([...argv]), { code: 0, stdout: originStdout(HTTPS_REMOTE), stderr: "" });
 		resolveOriginRemote(runner, "/elsewhere");
 		expect(asked).toEqual([[...originRemoteCommand("/elsewhere")]]);
 	});
@@ -67,18 +67,47 @@ describe("resolveOriginRemote", () => {
 	});
 
 	test("takes the first of several urls, which is the one git fetches from", () => {
-		const runner = fakeRunner({ code: 0, stdout: `${HTTPS_REMOTE}\n${NESTED_REMOTE}\n`, stderr: "" });
-		expect(resolveOriginRemote(runner, "/repo")?.repo ?? null).toBe("example/repo");
-	});
-
-	// Measured on git 2.55: `remote get-url` skips an empty value and answers with the next, so a remote whose
-	// first url is empty resolved before this change and has to keep resolving.
-	test("skips an empty first url rather than refusing a remote git would still fetch from", () => {
-		const runner = fakeRunner({ code: 0, stdout: `\n${HTTPS_REMOTE}\n`, stderr: "" });
+		const runner = fakeRunner({ code: 0, stdout: originStdout(HTTPS_REMOTE) + originStdout(NESTED_REMOTE), stderr: "" });
 		expect(resolveOriginRemote(runner, "/repo")?.repo ?? null).toBe("example/repo");
 	});
 
 	test("returns null when the read succeeds with nothing to parse", () => {
 		expect(resolveOriginRemote(fakeRunner({ code: 0, stdout: "\n", stderr: "" }), "/repo")).toBeNull();
+	});
+
+	// The empty value is refused rather than stepped over. Skipping it was tried and reverted: it answers with a
+	// url the checkout does not fetch from, which is a wrong repository at exit 0 in exchange for a
+	// configuration nobody has. ADR-0041.
+	test("refuses an empty first url rather than answering with a later one", () => {
+		const runner = fakeRunner({ code: 0, stdout: originStdout("") + originStdout(HTTPS_REMOTE), stderr: "" });
+		expect(resolveOriginRemote(runner, "/repo")).toBeNull();
+	});
+});
+
+describe("checkoutOriginUrl", () => {
+	test("takes a value this checkout's own config supplies", () => {
+		expect(checkoutOriginUrl(originStdout(HTTPS_REMOTE))).toBe(HTTPS_REMOTE);
+	});
+
+	// A linked worktree's own `config.worktree`, which `--local` does not read — the shape that made reading one
+	// file the wrong rule. ADR-0041.
+	test("takes a value a worktree configures for itself", () => {
+		expect(checkoutOriginUrl(originStdout(HTTPS_REMOTE, "worktree"))).toBe(HTTPS_REMOTE);
+	});
+
+	test.each(["global", "system", "command"])("leaves a %s value alone, since this checkout did not ask for it", (scope) => {
+		expect(checkoutOriginUrl(originStdout(HTTPS_REMOTE, scope))).toBeNull();
+	});
+
+	test("reaches past an ambient value to the one this checkout configures", () => {
+		expect(checkoutOriginUrl(originStdout(NESTED_REMOTE, "global") + originStdout(HTTPS_REMOTE))).toBe(HTTPS_REMOTE);
+	});
+
+	test("skips a line carrying no scope rather than reading it as a value", () => {
+		expect(checkoutOriginUrl(`${HTTPS_REMOTE}\n`)).toBeNull();
+	});
+
+	test("keeps a value containing a tab, since only the first one delimits the scope", () => {
+		expect(checkoutOriginUrl(originStdout("a\tb"))).toBe("a\tb");
 	});
 });
