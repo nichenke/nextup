@@ -1,6 +1,6 @@
 {
   "name": "nextup",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Unblocked Opportunist - picks the best unclaimed, unblocked ticket from a GitHub repository's issues and starts work on it in its own worktree. /nextup shows the pick and asks before starting. Needs bun, gh, cmux and claude on PATH; the session it starts runs /implement, which ships elsewhere.",
   "author": {
     "name": "nichenke"
