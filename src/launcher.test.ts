@@ -6,6 +6,7 @@ import { fakeRunner } from "./test-support";
 import type { TicketRef } from "./ticket-ref";
 
 const REF: TicketRef = { tracker: "github", repo: "example/repo", key: "1" };
+const TICKET = { ref: REF, title: "The reader drops a row it cannot parse" };
 const WORKTREE = "/repo/.worktrees/reader-1";
 
 const OK: CommandResult = { code: 0, stdout: "PONG\n", stderr: "" };
@@ -76,36 +77,58 @@ describe("launch", () => {
 
 	test("creates one workspace running the given session in the ticket's worktree", () => {
 		const { runner, calls } = recording();
-		launch({ runner, ref: REF, command: SESSION, worktree: WORKTREE });
+		launch({ runner, ticket: TICKET, command: SESSION, worktree: WORKTREE });
 
 		expect(calls).toHaveLength(1);
 		expect(calls[0]![calls[0]!.indexOf("--cwd") + 1]).toBe(WORKTREE);
 		expect(calls[0]![calls[0]!.indexOf("--command") + 1]).toBe(formatCommand(SESSION));
 	});
 
-	test("names the workspace after the worktree, so several running sessions are told apart", () => {
+	test("names the workspace after the ticket, so several running sessions are told apart", () => {
 		const { runner, calls } = recording();
-		launch({ runner, ref: REF, command: SESSION, worktree: WORKTREE });
-		expect(calls[0]![calls[0]!.indexOf("--name") + 1]).toBe("reader-1");
+		launch({ runner, ticket: TICKET, command: SESSION, worktree: WORKTREE });
+		expect(calls[0]![calls[0]!.indexOf("--name") + 1]).toBe("repo#1");
+	});
+
+	test("describes the workspace with the ticket's title, which the name has no room for", () => {
+		const { runner, calls } = recording();
+		launch({ runner, ticket: TICKET, command: SESSION, worktree: WORKTREE });
+		expect(calls[0]![calls[0]!.indexOf("--description") + 1]).toBe(TICKET.title);
+	});
+
+	test("passes a title that looks like a flag through as the description, not as an argument of its own", () => {
+		const { runner, calls } = recording();
+		const awkward = { ref: REF, title: "--focus false is ignored on a second call" };
+		launch({ runner, ticket: awkward, command: SESSION, worktree: WORKTREE });
+		expect(calls[0]![calls[0]!.indexOf("--description") + 1]).toBe(awkward.title);
+	});
+
+	/** `text` in the GitHub adapter admits an empty string where its sibling `url` refuses one, so a ticket can
+	 * reach here with no title at all. */
+	test("still passes a description for a ticket with no title", () => {
+		const { runner, calls } = recording();
+		launch({ runner, ticket: { ref: REF, title: "" }, command: SESSION, worktree: WORKTREE });
+		expect(calls[0]!.indexOf("--description")).toBeGreaterThan(-1);
+		expect(calls[0]![calls[0]!.indexOf("--description") + 1]).toBe("");
 	});
 
 	test("runs whatever session argv it was handed, rather than building one of its own", () => {
 		const { runner, calls } = recording();
 		const triage = planLaunch({ ref: REF, slashCommand: "/triage" }).command;
-		launch({ runner, ref: REF, command: triage, worktree: WORKTREE });
+		launch({ runner, ticket: TICKET, command: triage, worktree: WORKTREE });
 		expect(calls[0]![calls[0]!.indexOf("--command") + 1]).toContain("/triage");
 	});
 
 	test("aborts on a workspace that could not be created, having tried nothing else", () => {
 		const { runner, calls } = recording({ code: 1, stdout: "", stderr: "no window to create a workspace in" });
-		expect(() => launch({ runner, ref: REF, command: SESSION, worktree: WORKTREE })).toThrow(LaunchError);
+		expect(() => launch({ runner, ticket: TICKET, command: SESSION, worktree: WORKTREE })).toThrow(LaunchError);
 		expect(calls).toHaveLength(1);
 	});
 
 	test("names the ticket and what the host said, and prescribes no recovery of its own", () => {
 		const { runner } = recording({ code: 1, stdout: "", stderr: "no window" });
 		try {
-			launch({ runner, ref: REF, command: SESSION, worktree: WORKTREE });
+			launch({ runner, ticket: TICKET, command: SESSION, worktree: WORKTREE });
 			throw new Error("expected a refusal");
 		} catch (cause) {
 			const message = (cause as Error).message;

@@ -1,4 +1,4 @@
-import { type TicketRef, formatTicketRef, requireCanonicalIssueKey } from "./ticket-ref";
+import { type TicketRef, formatTicketRef, refRepo, requireCanonicalIssueKey } from "./ticket-ref";
 
 export class CommandBuilderError extends Error {}
 
@@ -73,9 +73,24 @@ export function workspaceHostAliveCommand(): Argv {
 	return [WORKSPACE_HOST, "ping"];
 }
 
+/**
+ * What a workspace is called in the host's listing: the repository's own name, `#`, and the key.
+ *
+ * The leading path is dropped because it is the part that repeats across workspaces while the last segment is
+ * the part that differs — for GitLab that discards a namespace and subgroup, not only an owner. A reference
+ * carrying no repository at all has no such form, and Jira is one, so those fall back to the reference as
+ * `formatTicketRef` spells it rather than to a bare key that names no tracker.
+ */
+export function workspaceName(ref: TicketRef): string {
+	const repo = refRepo(ref);
+	if (repo === null) return formatTicketRef(ref);
+	return `${repo.slice(repo.lastIndexOf("/") + 1)}#${ref.key}`;
+}
+
 export interface WorkspaceCommandInput {
 	/** What the workspace is called in the host's own listing. */
 	readonly name: string;
+	readonly description: string;
 	/** The worktree the session runs in. */
 	readonly cwd: string;
 	readonly command: Argv;
@@ -98,6 +113,8 @@ export function workspaceCommand(input: WorkspaceCommandInput): Argv {
 		"new-workspace",
 		"--name",
 		input.name,
+		"--description",
+		input.description,
 		"--cwd",
 		input.cwd,
 		"--command",

@@ -467,7 +467,7 @@ function startPick(pick: StartPick, options: Options, deps: CliDeps, checkout: C
 	const worktree = ensure({ runner: deps.runner, repo: deps.cwd, ticket: pick.ticket });
 	try {
 		claimGitHubTicket({ runner: deps.runner, ref: target.ref, checkout: here });
-		launch({ runner: deps.runner, ref, command, worktree: worktree.path });
+		launch({ runner: deps.runner, ticket: pick.ticket, command, worktree: worktree.path });
 		return { kind: "requested", ref, worktree, command };
 	} catch (cause) {
 		throw startedNothing(cause, pick, worktree, command);

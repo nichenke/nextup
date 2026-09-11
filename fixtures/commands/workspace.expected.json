@@ -1,7 +1,8 @@
 {
 	"description": "The workspace that runs one session in one worktree, its session argv rendered as a shell line.",
 	"input": {
-		"name": "reader-8",
+		"name": "repo#1",
+		"description": "The reader drops a row it cannot parse",
 		"cwd": "/repo/.worktrees/reader-8",
 		"command": [
 			"claude",
@@ -12,7 +13,9 @@
 		"cmux",
 		"new-workspace",
 		"--name",
-		"reader-8",
+		"repo#1",
+		"--description",
+		"The reader drops a row it cannot parse",
 		"--cwd",
 		"/repo/.worktrees/reader-8",
 		"--command",

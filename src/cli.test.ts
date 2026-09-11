@@ -300,6 +300,19 @@ describe("starting work on the pick", () => {
 		expect(workspace![workspace!.indexOf("--command") + 1]).toContain(DEFAULT_SLASH_COMMAND);
 	});
 
+	/** nichenke/nextup issue 75. */
+	test("names the workspace after the ticket and describes it with the title", () => {
+		const { runner, of } = startSequence();
+		const result = run([...LIMIT, "--yes"], deps(runner));
+		const [workspace] = of("new-workspace");
+		const name = workspace![workspace!.indexOf("--name") + 1]!;
+		const description = workspace![workspace!.indexOf("--description") + 1]!;
+		expect(name).toMatch(/^[^/]+#\d+$/);
+		expect(description.length).toBeGreaterThan(0);
+		expect(result.stdout).toContain(name.slice(name.indexOf("#")));
+		expect(result.stdout).toContain(description);
+	});
+
 	test("runs the verb it was given instead", () => {
 		const { runner, of } = startSequence();
 		run([...LIMIT, "--yes", "--slash-command", "/triage"], deps(runner));

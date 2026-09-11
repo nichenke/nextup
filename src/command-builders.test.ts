@@ -19,6 +19,7 @@ import {
 	sessionCommand,
 	workspaceCommand,
 	workspaceHostAliveCommand,
+	workspaceName,
 	worktreeAddCommand,
 	worktreeIdentityCommand,
 	worktreeListCommand,
@@ -45,6 +46,7 @@ const jira: TicketRef = { tracker: "jira", host: null, key: "ABC-7" };
 const BRANCH = "feature/reader-8";
 const WORKTREE_PATH = "/repo/.worktrees/reader-8";
 const SESSION = sessionCommand({ ref: github, slashCommand: DEFAULT_SLASH_COMMAND });
+const TICKET_TITLE = "The reader drops a row it cannot parse";
 
 const CASES: readonly Case[] = [
 	{
@@ -170,8 +172,8 @@ const CASES: readonly Case[] = [
 	{
 		name: "workspace",
 		description: "The workspace that runs one session in one worktree, its session argv rendered as a shell line.",
-		input: { name: "reader-8", cwd: WORKTREE_PATH, command: SESSION },
-		build: () => workspaceCommand({ name: "reader-8", cwd: WORKTREE_PATH, command: SESSION }),
+		input: { name: "repo#1", description: TICKET_TITLE, cwd: WORKTREE_PATH, command: SESSION },
+		build: () => workspaceCommand({ name: "repo#1", description: TICKET_TITLE, cwd: WORKTREE_PATH, command: SESSION }),
 	},
 ];
 
@@ -297,20 +299,36 @@ describe("githubClaimCommand", () => {
 	});
 });
 
+describe("workspaceName", () => {
+	test("names a repository-scoped ticket by the repository's own name and key", () => {
+		expect(workspaceName({ tracker: "github", repo: "example/repo", key: "1" })).toBe("repo#1");
+		expect(workspaceName({ tracker: "gitlab", repo: "group/sub/proj", host: null, key: "42" })).toBe("proj#42");
+	});
+
+	test("falls back to the whole reference where there is no repository to name", () => {
+		expect(workspaceName({ tracker: "jira", host: null, key: "PROJ-7" })).toBe("jira:PROJ-7");
+	});
+});
+
 describe("workspaceCommand", () => {
+	test("carries the description it was given, so the listing says what the ticket is", () => {
+		const argv = workspaceCommand({ name: "repo#1", description: TICKET_TITLE, cwd: WORKTREE_PATH, command: SESSION });
+		expect(argv[argv.indexOf("--description") + 1]).toBe(TICKET_TITLE);
+	});
+
 	test("runs the session in the worktree, as a line the workspace's own shell parses back", () => {
-		const argv = workspaceCommand({ name: "reader-8", cwd: WORKTREE_PATH, command: SESSION });
+		const argv = workspaceCommand({ name: "repo#1", description: TICKET_TITLE, cwd: WORKTREE_PATH, command: SESSION });
 		expect(argv[argv.indexOf("--cwd") + 1]).toBe(WORKTREE_PATH);
 		expect(argv[argv.indexOf("--command") + 1]).toBe(formatCommand(SESSION));
 	});
 
 	test("asks for the workspace to be focused, which the host does not do by default", () => {
-		const argv = workspaceCommand({ name: "reader-8", cwd: WORKTREE_PATH, command: SESSION });
+		const argv = workspaceCommand({ name: "repo#1", description: TICKET_TITLE, cwd: WORKTREE_PATH, command: SESSION });
 		expect(argv[argv.indexOf("--focus") + 1]).toBe("true");
 	});
 
 	test("asks the same program the liveness probe does, so one host answers both", () => {
-		const argv = workspaceCommand({ name: "reader-8", cwd: WORKTREE_PATH, command: SESSION });
+		const argv = workspaceCommand({ name: "repo#1", description: TICKET_TITLE, cwd: WORKTREE_PATH, command: SESSION });
 		expect(argv[0]).toBe(workspaceHostAliveCommand()[0]);
 	});
 });

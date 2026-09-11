@@ -85,6 +85,8 @@ example/repo#10
 example/repo#100
 group/project#8
 myrepo#1
+repo#1
+proj#42
 owner/#1
 owner/sub/repo#1
 /repo#1
