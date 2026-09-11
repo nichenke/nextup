@@ -252,13 +252,17 @@ describe("starting work on the pick", () => {
 			if (argv[0] !== "git" || !argv.includes("get-url")) return null;
 			return { code: 0, stdout: `git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo.replace(/[^/]+$/, "old-name")}.git\n`, stderr: "" };
 		};
+		const asked = terminal(true);
 		const { runner, of } = startSequence(renamed);
-		const result = run([...LIMIT, "--yes"], deps(runner));
+		const result = run([...LIMIT], deps(runner, asked.confirm));
 
 		expect(result.code).toBe(2);
 		expect(result.stderr).toContain("old-name");
 		expect(result.stderr).toContain(GITHUB_TEST_TREE.repo);
-		// Neither write, not just the claim: the comparison needs no I/O, so it belongs before the worktree.
+		// Neither write, and nobody asked: the comparison reads one local git command and settles whether the run
+		// can happen, so it comes before the host is pinged and before a person is asked to confirm.
+		expect(asked.questions).toEqual([]);
+		expect(of("ping")).toEqual([]);
 		expect(of("worktree", "add")).toEqual([]);
 		expect(of("issue", "edit")).toEqual([]);
 	});

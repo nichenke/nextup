@@ -6,8 +6,8 @@ import { hasJiraAuth, isAuthenticatedHost } from "./host-auth";
 export type Tracker = "github" | "gitlab" | "jira";
 
 /**
- * A GitHub ticket, valid by construction: `githubTicketRef` is the only way to make one and refuses anything
- * this tool cannot act on.
+ * A GitHub ticket. `githubTicketRef` is the only builder in production and refuses anything this tool cannot act
+ * on; the type itself enforces the host and not the other two, which ADR-0038 records as the residual.
  *
  * There is no `host` field, and that absence is the scope decision rather than a saving — ADR-0038. GitHub
  * Enterprise is out of scope, so a reference on any other host is not a GitHub reference this can represent,
@@ -25,9 +25,7 @@ export interface GitHubTicketRef {
  * A GitLab ticket. Unlike the GitHub variant this carries a host, because a self-hosted instance can be any
  * host and the host is what tells two instances apart.
  *
- * Its repository path is kept as spelled: whether GitLab resolves a path case-insensitively is undecided here
- * and belongs to nichenke/nextup issue 15, which wants a cited source rather than an inference from GitHub's
- * behaviour.
+ * Its repository path is kept as spelled, for the reason ADR-0038 gives.
  */
 export interface GitLabTicketRef {
 	readonly tracker: "gitlab";
@@ -76,8 +74,8 @@ export function refRepo(ref: TicketRef): string | null {
 /**
  * The GitHub reference for `repo` and `key`, normalized, or a refusal.
  *
- * The only way to make a `GitHubTicketRef`, which is what lets every consumer stop checking. Three things are
- * settled here and nowhere else, and ADR-0038 has the measurement behind each:
+ * The production builder for a `GitHubTicketRef`, which is what lets every consumer stop checking. Three things
+ * are settled here, and ADR-0038 has the measurement behind each:
  *
  * - The repository path is exactly two non-empty segments. GitHub has no subgroups, so a third segment names
  *   something else — and `gh` reads `--repo` as `[HOST/]OWNER/REPO`, so a three-segment value is a host.
@@ -92,6 +90,25 @@ export function githubTicketRef(repo: string, key: string): GitHubTicketRef {
 		throw new TicketRefError(`${repo} is not a GitHub owner and repository`);
 	}
 	return { tracker: "github", repo: repo.toLowerCase(), key: requireCanonicalIssueKey(key) };
+}
+
+/**
+ * A GitHub reference built from values a tracker answered with, refused in the caller's own class.
+ *
+ * A tracker saying something no reference can hold is a bad response, which is what each adapter's own error
+ * class means and what `cli.ts` classifies. `TicketRefError` escaping from there would be neither. Shared rather
+ * than written once per adapter, because the only thing that differed was the class — and `refuse` is the same
+ * seam `resolveCheckoutIdentity` uses for the same reason.
+ *
+ * @throws whatever `refuse` builds, when the path or the key is not one a reference can hold.
+ */
+export function githubTicketRefOr(repo: string, key: string, refuse: (reason: string) => Error): GitHubTicketRef {
+	try {
+		return githubTicketRef(repo, key);
+	} catch (cause) {
+		if (cause instanceof TicketRefError) throw refuse(cause.message);
+		throw cause;
+	}
 }
 
 /**
@@ -422,8 +439,7 @@ function whichTracker(url: string, host: string, runner: Runner): "github" | "gi
  * A GitLab reference from a URL whose shape already says it is GitLab's, once the host is one `glab` can reach.
  *
  * Built before the authentication is asked about, so that a malformed path or key is reported as the malformed
- * thing it is rather than as an unreachable host. That was the path check's order before it moved into the
- * constructor; the key check is new here, and takes the same position.
+ * thing it is rather than as an unreachable host.
  *
  * @throws TicketRefError from the constructor, and when `glab` is authenticated to no such host.
  */

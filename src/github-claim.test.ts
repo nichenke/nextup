@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { type CheckoutIdentity, checkoutIdentityFor } from "./checkout-identity";
+import { type CheckoutIdentity, resolveCheckoutIdentity } from "./checkout-identity";
 import { githubClaimCommand } from "./command-builders";
 import { GitHubClaimError, claimGitHubTicket } from "./github-claim";
 import type { Runner } from "./runner";
 import { fakeRunner, githubRecording, replayRunner, respondingRunner } from "./test-support";
 import { GITHUB_TEST_TREE } from "./test-tree";
+import { GITHUB_HOST } from "./repo-address";
 import { type GitHubTicketRef, formatTicketRef, githubTicketRef } from "./ticket-ref";
 
 const REPO = GITHUB_TEST_TREE.repo;
@@ -43,8 +44,14 @@ function githubRef(key: string = WRITE_TARGET, repo: string = REPO): GitHubTicke
 	return githubTicketRef(repo, key);
 }
 
-/** The checkout every claim below is standing in: the test tree, which is where its references live. */
-const HERE: CheckoutIdentity = checkoutIdentityFor(REPO, (reason) => new Error(reason));
+/**
+ * The checkout every claim below is standing in: the test tree, which is where its references live. Stood up
+ * through the real resolver off a fake remote, so no test needs a door into the brand that production lacks.
+ */
+const HERE: CheckoutIdentity = resolveCheckoutIdentity(
+	() => ({ code: 0, stdout: `git@${GITHUB_HOST}:${REPO}.git\n`, stderr: "" }),
+	(reason) => new Error(reason),
+);
 
 /** A runner keeping every call it was handed, so a claim can be asserted to be one write and no read. */
 function counted(runner: Runner): { readonly runner: Runner; readonly calls: readonly string[][] } {

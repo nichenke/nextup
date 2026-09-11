@@ -6,7 +6,7 @@ import type { CommandResult, Runner } from "./runner";
 import { type Claim, type Ticket, ticketId } from "./ticket";
 import { type ReadDegrade, type TicketRead, type TicketSetRead, ticketRead } from "./ticket-set-read";
 import { isValidRepoPath } from "./repo-address";
-import { type GitHubTicketRef, type TicketRef, TicketRefError, formatTicketRef, githubTicketRef, githubTicketTarget } from "./ticket-ref";
+import { type GitHubTicketRef, type TicketRef, formatTicketRef, githubTicketRefOr, githubTicketTarget } from "./ticket-ref";
 
 export class GitHubAdapterError extends Error {}
 
@@ -384,9 +384,13 @@ function readRows(stdout: string, repo: string): readonly Record<string, unknown
 	});
 }
 
+/** `where` names the row rather than a field: either argument can be the bad one, and the constructor says which. */
+const githubRefIn = (repo: string, key: string, where: string): GitHubTicketRef =>
+	githubTicketRefOr(repo, key, (reason) => new GitHubAdapterError(`${where}: ${reason}`));
+
 function readRow(row: Record<string, unknown>, where: string): RowReading {
 	const address = url(row.url, `${where} url`);
-	const ref = githubRef(addressRepo(address, `${where} url`), String(number(row.number, `${where} number`)), where);
+	const ref = githubRefIn(addressRepo(address, `${where} url`), String(number(row.number, `${where} number`)), where);
 	const edges = readEdges(row.blockedBy, where);
 	return {
 		ticket: {
@@ -400,26 +404,6 @@ function readRow(row: Record<string, unknown>, where: string): RowReading {
 		},
 		edges,
 	};
-}
-
-/**
- * One reference built from a row the tracker answered with, reported as a bad response rather than as a bad
- * reference.
- *
- * The constructor's own class would escape this adapter untyped by anything `cli.ts` classifies, and what
- * actually happened is that the tracker said something this cannot read — which is what every other reader in
- * `where` names the row rather than a field, because either argument can be the bad one and the constructor's
- * own message says which.
- *
- * @throws GitHubAdapterError when the row's repository path or issue number is not one a reference can hold.
- */
-function githubRef(repo: string, key: string, where: string): GitHubTicketRef {
-	try {
-		return githubTicketRef(repo, key);
-	} catch (cause) {
-		if (cause instanceof TicketRefError) throw new GitHubAdapterError(`${where}: ${cause.message}`);
-		throw cause;
-	}
 }
 
 /**
@@ -455,7 +439,7 @@ function readEdges(raw: unknown, where: string): EdgeReading {
 		// The blocker's own repository, read from its address rather than assumed to be the one being read: a
 		// dependency may name an issue in another repository, and keying it under this one would land two
 		// different tickets on one graph node.
-		const ref = githubRef(addressRepo(text(blocker.url, `${at} url`), `${at} url`), String(number(blocker.number, `${at} number`)), at);
+		const ref = githubRefIn(addressRepo(text(blocker.url, `${at} url`), `${at} url`), String(number(blocker.number, `${at} number`)), at);
 		edges.push({ ref, open: state(blocker.state, `${at} state`) === "open" });
 	}
 	return edges;

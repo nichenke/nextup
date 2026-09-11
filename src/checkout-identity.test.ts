@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { checkoutIdentityFor, resolveCheckoutIdentity, resolveCheckoutRepoPath } from "./checkout-identity";
+import { resolveCheckoutIdentity, resolveCheckoutRepoPath } from "./checkout-identity";
 import type { CommandResult, Runner } from "./runner";
 import { routedRunner } from "./test-support";
 import { GITHUB_HOST } from "./repo-address";
@@ -16,7 +16,7 @@ const refuse = (reason: string) => new Refused(reason);
 describe("resolveCheckoutIdentity", () => {
 	test("answers with the repository the origin remote names", () => {
 		const runner = routedRunner(remote(`git@${GITHUB_HOST}:example/repo.git`));
-		expect(resolveCheckoutIdentity(runner, refuse)).toEqual(checkoutIdentityFor("example/repo", refuse));
+		expect(resolveCheckoutIdentity(runner, refuse).repo).toBe("example/repo");
 	});
 
 	// A clone spelled in another case is this repository, not a different one: GitHub resolves the path
@@ -46,7 +46,7 @@ describe("resolveCheckoutIdentity", () => {
 		for (const host of [GITHUB_HOST, `ssh.${GITHUB_HOST}`]) {
 			for (const port of [22, 443]) {
 				const runner = routedRunner(remote(`${scheme}//git@${host}:${port}/example/repo.git`));
-				expect(resolveCheckoutIdentity(runner, refuse)).toEqual(checkoutIdentityFor("example/repo", refuse));
+				expect(resolveCheckoutIdentity(runner, refuse).repo).toBe("example/repo");
 			}
 		}
 	});

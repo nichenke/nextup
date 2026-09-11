@@ -31,7 +31,7 @@ import {
 } from "./selection-output";
 import { SelectionError, select } from "./selector";
 import type { Claim, Ticket } from "./ticket";
-import { type TicketRef, TicketRefError, formatTicketRef, githubTicketTarget, resolveTicketRef } from "./ticket-ref";
+import { type GitHubTicketRef, type TicketRef, TicketRefError, formatTicketRef, githubTicketTarget, resolveTicketRef } from "./ticket-ref";
 import { WorktreeError, type WorktreeOutcome, ensure } from "./worktree";
 import { renderWorktree } from "./worktree-output";
 
@@ -463,16 +463,16 @@ function startPick(pick: StartPick, options: Options, deps: CliDeps, checkout: C
 	if (target.kind === "refused") throw new StartError(target.reason);
 
 	requireSomeoneToAsk(options, deps);
+	// Before the host pings and before the question, not merely before the writes: this reads one local git
+	// command and settles whether the run can happen at all, so asking a person to confirm a start it is about to
+	// refuse would be asking about nothing. A ranked ticket is compared nowhere else —
+	// `requireTicketInThisCheckout` only ever sees a named one.
+	const here = checkout((reason) => new StartError(`${formatTicketRef(ref)} cannot be claimed, because ${reason}`));
+	requireInThisCheckout(target.ref, here);
+
 	requireWorkspaceHost(deps.runner);
 	requireSessionBinary(deps.runner);
 	if (!approved(pick, options, deps)) return { kind: "declined", ref };
-
-	// Both refusals here rather than at the claim, which is after the worktree exists: neither needs any I/O, and
-	// this function's contract is that a run stopping at a refusal leaves the repository and the tracker as they
-	// were. A ranked ticket is compared nowhere else — `requireTicketInThisCheckout` only sees a named one.
-	const here = checkout((reason) => new StartError(`${formatTicketRef(ref)} cannot be claimed, because ${reason}`));
-	const outside = outsideThisCheckout(target.ref, here);
-	if (outside !== null) throw new StartError(`${outside}, so nothing was started. Correct this checkout's origin remote, or run this inside ${target.ref.repo}.`);
 
 	const worktree = ensure({ runner: deps.runner, repo: deps.cwd, ticket: pick.ticket });
 	try {
@@ -794,12 +794,24 @@ function requireTicketInThisCheckout(ref: TicketRef, checkout: Checkout): void {
 	// Only GitHub's, because only GitHub's can be started: a reference on any other tracker is refused a moment
 	// later by `githubTicketTarget`, which says why in terms of the tracker rather than of the repository.
 	if (ref.tracker !== "github") return;
-	const here = checkout(
-		(reason) => new StartError(`${formatTicketRef(ref)} names a repository, and ${reason}, so nothing was started`),
+	requireInThisCheckout(
+		ref,
+		checkout((reason) => new StartError(`${formatTicketRef(ref)} names a repository, and ${reason}, so nothing was started`)),
 	);
-	if (ref.repo === here.repo) return;
+}
+
+/**
+ * The comparison itself, in the one wording both paths use. `outsideThisCheckout` decides; this decides what a
+ * refusal costs the operator, which is a `StartError` either way — the remedy is to correct the remote or to run
+ * the command elsewhere, and neither is a thing to respell on the line.
+ *
+ * @throws StartError when the ticket is in another repository.
+ */
+function requireInThisCheckout(ref: GitHubTicketRef, here: CheckoutIdentity): void {
+	const outside = outsideThisCheckout(ref, here);
+	if (outside === null) return;
 	throw new StartError(
-		`${formatTicketRef(ref)} is in ${ref.repo} and this checkout is ${here.repo}, so nothing was started — the worktree and the session would be made here while the claim landed there. Run this inside ${ref.repo} instead.`,
+		`${outside}, so nothing was started. Correct this checkout's origin remote, or run this inside ${ref.repo}.`,
 	);
 }
 

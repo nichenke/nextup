@@ -308,6 +308,54 @@ describe("githubTicketRef", () => {
 	});
 });
 
+/**
+ * ADR-0003 requires the terminal rung to be a total order over distinct references, and issue 65's criteria
+ * assumed a property test for it that never existed — the coverage was seven examples. This is that check:
+ * over every reference the constructors can build here, no two distinct ones compare equal and the order is
+ * antisymmetric and transitive.
+ */
+describe("compareTicketRefs is a total order over distinct references", () => {
+	// The port is joined rather than spelled beside code, because the identifier guard reads a schemeless host
+	// and everything up to the next whitespace as one token — CLAUDE.md's identifier section.
+	const HOSTS: readonly (string | null)[] = [null, "example.com", ["example.com", "8443"].join(":")];
+	const REFS: readonly TicketRef[] = [
+		...["example/repo", "example/other", "zz/repo"].flatMap((repo) =>
+			["1", "7", "10", "100"].map((key) => githubTicketRef(repo, key)),
+		),
+		...["group/project", "group/sub/project"].flatMap((repo) =>
+			HOSTS.map((host) => gitlabTicketRef(repo, host, "1")),
+		),
+		...[null, "example.com"].flatMap((host) => ["TEST-7", "TEST-10", "APP-7"].map((key) => jiraTicketRef(host, key))),
+	];
+
+	test("no two distinct references tie, so the ladder always has a winner", () => {
+		for (const [i, one] of REFS.entries()) {
+			for (const other of REFS.slice(i + 1)) {
+				expect(compareTicketRefs(one, other)).not.toBe(0);
+			}
+		}
+	});
+
+	// Stated as a sum rather than a negation, because `Math.sign(0)` is `0` and `-0` is a different value under
+	// `toBe`'s `Object.is` — which would fail every self-pair for a reason about the assertion, not the order.
+	test("is antisymmetric, so the answer does not depend on the argument order", () => {
+		for (const one of REFS) {
+			for (const other of REFS) {
+				expect(Math.sign(compareTicketRefs(one, other)) + Math.sign(compareTicketRefs(other, one))).toBe(0);
+			}
+		}
+	});
+
+	test("is transitive, so a sort cannot depend on which pairs it happens to compare", () => {
+		const sorted = [...REFS].sort(compareTicketRefs);
+		for (const [i, one] of sorted.entries()) {
+			for (const other of sorted.slice(i + 1)) {
+				expect(compareTicketRefs(one, other)).toBeLessThan(0);
+			}
+		}
+	});
+});
+
 describe("formatTicketRef", () => {
 	test("writes the short form each tracker's scheme accepts", () => {
 		expect(formatTicketRef({ tracker: "github", repo: "example/repo", key: "1" })).toBe(
