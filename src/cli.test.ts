@@ -883,6 +883,27 @@ describe("starting a ticket named on the command line", () => {
 		expect(result.stderr).not.toContain("usage: nextup");
 	});
 
+	/**
+	 * The other accepted form, end to end. The URL's host is what says which tracker it belongs to, so resolving one
+	 * asks the two CLIs which hosts they are authenticated to — `glab` answering no is what disambiguates.
+	 *
+	 * Joined rather than spelled whole: the identifier guard reads a literal URL as an identifier, and `CLAUDE.md`
+	 * has the rule.
+	 */
+	test("starts a ticket named by a pasted issue URL", () => {
+		const number = recordedIssue(githubRecording("ticket-view"));
+		const pasted = ["https:/", GITHUB_HOST, GITHUB_TEST_TREE.repo, "issues", number].join("/");
+		const { runner, of } = starting("ticket-view", (argv) =>
+			argv[0] === "glab" ? { code: 1, stdout: "", stderr: "not authenticated" } : null,
+		);
+		const result = run([pasted, "--yes"], deps(runner));
+
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain(shapeTitle(GITHUB_TEST_TREE, "every-blocker-closed"));
+		expect(of("issue", "view")).toHaveLength(1);
+		expect(of("issue", "edit")).toHaveLength(1);
+	});
+
 	test("resolves a bare short form against the working directory's remote", () => {
 		const { runner, of } = starting("ticket-view");
 		const result = run([`gh:${recordedIssue(githubRecording("ticket-view"))}`, "--yes"], deps(runner));
