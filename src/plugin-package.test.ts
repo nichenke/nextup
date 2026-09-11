@@ -59,6 +59,14 @@ describe("the repository ships an invokable plugin", () => {
 		expect(typeof description()).toBe("string");
 	});
 
+	// `claude plugin update` compares this version and nothing else, so an installed copy keeps whatever
+	// it has until the number moves -- a fix shipped to the default branch without a bump reaches fresh
+	// installs only, which is how issue 71's fix sat unreachable on every machine that already had it.
+	test("the two manifests agree on the version", () => {
+		const pkg = JSON.parse(read("package.json")) as { version?: unknown };
+		expect(manifest().version).toBe(pkg.version);
+	});
+
 	test("the skill file is where Claude Code discovers plugin skills", () => {
 		expect(existsSync(join(root, "skills", "nextup", "SKILL.md"))).toBe(true);
 	});
