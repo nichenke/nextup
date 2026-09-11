@@ -72,9 +72,8 @@ function checkoutIdentityOf(repo: string): CheckoutIdentity {
  * rule expands. The refusal is right either way — an alias is not evidence of a GitHub checkout — but without
  * this it reports a tracker at that host. ADR-0041 has the other shapes the two commands differ over.
  *
- * A dot is the test because it costs nothing to be wrong about: this appends a sentence to a refusal rather
- * than deciding one, so a miss leaves the refusal as it would have been. It catches the bare-word idiom only —
- * git accepts a dotted `insteadOf` base too, measured, and that one arrives here unexplained.
+ * A dot is the test, which catches the bare-word idiom and not every alias — ADR-0041 has what it misses and
+ * why that is affordable. Nothing here decides on it: a miss leaves the refusal as it would have been.
  */
 function aliasNote(host: string): string {
 	return host.includes(".")

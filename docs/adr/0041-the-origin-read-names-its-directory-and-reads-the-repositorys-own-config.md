@@ -2,12 +2,11 @@
 
 `git remote get-url origin` is replaced by `git -C <directory> config --local --get-all remote.origin.url`.
 
-The two halves reach 0029 differently.
-[0029](./0029-a-git-command-is-given-an-environment-with-no-git-variable-in-it.md)'s "What the prefix does not
-cover" left the config source open, putting the choice with whoever wired the adapter, and named
-`config --local --get` as one of two candidates. The ambient directory it did not leave open: its Consequences
-defended the absence of a `-C` — "asking 'which repository am I in' is its purpose" — so that half is a
-decision reversed rather than one deferred. The `--get` spelling is corrected here too.
+The two halves reach [0029](./0029-a-git-command-is-given-an-environment-with-no-git-variable-in-it.md)
+differently. Its "What the prefix does not cover" left the config source open, putting the choice with whoever
+wired the adapter. The ambient directory it did not leave open: its Consequences defended the absence of a
+`-C` — "asking 'which repository am I in' is its purpose" — so that half is a decision reversed rather than
+one deferred. 0029 carries a banner saying so.
 
 ## The decision
 

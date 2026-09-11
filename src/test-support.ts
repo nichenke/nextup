@@ -21,12 +21,17 @@ export function answeringOrigin(remote: string, answer: Runner): Runner {
 	return (argv) => (isOriginRead(argv) ? { code: 0, stdout: `${remote}\n`, stderr: "" } : answer(argv));
 }
 
-/** Whether an argv is the origin read, for a test faking or counting it. */
+/**
+ * Whether an argv is the origin read, for a test faking or counting it. Matched against the builder's own
+ * output with the directory wildcarded, so no word of that argv is spelled a second time here.
+ */
 export function isOriginRead(argv: readonly string[]): boolean {
-	return argv[0] === "git" && argv.includes(ORIGIN_URL_KEY);
+	return ORIGIN_READ.length === argv.length && ORIGIN_READ.every((word, index) => word === ANY_DIRECTORY || argv[index] === word);
 }
 
-const ORIGIN_URL_KEY = "remote.origin.url";
+// A NUL, which no argv word this tool builds can contain, so the wildcard cannot match a real directory.
+const ANY_DIRECTORY = "\u0000";
+const ORIGIN_READ = originRemoteCommand(ANY_DIRECTORY);
 
 /** The one `routedRunner` route that answers the origin read for `directory`, keyed off the builder. */
 export function originRoute(directory: string, url: string): Record<string, CommandResult> {

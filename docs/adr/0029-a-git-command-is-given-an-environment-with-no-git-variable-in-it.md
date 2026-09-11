@@ -1,5 +1,12 @@
 # A git command is given an environment with no GIT_ variable in it
 
+> Amended by [0041](./0041-the-origin-read-names-its-directory-and-reads-the-repositorys-own-config.md) on
+> two points. "What the prefix does not cover" leaves both config-location vectors open — 0041 closes them,
+> by a corrected form of the second option listed there: `--get-all` rather than the `--get` spelled below,
+> which answers with the wrong value where a remote carries several. And Consequences defends the origin read
+> carrying no `-C` — 0041 gives it one, so "almost every command this tool issues names the repository it
+> means" now has no exception. The argument below is otherwise unchanged.
+
 Supersedes [0026](./0026-a-redirected-git-environment-is-refused-at-the-runner.md), which refused a run while
 `GIT_DIR` or `GIT_COMMON_DIR` was set. That list was incomplete, the measurement behind it was taken against
 one command, and four of its statements do not reproduce. All of it is corrected here rather than in 0026,
@@ -256,8 +263,7 @@ A `GIT_` variable a user set deliberately is ignored for git, not honoured and n
 this tool issues names the repository it means, so there is little for an ambient one to usefully *locate*.
 The exception is the origin read, `git remote get-url origin`, which carries no `-C` and so resolves from the
 current directory: asking "which repository am I in" is its purpose, and a scrubbed environment makes the
-answer the directory rather than an inherited variable. Under 0026 the same situation threw instead. (0041
-gave that read a `-C` too, so there is no exception left.)
+answer the directory rather than an inherited variable. Under 0026 the same situation threw instead.
 
 A variable can also carry configuration rather than a location, and that is removed too. The case that matters
 is a checkout owned by another uid, where
@@ -287,10 +293,8 @@ pointing at one holding `git/config`. Both made `git -C <intended> remote get-ur
 by a different door, and naming only the variables measured so far would repeat 0026's mistake at the level
 of vectors rather than variables.
 
-Both were closed afterwards, by a corrected form of the second option below — it takes `--get-all` rather than
-the `--get` spelled there, which answers with the wrong value where a remote carries several.
-[0041](./0041-the-origin-read-names-its-directory-and-reads-the-repositorys-own-config.md) has that and the
-question this leaves open at the end. What follows is the reasoning as it stood here:
+It is recorded rather than closed, because both fixes cost more than they buy and the choice belongs with
+whoever wires the adapter:
 
 - **`GIT_CONFIG_GLOBAL=/dev/null` in the environment this builds.** A positive assertion rather than another
   removal, and it closed both vectors in test. It also discards a legitimate global `safe.directory`, which

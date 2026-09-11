@@ -146,9 +146,9 @@ function printing(argv: readonly string[]): string {
 	return `process.stdout.write(defaultRunner(${JSON.stringify(argv)}).stdout);`;
 }
 
-/** A config file declaring `repo` as origin, written at `path`. */
-function originConfig(path: string, repo: string): string {
-	writeFileSync(path, `[remote "origin"]\n\turl = ${repo}\n`);
+/** A config file declaring `url` as origin, written at `path`. */
+function originConfig(path: string, url: string): string {
+	writeFileSync(path, `[remote "origin"]\n\turl = ${url}\n`);
 	return path;
 }
 
