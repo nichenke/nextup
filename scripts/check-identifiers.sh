@@ -21,6 +21,15 @@ set -euo pipefail
 # Removed here rather than through the tool's runner: this runs before any dependency install. ADR-0029.
 unset "${!GIT_@}"
 
+# `git ls-files` lists what is under the current directory, so a run from a subdirectory would scan a subset
+# and pass. The whole tree or nothing; ADR-0029 carries the count that showed it.
+if toplevel=$(git rev-parse --show-toplevel 2>/dev/null); then
+	if ! cd "$toplevel"; then
+		printf 'check-identifiers: cannot enter %s, so no file was scanned\n' "$toplevel" >&2
+		exit 1
+	fi
+fi
+
 # Both scan pipelines below end in `|| true`, so anything leaving them without input reads as nothing found.
 # ADR-0029 has why each cause gets its own message.
 if ! tracked=$(git ls-files); then
@@ -43,6 +52,107 @@ if [ "$(git config --bool --get core.sparseCheckout || true)" = "true" ]; then
 	printf 'check-identifiers: this is a sparse checkout, so a scan would cover part of the tree\n' >&2
 	exit 1
 fi
+
+# One directory for the listings, so a single trap cleans up whatever was created. They are files rather than
+# variables because bash strips the NUL that `xargs -0` separates on, and a listing piped straight into a
+# reader discards the exit status that says it was complete. ADR-0029.
+if ! workdir=$(mktemp -d "${TMPDIR:-/tmp}/check-identifiers.XXXXXX"); then
+	printf 'check-identifiers: cannot create a temporary directory, so no file was scanned\n' >&2
+	exit 1
+fi
+trap 'rm -rf "$workdir"' EXIT
+listing="$workdir/tracked"
+deleted_listing="$workdir/deleted"
+deleted_errors="$workdir/deleted-errors"
+scan_listing="$workdir/scan"
+scan_errors="$workdir/errors"
+
+# Every line of `$1` prefixed, so a diagnostic running to several lines is attributable rather than only its
+# first line being marked as ours.
+report() {
+	while IFS= read -r line; do
+		printf 'check-identifiers: %s\n' "$line" >&2
+	done <"$1"
+}
+
+if ! git ls-files -z >"$listing"; then
+	printf 'check-identifiers: git ls-files failed while listing the tree, so no file was scanned\n' >&2
+	exit 1
+fi
+
+# A tracked file the scan cannot open is skipped exactly as an absent one is, and the scan discards the error.
+# An unstaged deletion is the one shape of that worth tolerating, because it leaves no content on disk. Two
+# questions, because no single test answers both: `[ -e ]` cannot see through an unreadable directory, and git
+# reports a path behind one as deleted.
+#
+# One call answers both, and it has to be the call whose output is used. A path git cannot lstat goes to stdout
+# *and* stderr while the command still exits 0, so a listing taken without its diagnostic puts that path in the
+# deleted set, where it is tolerated as an everyday deletion and never scanned. Measured. An earlier version
+# probed with one invocation and trusted a second, which left that gap open to anything breaking the tree
+# between the two.
+#
+# The diagnostic is reported verbatim and the refusal names no cause, because this cannot tell an unreadable
+# path from a broken git: a bad `core.fsmonitor` also writes here, and both exit 0. Measured.
+#
+# `-z`, and compared as raw bytes below. Read without it, git applies `core.quotePath` and returns
+# `"caf\303\251.md"` where the tracked listing gives the actual bytes, so no path holding a non-ASCII
+# character, a quote or a backslash ever matched -- and an unstaged deletion of one was refused as unreadable,
+# the everyday tree this branch exists to keep scanning. Measured.
+if ! git ls-files --deleted -z >"$deleted_listing" 2>"$deleted_errors"; then
+	report "$deleted_errors"
+	printf 'check-identifiers: git ls-files --deleted failed, so no file was scanned\n' >&2
+	exit 1
+fi
+if [ -s "$deleted_errors" ]; then
+	report "$deleted_errors"
+	printf 'check-identifiers: git could not list the tree cleanly, so a scan would cover part of it\n' >&2
+	exit 1
+fi
+
+# True when `$1` is in the deleted listing, compared whole and as bytes.
+is_deleted() {
+	while IFS= read -r -d '' candidate; do
+		[ "$candidate" = "$1" ] && return 0
+	done <"$deleted_listing"
+	return 1
+}
+
+# Then the paths git could examine: a mode-000 file can be stat'ed and not read, so it reaches neither the
+# error above nor the deleted list.
+symlink_targets=''
+: >"$scan_listing"
+while IFS= read -r -d '' path; do
+	# grep reads a file named `-` as standard input even after the `--` the scan passes, so its contents never
+	# reached the scan. ADR-0029 has why this is refused rather than scanned.
+	if [ "$path" = '-' ]; then
+		printf 'check-identifiers: a tracked file named - is read as standard input, so a scan would cover part of the tree\n' >&2
+		exit 1
+	fi
+	# A symlink's tracked content is its target path, which the scan cannot reach: grep follows the link and
+	# reads whatever it points at instead. The target is read here and the link kept out of the scan list, so
+	# the scan never follows one -- following it read untracked content under a message asserting the content
+	# was tracked, and hung forever on a link to a FIFO. Both measured. Covers a dangling link too, where
+	# `[ -r ]` is false but there is still a target to scan. ADR-0029.
+	if [ -L "$path" ]; then
+		if ! target=$(readlink -- "$path"); then
+			printf 'check-identifiers: cannot read the target of %s, so a scan would cover part of the tree\n' "$path" >&2
+			exit 1
+		fi
+		symlink_targets="$symlink_targets$target
+"
+		continue
+	fi
+	# A deleted path is left out of the scan rather than merely exempted from the refusal: it has no content to
+	# read, so handing it to grep would produce the read error the scan now treats as fatal.
+	if [ -s "$deleted_listing" ] && is_deleted "$path"; then
+		continue
+	fi
+	if [ ! -r "$path" ]; then
+		printf 'check-identifiers: %s is tracked but cannot be read, so a scan would cover part of the tree\n' "$path" >&2
+		exit 1
+	fi
+	printf '%s\0' "$path" >>"$scan_listing"
+done <"$listing"
 
 ALLOWED='
 https://github.com/nichenke/nextup
@@ -126,8 +236,36 @@ PATTERN='([a-z][a-z0-9+.-]*://[^[:space:]]+)|([A-Za-z0-9._%+/-]+@[A-Za-z0-9.-]*\
 # segment has to become a slash before the segment is a URL worth splitting out. It also means a
 # comment in this file cannot quote an escaped-slash URL -- normalization would turn the quote into
 # a real one and the guard would flag its own source.
-normalized=$(git ls-files -z | xargs -0 grep -Ih '' 2>/dev/null |
-	awk '{ gsub(/\\\//, "/"); gsub(/\\[nrt]/, "\n"); print }' || true)
+# `--` because a tracked filename may begin with a hyphen, which grep would otherwise read as an option: a
+# file named `-d` made BSD grep reject its own argument list, the error went to /dev/null, and the guard
+# printed `ok` over the identifier inside it. Measured.
+#
+# Before the pattern, not after it. GNU getopt stops permuting at the first non-option when POSIXLY_CORRECT
+# is set, and the empty pattern is that non-option -- so a trailing `--` becomes a filename grep cannot open.
+#
+# The symlink targets collected above join the file contents here: they are tracked content grep never
+# reaches, so they need the same normalization and the same allowlist comparison.
+#
+# The guard against an empty list is not decoration: BSD `xargs` runs nothing on empty input, GNU needs `-r`
+# to agree, and without either grep would take no file operand and read standard input instead.
+#
+# grep's stderr is kept rather than discarded, and any of it is fatal. The checks above run before the scan,
+# so a file that becomes unreadable between the two -- a concurrent checkout, a rewrite, a mode change -- was
+# skipped with its error sent to /dev/null and its status eaten by `|| true`, which is `ok` over a file that
+# was never read. The status cannot carry this: grep exits 1 for "no match", which is the ordinary case here.
+: >"$scan_errors"
+normalized=$({
+	if [ -s "$scan_listing" ]; then
+		xargs -0 grep -Ih -- '' <"$scan_listing" 2>"$scan_errors" || true
+	fi
+	printf '%s' "$symlink_targets"
+} | awk '{ gsub(/\\\//, "/"); gsub(/\\[nrt]/, "\n"); print }' || true)
+
+if [ -s "$scan_errors" ]; then
+	report "$scan_errors"
+	printf 'check-identifiers: the scan could not read a tracked file, so it covered part of the tree\n' >&2
+	exit 1
+fi
 
 # Surrounding markup travels with a token: a markdown link wraps it in parentheses, prose ends it
 # with a full stop, and a source-code string literal closes with a quote, sometimes escaped. None

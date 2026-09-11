@@ -123,8 +123,8 @@ and the guard printed `ok`, so the repository's first check silently checked no 
 It also now refuses to report on a scan that saw less than the tree, because the redirect was a cause and not
 the class. Both pipelines in that script end in `|| true`, so anything leaving them without input reads as
 nothing found: run in a directory that is not a repository at all, it printed `fatal: not a git repository`,
-then `ok`, and exited 0. Three causes are now told apart, each with its own message, because "the repository
-is empty" and "git is broken" are not the same report:
+then `ok`, and exited 0. Each cause is now told apart, with its own message, because "the repository is
+empty" and "git is broken" are not the same report:
 
 - `git ls-files` failing at all, which is where a redirected environment, a missing `git`, or a checkout that
   produced no worktree lands. Reported as a listing failure rather than as a claim about the contents — under
@@ -136,6 +136,103 @@ is empty" and "git is broken" are not the same report:
   `core.sparseCheckout` rather than inferred from a file being absent, because an unstaged deletion looks
   identical on disk and refusing that would refuse an everyday tree; a file merely deleted is scanned as the
   absence it is, which `ADR-0006`'s "the files as they stood when it ran" already scopes.
+- a tracked file the scan cannot open, which it skips exactly as it skips an absent one. A mode-000 file
+  holding an identifier passed, and so did one under a mode-000 *directory*. Both measured.
+
+Before any of that, the scan starts at the repository root rather than wherever it was invoked. `git ls-files`
+lists what is under the current directory, so a run from a subdirectory scanned that subtree and reported a
+pass — 43 of this repository's 209 tracked files, measured from `docs/` at the time of writing. CI and the
+package script both happen to run at the root, so what this closes is a direct invocation by a person or an
+agent. It is a correction rather than a refusal because `rev-parse --show-toplevel` either answers or there is
+no worktree to scan: in a bare repository it exits 128, no `cd` happens, and `git ls-files` then exits 0 with
+nothing, which lands on the nothing-tracked refusal above. Measured.
+
+The property is that the scan read every tracked file it could have, and it took three attempts to state it
+without a hole, which is worth recording as its own lesson. `xargs -0 ls` answered "is the path there", not
+"can it be read", so a mode-000 file passed. `[ -e ] && [ ! -r ]` answered readability but cannot see through
+an unreadable directory, so a path behind one read as absent and was tolerated — the branch deliberately left
+open for an unstaged deletion. Each fix closed the case it was shown and left the sibling of the same property.
+
+It is now asked as two questions, because no single test answers both, and git does the classifying rather
+than a predicate standing in for it. The streams are not a partition and it matters that they are not: a path
+git cannot lstat appears on stdout *and* stderr, while a genuine deletion appears on stdout alone, and the
+command exits 0 either way. Measured. So the diagnostic decides, and it has to be the diagnostic belonging to
+the listing that is used: a listing taken without it puts an unstattable path into the deleted set, where it
+is tolerated as an everyday deletion and never scanned. What remains after that is a path git could stat,
+where `[ -r ]` is the whole question — a mode-000 file reaches neither the error nor the deleted list.
+
+A draft of this ran the two as separate invocations — one to probe stderr, a second to take the listing — and
+that is a race rather than a shortcut. Anything breaking the tree between the two leaves the probe clean and
+the consumed listing carrying a path it could not stat, on a call whose stderr nothing read. It is one call
+now, with stdout and stderr captured and both checked. The general lesson is worth more than the instance:
+a check and the thing it licenses have to come from the same observation, or the gap between them is a window.
+
+The stderr test cannot say *why* git complained, so it does not try. A broken `core.fsmonitor` writes there
+too, and both it and an unreadable path exit 0, so the guard prints git's own text verbatim and then refuses
+without naming a cause. Measured. That is a departure from the one-message-per-cause rule above, and the
+honest one: the two causes are indistinguishable at this point, and both are reasons to refuse.
+
+A tracked symlink is neither refused nor followed: its target is read with `readlink` and scanned alongside
+the file contents. git commits the target path as the blob, and `grep` follows the link and reads whatever it
+points at instead, so the target text is tracked content the scan never saw. Measured — a link to `<host>/x`
+whose target existed committed that host as a blob and the guard printed `ok`, exit 0.
+
+An earlier draft refused only the *dangling* case, because `[ -r ]` is false for one, and called that
+deliberate. It was not: the property belongs to every symlink, and the subset that happens to fail a
+readability test is not the subset that carries unscanned text. Refusing the dangling one and passing the
+resolving one closed the shape that was noticed and left the shape that mattered — the same fault the three
+attempts above record. Reading the target covers both, and removes a refusal rather than adding one.
+
+Reading the target is only half of it: the link must also leave the list the scan reads, or `grep` follows it
+anyway. A draft that read targets and left the links in place made the guard fail on the contents of an
+*untracked* file, under a message asserting a tracked file held it and naming no path, and hang forever on a
+link whose target was a FIFO — `timeout` reported 124, which in CI is a hung job rather than a failed one.
+Both measured. The scan now reads a list built during the walk, holding the paths it may open and nothing
+else.
+
+Two comparisons in that walk are byte comparisons, and one of them was not. `git ls-files --deleted` without
+`-z` applies `core.quotePath`, returning `"caf\303\251.md"` where the tracked listing gives the bytes, so no
+path holding a non-ASCII character, a quote or a backslash ever matched — and deleting one without staging it
+was refused as unreadable, which is precisely the everyday tree the deleted branch exists to keep scanning.
+Measured. Both listings are now `-z` and compared whole.
+
+A deleted path is also kept out of the scan list rather than merely exempted from the refusal, because the
+scan now treats any `grep` diagnostic as fatal and a missing file produces one.
+
+That last rule is the answer to a question the checks above cannot settle on their own: they all run *before*
+the scan, so a file that stopped being readable in between — a concurrent checkout, a rewrite, a mode change —
+was skipped with its error sent to `/dev/null` and its status eaten by `|| true`. The exit status cannot
+carry it, because `grep` exits 1 for "no match", which is the ordinary result here. Its stderr is kept instead,
+and anything on it refuses.
+
+Finally, `set -e` made two of these refusals silent. A bare `v=$(cmd)` takes the substitution's status, so a
+failing git exited the script *before* the `if` meant to report it, with git's stderr captured into the
+variable and never printed — a refusal with no output at all. Measured. Each such capture is now written as
+`if ! v=$(cmd)` with its own message.
+
+Separately, the scan now passes `--` to `grep`. A tracked filename may begin with a hyphen, and `git ls-files`
+happily reports one: with a file named `-d`, BSD `grep` rejected its own argument list, `2>/dev/null` ate the
+error, `|| true` ate the status, and the guard printed `ok` over the identifier inside it. Measured. This is
+older than the work here, but a change claiming whole-tree coverage owns it.
+
+`--` does not rescue every such name, and the one it leaves is refused rather than scanned. `grep` reads a
+file named exactly `-` as standard input even after `--`, so its contents never reached the scan and the guard
+printed `ok` over the identifier in it. Measured, with the fixed `--` in place.
+
+Last of the same class, and the one that made the others' coverage claim false: `git ls-files -z` piped
+straight into a reader discards its exit status, so a listing that failed part way through arrived as fewer
+paths and read as nothing found — `ok` over a tracked identifier, measured with a git that fails only that
+call. The listing is now written once to a temporary file whose status is checked, and both the per-path loop
+and the scan read it. A command substitution cannot hold it instead: bash strips NUL from one, which is the
+separation `xargs -0` depends on.
+
+It is refused on cost, not because scanning it is impossible — the distinction is worth stating, because a
+reader who tries the alternative will find it works. Prefixing every path with `./` scans it, and the
+one-liners that would do the prefixing do not survive NUL separation: macOS `awk` truncates at the first NUL
+and BSD `sed` has no `-z`, both measured. What does work is a second NUL-safe reader in the scan's hot path,
+in the same idiom as the loop above. That is the price, and a filename nothing here needs does not justify it.
+
+Together these make the `GIT_` removal above a second line of defence rather than the only one.
 
 `scripts/guard-harness.ts` spawns git raw to build a throwaway fixture repository. It asks `src/runner.ts`
 for the scrubbed environment rather than owning a list. It hands the guard script the environment whole, on
