@@ -543,16 +543,16 @@ function adoptableFromOrigin(runner: Runner, repo: string, branch: string): bool
 /**
  * `path`, which must be absolute, with the symlinks along it resolved — the spelling git registers a
  * worktree under. ADR-0041 has why that is computed rather than refused, why the worktree's own leaf is
- * still refused, and the measurements behind both paragraphs below.
+ * still refused, and the measurements behind the two rules below.
  *
  * Do not replace this with one `realpathSync` call over the whole path. Bun resolves `<link>/..` to the
- * link's own parent, where `realpath(3)` and `git worktree add` both name the target's parent, and Bun's
- * `realpathSync.native` agrees with Bun rather than with git — so there is no escape hatch in the API.
- * Fed one segment at a time, `realpathSync` never sees a `..` and the two agree.
+ * link's own parent where git names the target's parent, and Bun's `realpathSync.native` agrees with Bun
+ * rather than with git, so there is no escape hatch in the API. One segment at a time, `realpathSync`
+ * never sees a `..` and the divergence cannot arise.
  *
  * A segment that is not there is appended and the walk continues, rather than the remainder being taken
  * as written: a `..` can cancel that segment out and hand a symlink back to a walk that then has to
- * resolve it. git does the same.
+ * resolve it.
  */
 function canonical(path: string): string {
 	let at: string = sep;
@@ -563,13 +563,14 @@ function canonical(path: string): string {
 			continue;
 		}
 		const candidate = join(at, segment);
-		at = resolved(candidate) ?? candidate;
+		at = resolvedIfThere(candidate) ?? candidate;
 	}
 	return at;
 }
 
 /**
- * `path` resolved, or `undefined` where nothing is there at all.
+ * `path` resolved, or `undefined` where nothing is there at all — which the caller reads as a segment to
+ * append and go on from, so the two answers are not interchangeable.
  *
  * `realpathSync` raises `ENOENT` for a segment that does not exist yet — the ordinary case, since the root
  * is usually what this run creates — and for a symlink to nothing, which is a refusal. Neither is told from
@@ -579,7 +580,7 @@ function canonical(path: string): string {
  * @throws WorktreeError `"stale-directory"` for a link to nothing, and for every other answer the
  * filesystem gives, `refusingOnError` classifying those.
  */
-function resolved(path: string): string | undefined {
+function resolvedIfThere(path: string): string | undefined {
 	if (inspect(path) === undefined) return undefined;
 	if (refusingOnError(path, "resolved", () => statSync(path, { throwIfNoEntry: false })) === undefined) {
 		throw new WorktreeError(`${path} is a symlink to nothing, so no worktree can be reached through it`, "stale-directory");
