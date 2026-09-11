@@ -2,8 +2,9 @@
 
 **Unblocked Opportunist** — picks the best unclaimed, unblocked ticket and starts work on it.
 
-`nextup` reads a ticket set from GitHub, GitLab, or Jira; filters to open and unclaimed;
-ranks the survivors deterministically; and launches a session on the winner in its own git worktree.
+`nextup` reads a ticket set from a tracker; filters to open and unclaimed; ranks the survivors
+deterministically; and launches a session on the winner in its own git worktree. GitHub is the tracker
+it has an adapter for; GitLab and Jira are planned and not built.
 
 Blocking is tri-state, so "unblocked" is not a simple filter. Tickets whose blockers are *confirmed*
 closed are ranked first. Tickets whose blocking state the tracker could not report are ranked by the same
@@ -16,6 +17,30 @@ End to end on GitHub. Run it inside a GitHub checkout and it reads the repositor
 at, ranks the candidates, shows you the pick, and — once you agree — makes the ticket's worktree, claims the
 ticket, and asks cmux to run a session in that worktree.
 
+## Installing it
+
+`nextup` is a Claude Code plugin shipping one skill, `/nextup`, and no marketplace of its own. The
+way to run it today is to point Claude Code at a checkout:
+
+```sh
+claude --plugin-dir <path to this checkout>
+```
+
+Installing it by name will be through the `dispatch` marketplace, which is where it is published.
+That entry is not in place yet.
+
+`/nextup` takes no arguments. It previews, then asks, then starts what you agreed to. The flags in
+the next section belong to the binary and are reachable from a checkout rather than through the
+command.
+
+`bun`, `gh`, `cmux` and `claude` are expected on `PATH`.
+
+`/implement` has to come from somewhere else — this plugin declares that dependency rather than
+satisfying it. One provider is `mattpocock-skills` in the `claude-plugins-official` marketplace; any
+skill of that name will do, and `--slash-command` points the launch at a different one.
+
+## From a checkout
+
 ```sh
 bun bin/nextup.ts                       # show the pick, then ask before starting it
 bun bin/nextup.ts --limit 50            # consider 50 open tickets rather than the default 199
@@ -27,6 +52,11 @@ bun bin/nextup.ts gh:12                 # start this ticket instead, skipping th
 bun bin/nextup.ts gh:12 --force         # start it past the blocked and claimed checks, loudly
 bun bin/nextup.ts --help                # every flag
 ```
+
+A Claude Code session has no controlling terminal for the gate below to ask on, which is why
+`/nextup` previews with `--print-command` and starts with `--yes`.
+[ADR-0038](./docs/adr/0038-the-plugin-ships-one-command-and-previews-before-it-starts.md) has the
+rest of the packaging decision, including why there is no prerequisite check.
 
 Naming a ticket — `gh:12`, `gh:<owner>/<name>#12`, or an issue URL pasted from a browser — starts that one. It
 skips the ranking ladder and the label filter, because both decide only what may be *recommended* and

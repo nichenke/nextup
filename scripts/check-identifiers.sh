@@ -45,7 +45,6 @@ if [ "$(git config --bool --get core.sparseCheckout || true)" = "true" ]; then
 fi
 
 ALLOWED='
-https://anthropic.com/claude-code/marketplace.schema.json
 https://github.com/nichenke/nextup
 https://github.com/nichenke/nextup/issues/2
 https://github.com/nichenke/nextup/issues?q=is%3Aissue+label%3Aready-for-agent
