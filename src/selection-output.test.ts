@@ -264,7 +264,9 @@ describe("renderAnswer", () => {
 		expect(lines).toHaveLength(4);
 		expect(lines[0]).toContain("could not resolve host");
 		expect(lines[1]).toContain("2 of 9 rows read");
-		expect(lines[2]).toContain("only a page of their blockers");
+		// The whole clause, not just "a page of their blockers": the wording this replaced also contained that much,
+		// so asserting the substring alone let the change ADR-0037 depends on survive a revert.
+		expect(lines[2]).toContain("only a page of their blockers arrived, so nothing confirms them unblocked");
 		expect(lines[3]).toContain("disagreed about their state");
 		for (const line of lines.slice(2)) expect(line).toContain("gh:example/repo#4");
 	});

@@ -593,7 +593,6 @@ function unknownBlockingIsNotAnEmptyList(input: ReconstructionInput): CheckResul
 	);
 }
 
-/** Every blocking edge, paired with the ticket that named it. A ticket whose blocking is unknown contributes none. */
 /**
  * The two tickets worth reading one at a time, read through the tracker's single-ticket surface.
  *
@@ -604,7 +603,11 @@ function unknownBlockingIsNotAnEmptyList(input: ReconstructionInput): CheckResul
  */
 function namedReads(tracker: ReconstructionTracker, read: TicketSetRead): NamedReads {
 	const open = [...read.tickets].sort((one, other) => compareTicketRefs(one.ref, other.ref))[0]?.ref ?? null;
-	return { open: open === null ? null : attempt(tracker, open), closed: closedBlockerRef(read) === null ? null : attempt(tracker, closedBlockerRef(read)!) };
+	const closed = closedBlockerRef(read);
+	return {
+		open: open === null ? null : attempt(tracker, open),
+		closed: closed === null ? null : attempt(tracker, closed),
+	};
 }
 
 function attempt(tracker: ReconstructionTracker, ref: TicketRef): NamedRead {
@@ -698,6 +701,7 @@ function namedTicketAnswersAboutAClosedOne(input: ReconstructionInput): CheckRes
 	return verdictOver("named-ticket-answers-about-a-closed-one", 1, faults, `${formatTicketRef(named.ref)} came back closed`);
 }
 
+/** Every blocking edge, paired with the ticket that named it. A ticket whose blocking is unknown contributes none. */
 function edges(tickets: readonly Ticket[]): readonly { readonly ticket: Ticket; readonly blocker: TicketRef }[] {
 	return tickets.flatMap((ticket) =>
 		ticket.blockers === "unknown" ? [] : ticket.blockers.map((blocker) => ({ ticket, blocker })),

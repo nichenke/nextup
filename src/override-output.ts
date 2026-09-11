@@ -1,5 +1,5 @@
 import { type NonEmpty, mapNonEmpty } from "./non-empty";
-import { type Override, type Refusal, type Target, clearedByForce } from "./override";
+import { type Override, type Refusal, type Target, type Unclearable, clearedByForce } from "./override";
 import { blockingPhrase, degradedLine, readCaveats } from "./selection-output";
 import type { Ticket } from "./ticket";
 import { formatTicketRef } from "./ticket-ref";
@@ -64,10 +64,23 @@ export function renderRefusal(answer: OverrideAnswer): string {
 	return `${what} was not started, and nothing was claimed or created:\n${reasons}\n${caveats.join("")}${advice(override.refusals)}\n`;
 }
 
+/**
+ * What to do instead, per check `--force` cannot clear.
+ *
+ * A `Record` keyed on those kinds rather than one sentence in an else arm: `clearedByForce` is an exhaustive
+ * switch so that a check added later has to decide whether the flag clears it, and a second non-clearable kind
+ * would otherwise inherit the wording written for the only one there is today. Keyed, it fails to compile here.
+ */
+const REMEDY: Record<Unclearable["kind"], string> = {
+	closed: "--force does not reach a closed ticket: reopen it if the work is not done.",
+};
+
 function advice(refusals: NonEmpty<Refusal>): string {
-	return refusals.every(clearedByForce)
-		? "Pass --force to start it anyway, which claims it besides — the claim is added rather than replacing one, so an existing claimant keeps theirs."
-		: "--force does not reach a closed ticket: reopen it if the work is not done.";
+	const unreachable = refusals.find((refusal): refusal is Unclearable => !clearedByForce(refusal));
+	if (unreachable === undefined) {
+		return "Pass --force to start it anyway, which claims it besides — the claim is added rather than replacing one, so an existing claimant keeps theirs.";
+	}
+	return REMEDY[unreachable.kind];
 }
 
 /**

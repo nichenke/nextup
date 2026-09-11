@@ -62,6 +62,9 @@ export type Override =
 /** A check `--force` is allowed past, which is every one but the closed ticket — ADR-0037. */
 export type Clearable = Exclude<Refusal, { readonly kind: "closed" }>;
 
+/** A check `--force` cannot clear, named so that a refusal's advice can be keyed on the set rather than guessed. */
+export type Unclearable = Exclude<Refusal, Clearable>;
+
 /**
  * Whether `--force` is allowed past one check.
  *

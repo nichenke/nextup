@@ -317,15 +317,16 @@ export interface GitHubIssueCommandInput {
  * reader parses. No state filter, unlike the list read: a closed ticket has to come back as closed, because
  * "closed" is the refusal an operator who named it needs to be told.
  *
- * @throws CommandBuilderError when `key` is not a canonical issue number, for the reason `issueWord` gives.
+ * @throws CommandBuilderError when `key` is not a canonical issue number, for the reason `requireCanonicalIssueKey` gives.
  */
 export function githubIssueViewCommand(input: GitHubIssueCommandInput): readonly string[] {
-	return ["gh", "issue", "view", "--repo", input.repo, "--json", GITHUB_TICKET_FIELDS.join(","), "--", issueWord(input.key)];
+	return ["gh", "issue", "view", "--repo", input.repo, "--json", GITHUB_TICKET_FIELDS.join(","), "--", requireCanonicalIssueKey(input.key)];
 }
 
 /**
  * The issue one `gh` subcommand acts on, refused unless it is a canonical issue number — leading zeros and a
- * bare `0` as much as non-digits.
+ * bare `0` as much as non-digits. Exported because the override path refuses a typed key where it reads nothing
+ * at all, and a caller reaching that guard by building an argv it discards had to explain itself in a comment.
  *
  * `gh` normalizes `037` to issue 37 while `compareTicketRefs` treats the two as different tickets, so a padded
  * key would act on one issue under a reference naming another and exit 0. Measured on the read both times:
@@ -334,7 +335,7 @@ export function githubIssueViewCommand(input: GitHubIssueCommandInput): readonly
  * that inference is exactly why one guard covers both rather than each trusting its own subcommand. `--` does
  * not help: it stops flag parsing, not number normalization.
  */
-function issueWord(key: string): string {
+export function requireCanonicalIssueKey(key: string): string {
 	if (!/^[1-9][0-9]*$/.test(key)) {
 		throw new CommandBuilderError(`${key} is not a canonical issue number, so the issue acted on would not be the one it names`);
 	}
@@ -352,11 +353,11 @@ export type GitHubClaimCommandInput = GitHubIssueCommandInput;
  *
  * The key goes last, after `--`, so that no spelling of it can be read as a flag rather than as the issue.
  *
- * @throws CommandBuilderError when `key` is not a canonical issue number, for the reason `issueWord` gives.
+ * @throws CommandBuilderError when `key` is not a canonical issue number, for the reason `requireCanonicalIssueKey` gives.
  * ADR-0032 has why a write refuses it here rather than sending it and reading the exit status.
  */
 export function githubClaimCommand(input: GitHubClaimCommandInput): readonly string[] {
-	return ["gh", "issue", "edit", "--repo", input.repo, "--add-assignee", "@me", "--", issueWord(input.key)];
+	return ["gh", "issue", "edit", "--repo", input.repo, "--add-assignee", "@me", "--", requireCanonicalIssueKey(input.key)];
 }
 
 /**

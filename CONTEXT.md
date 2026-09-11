@@ -92,6 +92,16 @@ what it still does. Names the flag and the decision, not the path: the path is *
 or without it.
 _Avoid_: skip checks, unsafe mode
 
+**Target**:
+The ticket an override names, with its blocking state. Deliberately not a **candidate**: nothing ranked it, so
+it has no runner-up, no deciding rung and no unblocks count, and unlike a candidate it may be confirmed blocked.
+_Avoid_: pick, candidate, selection
+
+**Refusal**:
+One check an override failed, and the reason reported for it. Every failed check is named rather than the first,
+so fixing one does not reveal the next.
+_Avoid_: error, rejection, validation failure
+
 ### Claiming and launching
 
 **Claim**:

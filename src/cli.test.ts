@@ -562,6 +562,13 @@ describe("the command line itself", () => {
 		expect(result.stderr).toContain("--force");
 	});
 
+	// The other arm of the same rule: --print-command runs no check on the named ticket, so --force clears nothing.
+	test("refuses --force beside --print-command, which checks nothing for it to clear", () => {
+		const result = run(["gh:example/repo#1", "--force", "--print-command"], deps());
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("--force");
+	});
+
 	test("answers a help request even when another flag on the line is wrong", () => {
 		for (const argv of [["--help", "--limit"], ["--limit", "--help"], ["--bogus", "-h"], ["--json", "-h"]]) {
 			const result = run(argv, deps());
@@ -797,6 +804,22 @@ describe("starting a ticket named on the command line", () => {
 		expect(result.stderr).toContain("canonical");
 		expect(result.stderr).toContain("usage: nextup");
 		expect(result.stderr).not.toContain("    at ");
+	});
+
+	/**
+	 * The arm that decides what happens when the comparison itself cannot be made. Refused rather than allowed
+	 * through: a reference that may or may not belong to this checkout is not one to start work on, and the
+	 * alternative fails in the direction that splits the two writes across repositories.
+	 */
+	test("refuses a named ticket when this checkout's own remote cannot be resolved", () => {
+		const noRemote: Runner = (argv) => {
+			if (argv[0] === "git" && argv.includes("get-url")) return { code: 1, stdout: "", stderr: "fatal: No such remote 'origin'\n" };
+			throw new Error(`nothing may run ${argv.join(" ")} once the remote is unresolvable`);
+		};
+		const result = run(["gh:example/repo#1", "--yes"], deps(noRemote));
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("could not be resolved");
+		expect(result.stderr).not.toContain("usage: nextup");
 	});
 
 	test("resolves a bare short form against the working directory's remote", () => {

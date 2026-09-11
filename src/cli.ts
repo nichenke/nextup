@@ -4,8 +4,8 @@ import {
 	DEFAULT_SLASH_COMMAND,
 	WORKSPACE_HOST,
 	formatCommand,
-	githubIssueViewCommand,
 	isSlashCommand,
+	requireCanonicalIssueKey,
 } from "./command-builders";
 import type { BlockedState } from "./effective-blockedness";
 import { GitHubAdapterError, isReadableLimit, readGitHubTicket, readGitHubTicketSet } from "./github-adapter";
@@ -252,10 +252,7 @@ function runNamed(ref: TicketRef, options: Options, deps: CliDeps): CliResult {
 		const target = githubTicketTarget(ref);
 		if (target.kind === "refused") return usageError(new CliError(target.reason));
 		try {
-			// Built and thrown away: what this path wants is the canonical-key guard inside it, and the argv is for a
-			// read it will not do. Asking the builder keeps one refusal and one wording for a key, rather than a
-			// second copy of the rule here.
-			githubIssueViewCommand(target);
+			requireCanonicalIssueKey(target.key);
 			return namedResult({ kind: "printed", command: planLaunch({ ref, slashCommand: options.slashCommand }).command }, null, options);
 		} catch (cause) {
 			if (cause instanceof CommandBuilderError) return usageError(new CliError(cause.message));
