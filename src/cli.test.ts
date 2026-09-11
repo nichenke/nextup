@@ -201,6 +201,7 @@ function startSequence(over: (argv: string[]) => CommandResult | null = () => nu
 		const overridden = over(argv);
 		if (overridden !== null) return overridden;
 		if (argv[0] === "cmux") return { code: 0, stdout: argv[1] === "ping" ? "PONG\n" : "", stderr: "" };
+		if (argv[0] === "claude") return { code: 0, stdout: "0.0.0 (test)\n", stderr: "" };
 		if (argv[0] === "gh" && argv[1] === "issue" && argv[2] === "edit") return { code: 0, stdout: "", stderr: "" };
 		if (argv[0] === "gh") return respondingRunner(githubRecording(read))(argv);
 		if (argv[0] !== "git") throw new Error(`nothing answers ${argv.join(" ")}`);
@@ -268,7 +269,7 @@ describe("starting work on the pick", () => {
 		const { runner } = startSequence();
 		const result = run([...LIMIT, "--yes"], deps(runner));
 		expect(result.stdout).toContain("claimed ");
-		expect(result.stdout).toContain("started claude ");
+		expect(result.stdout).toContain("asked cmux to run claude ");
 	});
 
 	/**
@@ -280,7 +281,7 @@ describe("starting work on the pick", () => {
 		const { runner } = startSequence();
 		const document = JSON.parse(run([...LIMIT, "--yes", "--json"], deps(runner)).stdout);
 
-		expect(document.start.kind).toBe("started");
+		expect(document.start.kind).toBe("requested");
 		expect(typeof document.start.ref).toBe("string");
 		expect(document.start.ref).toBe(document.selection.pick.ref);
 		expect(document.start.command[0]).toBe("claude");
@@ -446,6 +447,22 @@ describe("a start that could not finish", () => {
 		expect(result.stderr).toContain("would pick a different ticket");
 		expect(result.stderr).toContain(`cd ${PRIMARY}/.worktrees/`);
 		expect(result.stderr).toContain("claude '/implement ");
+	});
+
+	/**
+	 * ADR-0036: the host accepts a command without reporting whether it ran, so a binary that will not run would
+	 * otherwise reach a claimed ticket and a run reporting that it asked for a session.
+	 */
+	test("refuses a session binary that will not run, before the worktree and the claim", () => {
+		const { runner, of } = startSequence((argv) =>
+			argv[0] === "claude" ? { code: 127, stdout: "", stderr: "command not found: claude" } : null,
+		);
+		const result = run([...LIMIT, "--yes"], deps(runner));
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("command not found");
+		expect(of("worktree", "add")).toEqual([]);
+		expect(of("issue", "edit")).toEqual([]);
+		expect(of("new-workspace")).toEqual([]);
 	});
 
 	test("reports a worktree that could not be made, and claims nothing", () => {

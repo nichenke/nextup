@@ -17,6 +17,21 @@ export const DEFAULT_SLASH_COMMAND = "/implement";
  */
 const SESSION_BINARY = "claude";
 
+/**
+ * Whether the binary a session is started with is there and will run.
+ *
+ * Asked because the host reports only that it accepted the request: `--command` is text typed into a shell, so
+ * nothing downstream tells this tool whether the session came up. A binary that is missing or broken is the
+ * likeliest reason it would not, and it is the one that can be settled before anything is written — ADR-0036
+ * has why that is preferred to checking afterwards.
+ *
+ * `--version` rather than a `command -v`, because the runner spawns argv with no shell, and because running the
+ * binary is a stronger answer than finding a file with the right name.
+ */
+export function sessionBinaryAliveCommand(): Argv {
+	return [SESSION_BINARY, "--version"];
+}
+
 export interface SessionCommandInput {
 	readonly ref: TicketRef;
 	readonly slashCommand: string;
@@ -53,7 +68,7 @@ export function sessionCommand(input: SessionCommandInput): Argv {
  *
  * Not a parameter, for the reason `SESSION_BINARY` is not.
  */
-const WORKSPACE_HOST = "cmux";
+export const WORKSPACE_HOST = "cmux";
 
 /** Whether the workspace host is there to be asked for a workspace at all. */
 export function workspaceHostAliveCommand(): Argv {

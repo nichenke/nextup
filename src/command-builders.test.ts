@@ -14,6 +14,7 @@ import {
 	jiraIdentityCommand,
 	originRemoteCommand,
 	remoteBranchesCommand,
+	sessionBinaryAliveCommand,
 	sessionCommand,
 	workspaceCommand,
 	workspaceHostAliveCommand,
@@ -146,6 +147,12 @@ const CASES: readonly Case[] = [
 		description: "The one write that claims a GitHub ticket, assigning whoever the CLI is authenticated as.",
 		input: { repo: "example/repo", key: "1" },
 		build: () => githubClaimCommand({ repo: "example/repo", key: "1" }),
+	},
+	{
+		name: "session-binary-alive",
+		description: "Whether the binary a session is started with will run, asked before anything is written.",
+		input: {},
+		build: () => sessionBinaryAliveCommand(),
 	},
 	{
 		name: "workspace-host-alive",

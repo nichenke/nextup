@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_SLASH_COMMAND, formatCommand, workspaceHostAliveCommand } from "./command-builders";
-import { LaunchError, launch, planLaunch, requireWorkspaceHost } from "./launcher";
+import { DEFAULT_SLASH_COMMAND, formatCommand, sessionBinaryAliveCommand, workspaceHostAliveCommand } from "./command-builders";
+import { LaunchError, launch, planLaunch, requireSessionBinary, requireWorkspaceHost } from "./launcher";
 import type { CommandResult, Runner } from "./runner";
 import { fakeRunner } from "./test-support";
 import type { TicketRef } from "./ticket-ref";
@@ -50,6 +50,24 @@ describe("requireWorkspaceHost", () => {
 
 	test("reports a host that failed silently rather than aborting on an empty reason", () => {
 		expect(() => requireWorkspaceHost(fakeRunner({ code: 3, stdout: "", stderr: "" }))).toThrow(/exit 3/);
+	});
+});
+
+describe("requireSessionBinary", () => {
+	test("asks the session binary whether it runs, and is satisfied by an answer", () => {
+		const { runner, calls } = recording();
+		expect(() => requireSessionBinary(runner)).not.toThrow();
+		expect(calls).toEqual([[...sessionBinaryAliveCommand()]]);
+	});
+
+	/**
+	 * The failure ADR-0036 exists for: the host accepts a command without reporting whether it ran, so a binary
+	 * that is not there would otherwise reach a claimed ticket and a run saying it started something.
+	 */
+	test("refuses a binary that will not run, so nothing is claimed on its behalf", () => {
+		const missing = fakeRunner({ code: 127, stdout: "", stderr: "command not found: claude" });
+		expect(() => requireSessionBinary(missing)).toThrow(LaunchError);
+		expect(() => requireSessionBinary(missing)).toThrow(/command not found/);
 	});
 });
 

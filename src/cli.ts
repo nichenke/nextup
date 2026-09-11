@@ -1,4 +1,4 @@
-import { type Argv, DEFAULT_SLASH_COMMAND, formatCommand, isSlashCommand } from "./command-builders";
+import { type Argv, DEFAULT_SLASH_COMMAND, WORKSPACE_HOST, formatCommand, isSlashCommand } from "./command-builders";
 import { GitHubAdapterError, isReadableLimit, readGitHubTicketSet } from "./github-adapter";
 import { GitHubClaimError, claimGitHubTicket } from "./github-claim";
 import {
@@ -8,7 +8,7 @@ import {
 	type LabelFilterSpec,
 	compileLabelFilter,
 } from "./label-filter";
-import { LaunchError, launch, planLaunch, requireWorkspaceHost } from "./launcher";
+import { LaunchError, launch, planLaunch, requireSessionBinary, requireWorkspaceHost } from "./launcher";
 import type { Runner } from "./runner";
 import { type Answer, answerCaveats, answerJson, blockingPhrase, renderAnswer } from "./selection-output";
 import { type Candidate, SelectionError, select } from "./selector";
@@ -55,8 +55,8 @@ export const DEFAULT_LIMIT = 199;
 const USAGE = `nextup — picks the ticket to start next, claims it, and starts a session working on it
 
 A run reads the GitHub repository the working directory's origin points at, ranks what is startable, and
-shows you the pick. Once you agree, it makes the ticket's worktree, claims the ticket, and starts a
-session on it in that worktree.
+shows you the pick. Once you agree, it makes the ticket's worktree, claims the ticket, and asks the workspace
+host to run a session in that worktree.
 
 usage: nextup [--include <label>]... [--exclude <label>]... [--limit <n>] [--slash-command </verb>]
               [--yes] [--json] [--print-command]
@@ -98,7 +98,8 @@ unattended run. With neither a terminal to ask on nor --yes, the run is refused 
 your behalf. --print-command never asks, because it starts nothing.
 
 A workspace host that does not answer is a failure, not a fallback: the run stops, before the worktree and
-the claim.
+the claim. The session binary is checked there too, since a host accepts a command without reporting whether
+it ran — so the last thing a run can prove is that the host took the request, and that is all it claims.
 
 Only open tickets are read, so the limit is spent on tickets a pick can come from. The window is the most
 recently created of them, so a repository with more open tickets than the limit never considers its oldest
@@ -107,15 +108,16 @@ what widens that window; --include cannot, because it narrows what may be recomm
 was read. A tracker that could not be reached reports that same line beside its own, and there the answer is
 to retry rather than to change anything.
 
-Exit status: 0 the command did what was asked — a session started, a command printed, or a pick you were
+Exit status: 0 the command did what was asked — a session requested, a command printed, or a pick you were
 shown and declined; 1 nothing to recommend; 2 something needing a person — a repository that cannot be
 resolved, a read that is itself wrong, a bad invocation, no way to confirm and no --yes, a workspace host that
 is not running, a worktree that cannot be made, a claim that would not land, or a session that could not be
 started. A tracker that could not be reached is reported as a degraded answer with nothing to recommend,
 which is 1.
 
-Declining is 0 rather than a status of its own. A script that needs to know whether a session started passes
---yes, which never declines, and reads the "start" object under --json.
+Declining is 0 rather than a status of its own. A script that needs to know what happened passes --yes, which
+never declines, and reads the "start" object under --json — whose "requested" is the furthest this reports,
+because nothing it can see says the session itself came up.
 
 A deadlock never decides the status. Whether the answer is 0 or 1 is only whether there was a pick, so a
 cycle reported beside one is still 0, and a set with nothing to recommend is 1 whether its candidates are
@@ -182,14 +184,18 @@ export type StartOutcome =
 	| { readonly kind: "printed"; readonly command: Argv }
 	| { readonly kind: "declined"; readonly ref: TicketRef }
 	| {
-			readonly kind: "started";
+			/**
+			 * The host was asked to run the session, and accepted. Not `started`: nothing this tool can see says the
+			 * session came up, and ADR-0036 has why it does not go looking.
+			 */
+			readonly kind: "requested";
 			readonly ref: TicketRef;
 			readonly worktree: WorktreeOutcome;
 			readonly command: Argv;
 	  };
 
 /**
- * Starting work on the pick: the two refusals, then the gate, then the worktree, the claim and the session.
+ * Starting work on the pick: the three refusals, then the gate, then the worktree, the claim and the session.
  *
  * Every refusal comes before any of the three writes, so a run that stops at one leaves the repository and the
  * tracker as they were. ADR-0016 orders the first two writes and requires that nothing here unwinds them;
@@ -216,13 +222,14 @@ function startWork(answer: Answer, options: Options, deps: CliDeps): StartOutcom
 
 	requireSomeoneToAsk(options, deps);
 	requireWorkspaceHost(deps.runner);
+	requireSessionBinary(deps.runner);
 	if (!approved(answer, pick, options, deps)) return { kind: "declined", ref: pick.ref };
 
 	const worktree = ensure({ runner: deps.runner, repo: deps.cwd, ticket: pick });
 	try {
 		claimGitHubTicket({ runner: deps.runner, ref: pick.ref });
 		launch({ runner: deps.runner, ref: pick.ref, command, worktree: worktree.path });
-		return { kind: "started", ref: pick.ref, worktree, command };
+		return { kind: "requested", ref: pick.ref, worktree, command };
 	} catch (cause) {
 		throw startedNothing(cause, worktree, command);
 	}
@@ -325,8 +332,9 @@ function renderStart(start: StartOutcome): string {
 			return `${formatCommand(start.command)}\n`;
 		case "declined":
 			return `${formatTicketRef(start.ref)} was not started, and nothing was claimed or created.\n`;
-		case "started":
-			return `${renderWorktree(start.worktree)}claimed ${formatTicketRef(start.ref)}\nstarted ${formatCommand(start.command)}\n`;
+		case "requested":
+			// "asked", not "started": see `StartOutcome`'s own arm.
+			return `${renderWorktree(start.worktree)}claimed ${formatTicketRef(start.ref)}\nasked ${WORKSPACE_HOST} to run ${formatCommand(start.command)}\n`;
 	}
 }
 
@@ -334,7 +342,7 @@ function renderStart(start: StartOutcome): string {
 export type StartOutcomeJson =
 	| Extract<StartOutcome, { readonly kind: "nothing-to-start" | "printed" }>
 	| ShortRef<"declined">
-	| ShortRef<"started">;
+	| ShortRef<"requested">;
 
 /**
  * One arm with its reference as the short form, its own other fields carried over so a field added to that arm
@@ -350,7 +358,7 @@ function startJson(start: StartOutcome): StartOutcomeJson {
 		case "printed":
 			return start;
 		case "declined":
-		case "started":
+		case "requested":
 			return { ...start, ref: formatTicketRef(start.ref) };
 	}
 }

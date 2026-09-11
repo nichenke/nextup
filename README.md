@@ -14,7 +14,7 @@ treated as unblocked.
 
 End to end on GitHub. Run it inside a GitHub checkout and it reads the repository the origin remote points
 at, ranks the candidates, shows you the pick, and — once you agree — makes the ticket's worktree, claims the
-ticket, and starts a session in that worktree.
+ticket, and asks cmux to run a session in that worktree.
 
 ```sh
 bun bin/nextup.ts                       # show the pick, then ask before starting it
@@ -28,7 +28,13 @@ bun bin/nextup.ts --help                # every flag
 
 The session runs in a cmux workspace, and cmux is required rather than optional: a host that does not answer
 fails the run, with no fallback. Starting writes in three places — the worktree, the claim, then the session —
-and nothing unwinds. "Design in one screen" below has both, and the decisions behind them.
+and nothing unwinds.
+
+What a run reports is what it can prove. cmux accepts a command without saying whether it ran, so the tool
+checks the session binary up front and then reports the request rather than a running session — `--json` says
+`requested`, never `started`.
+[ADR-0036](./docs/adr/0036-the-launcher-reports-a-request-not-a-running-session.md) has why it does not go
+looking afterwards. "Design in one screen" below has the rest, and the decisions behind them.
 
 Only open tickets are read, and the counts line says `closed not asked` rather than reporting a zero as a
 count. The window is the most recently created open tickets, so a backlog larger than `--limit` never

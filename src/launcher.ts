@@ -2,6 +2,7 @@ import { basename } from "node:path";
 import {
 	type Argv,
 	formatCommand,
+	sessionBinaryAliveCommand,
 	sessionCommand,
 	workspaceCommand,
 	workspaceHostAliveCommand,
@@ -47,6 +48,22 @@ export function requireWorkspaceHost(runner: Runner): void {
 	throw new LaunchError(`${formatCommand(argv)} failed, so nothing was started: ${failureDetail(result)}`);
 }
 
+/**
+ * Refuses the run unless the session binary will run.
+ *
+ * Asked before the worktree and the claim, for the same reason as the host — but the reason it exists at all is
+ * different, and ADR-0036 has it: the host confirms only that it accepted a request, never that the session came
+ * up, so this is the one cause of a session that never starts which can be settled while nothing is written.
+ *
+ * @throws LaunchError when the binary does not run.
+ */
+export function requireSessionBinary(runner: Runner): void {
+	const argv = sessionBinaryAliveCommand();
+	const result = runner([...argv]);
+	if (result.code === 0) return;
+	throw new LaunchError(`${formatCommand(argv)} failed, so nothing was started: ${failureDetail(result)}`);
+}
+
 export interface LaunchInput {
 	readonly runner: Runner;
 	readonly ref: TicketRef;
@@ -57,10 +74,14 @@ export interface LaunchInput {
 }
 
 /**
- * Starts a session on one ticket, in the worktree already made for it.
+ * Asks the workspace host to run one session, in the worktree already made for it.
  *
- * One call, whose exit status is the whole verdict, so there is nothing to return: it started or it threw.
- * Nothing here unwinds — ADR-0016.
+ * Asks rather than starts, and callers must not report more than that: the host's exit status covers creating
+ * the workspace and accepting the command, and nothing it returns says the session came up. ADR-0036 has why
+ * this tool does not go looking afterwards, and `requireSessionBinary` is what it does instead.
+ *
+ * One call, whose exit status is the whole verdict, so there is nothing to return. Nothing here unwinds —
+ * ADR-0016.
  *
  * The failure names the ticket and what the host said, and stops there. What to do about it depends on how
  * much had already been written, which only the caller knows; `startedNothing` in `cli.ts` is where that is
