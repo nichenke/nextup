@@ -6,14 +6,15 @@
  * `docs/agents/reconstruction.md` is how to run it, what each verdict means, why it is never CI, and why it
  * writes nothing.
  */
-import { resolveOriginRemote } from "../src/git-remote";
+import { resolveCheckoutIdentity } from "../src/checkout-identity";
 import { GitHubAdapterError } from "../src/github-adapter";
 import { GitHubReconstructionError, githubReconstructionTracker } from "../src/github-reconstruction";
 import { DEFAULT_LABEL_FILTER, compileLabelFilter } from "../src/label-filter";
 import { type CheckResult, type ReconstructionReport, ReconstructionError, checkReconstructionTracker, heldEverywhere } from "../src/reconstruction";
 import { NotAReadError, readOnlyRunner } from "../src/read-only-runner";
 import { defaultRunner } from "../src/runner";
-import { GITHUB_HOST, TicketRefError, formatTicketRef, isGitHubHost, isValidRepoPath } from "../src/ticket-ref";
+import { isValidRepoPath } from "../src/repo-address";
+import { TicketRefError, formatTicketRef } from "../src/ticket-ref";
 
 const USAGE = `reconstruct — reads a real repository through the adapter and checks it against the tracker
 
@@ -40,12 +41,7 @@ function repoFromArgv(argv: readonly string[]): string | null {
  */
 function resolveRepo(named: string | null): string {
 	if (named !== null) return named;
-	const origin = resolveOriginRemote(readOnly);
-	if (origin === null) throw new ReconstructionError("no repository was named, and the working directory's git remote could not be resolved");
-	if (!isGitHubHost(origin.host)) {
-		throw new ReconstructionError(`the origin remote points at ${origin.host}, and this check reads ${GITHUB_HOST} only`);
-	}
-	return origin.repo;
+	return resolveCheckoutIdentity(readOnly, (reason) => new ReconstructionError(`no repository was named, and ${reason}`)).repo;
 }
 
 const COLUMN = 12;

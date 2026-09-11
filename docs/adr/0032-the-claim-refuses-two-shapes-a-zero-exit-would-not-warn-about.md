@@ -7,6 +7,18 @@ step on one number, and two inputs make that number lie. Both are refused before
 
 ## A reference whose host is not GitHub's
 
+> **Relocated by [0039](./0039-enterprise-is-out-of-scope-and-out-of-scope-means-unrepresentable.md).**
+> This section and the renumbered-key one below describe hazards that are unchanged, and the argv guards
+> they put in place are still there. What moved is where each is *stopped*: a GitHub reference can no
+> longer carry a host at all, and a padded key can no longer be built, so neither shape reaches the claim
+> to be refused. The "two existing checks" named below are two of five that 0038 collapses, and the
+> remark that `resolveTicketRef` still accepts `#037` is no longer true. Three other statements have gone
+> stale with it: the guard now raises `TicketRefError` rather than `CommandBuilderError`, so the
+> requirement below that the launcher "let a `CommandBuilderError` through" names the wrong class;
+> "Nothing calls the claim yet" is no longer so; and `claimGitHubTicket` no longer checks the repository
+> path itself, the type having done it. Amended, not superseded — the `GH_HOST` refusal, the measurements,
+> and everything about what `gh` does with a bare path describe the current tool.
+
 `gh issue edit --repo owner/repo` carries no host, so the write addresses whatever host `gh` treats as
 default. A reference parsed from a pasted GitHub Enterprise URL keeps its host, and `resolveTicketRef` accepts
 it once `gh` reports itself authenticated there — so a ticket that legitimately exists on an enterprise

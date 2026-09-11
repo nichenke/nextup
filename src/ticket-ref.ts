@@ -1,60 +1,167 @@
 import { type Runner, defaultRunner } from "./runner";
-import { resolveOriginRemote } from "./git-remote";
+import { type CheckoutIdentity, type RefuseCheckout, resolveCheckoutIdentity, resolveCheckoutRepoPath } from "./checkout-identity";
+import { GITHUB_HOST, isGitHubHost, isValidRepoPath } from "./repo-address";
 import { hasJiraAuth, isAuthenticatedHost } from "./host-auth";
 
 export type Tracker = "github" | "gitlab" | "jira";
 
 /**
- * GitHub's own host. Lives here rather than in the adapter because a short form resolved from a git remote has
- * to check it before any adapter is reached, and the adapter importing from here keeps that one-way.
+ * A GitHub ticket. `githubTicketRef` is the only builder in production and refuses anything this tool cannot act
+ * on; the type itself enforces the host and not the other two, which ADR-0039 records as the residual.
+ *
+ * There is no `host` field, and that absence is the scope decision rather than a saving — ADR-0039. GitHub
+ * Enterprise is out of scope, so a reference on any other host is not a GitHub reference this can represent,
+ * and a caller cannot be handed one to check.
  */
-export const GITHUB_HOST = "github.com";
-
-/**
- * Every authority GitHub serves, as a git remote or a pasted URL may write it.
- *
- * A flat set rather than a host compared beside a port tested separately, because a port is not a thing this
- * supports: GitHub at some other port is out of scope, so there is nothing to parse a port *for*. Enumerating the
- * endpoints says which are allowed in data rather than leaving a rule to be read off a comparison.
- *
- * Two hosts — the web host and the `ssh.` host GitHub publishes for a firewalled 22 — each written bare or with
- * either default port, since a remote may spell `:22` or `:443` explicitly and both are the port that host already
- * answers on. Six entries, and no pair of host and port outside them.
- *
- * Lower-case throughout, which both producers guarantee: `parseRemote` folds a remote's authority and
- * `normalizeHost` folds a URL's.
- */
-const GITHUB_AUTHORITIES: ReadonlySet<string> = new Set([
-	GITHUB_HOST,
-	`${GITHUB_HOST}:22`,
-	`${GITHUB_HOST}:443`,
-	`ssh.${GITHUB_HOST}`,
-	`ssh.${GITHUB_HOST}:22`,
-	`ssh.${GITHUB_HOST}:443`,
-]);
-
-/**
- * Whether a git remote's host, or a pasted URL's, is one GitHub answers on.
- *
- * Every caller reads a pass as "this checkout is the GitHub repository at that path" and writes the claim from it
- * — ADR-0032 has why the host is the check that matters. That is what the set has to be exact about: an authority
- * this admits wrongly is one whose checkout gets a worktree while GitHub's own API gets the claim, measured on an
- * SSH remote at port 8443 exiting 0.
- */
-export function isGitHubHost(host: string): boolean {
-	return GITHUB_AUTHORITIES.has(host);
+export interface GitHubTicketRef {
+	readonly tracker: "github";
+	/** `owner/repo`, two non-empty segments, folded to lower case — ADR-0039 has why the fold is here. */
+	readonly repo: string;
+	/** A canonical issue number: no leading zeros, and never a bare `0`. */
+	readonly key: string;
 }
 
-export interface TicketRef {
-	tracker: Tracker;
-	/** `owner/repo` (github) or `namespace/project` (gitlab); null for jira. */
-	repo: string | null;
-	/** The tracker host, known only when parsed from a pasted URL. */
-	host: string | null;
-	key: string;
+/**
+ * A GitLab ticket. Unlike the GitHub variant this carries a host, because a self-hosted instance can be any
+ * host and the host is what tells two instances apart.
+ *
+ * Its repository path is kept as spelled, for the reason ADR-0039 gives.
+ */
+export interface GitLabTicketRef {
+	readonly tracker: "gitlab";
+	/** `namespace/project`, two or more non-empty segments, as spelled. */
+	readonly repo: string;
+	/** Known only when parsed from a pasted URL; a short form resolved from a remote carries none. */
+	readonly host: string | null;
+	readonly key: string;
 }
+
+/** A Jira ticket, which has no repository: a Jira key is scoped by its project prefix and its tenant. */
+export interface JiraTicketRef {
+	readonly tracker: "jira";
+	/** Known only when parsed from a pasted URL. `ticket.ts` has what an absent one costs across tenants. */
+	readonly host: string | null;
+	readonly key: string;
+}
+
+/**
+ * The normalized identity of a single ticket, as a union over trackers rather than one shape with a
+ * discriminant that discriminates nothing.
+ *
+ * Every variant is built by a constructor in this module that validates and normalizes it, so a consumer
+ * receives a reference it does not have to check. ADR-0039 records what that replaced: five checks, added
+ * across three review rounds, each asking a consumer to re-derive what the type can now state.
+ */
+export type TicketRef = GitHubTicketRef | GitLabTicketRef | JiraTicketRef;
 
 export class TicketRefError extends Error {}
+
+/**
+ * The tracker host a reference carries, or null where it carries none.
+ *
+ * A function rather than a field every variant declares, because the GitHub variant deliberately has no host
+ * to read. `ticketId` and `compareTicketRefs` are the only callers, and both want a whole-reference reading.
+ */
+export function refHost(ref: TicketRef): string | null {
+	return ref.tracker === "github" ? null : ref.host;
+}
+
+/** The repository a reference names, or null for a tracker that has none. The reading `refHost` is for hosts. */
+export function refRepo(ref: TicketRef): string | null {
+	return ref.tracker === "jira" ? null : ref.repo;
+}
+
+/**
+ * The GitHub reference for `repo` and `key`, normalized, or a refusal.
+ *
+ * The production builder for a `GitHubTicketRef`, which is what lets every consumer stop checking. Three things
+ * are settled here, and ADR-0039 has the measurement behind each:
+ *
+ * - The repository path is exactly two non-empty segments. GitHub has no subgroups, so a third segment names
+ *   something else — and `gh` reads `--repo` as `[HOST/]OWNER/REPO`, so a three-segment value is a host.
+ * - The path is folded to lower case, because GitHub resolves it case-insensitively while a git remote records
+ *   whatever was typed. Unfolded, `NicHenke/NextUp` and `nichenke/nextup` are two graph keys for one ticket.
+ * - The key is a canonical issue number — `requireCanonicalIssueKey` has the measurement behind that one.
+ *
+ * @throws TicketRefError when the path is not GitHub-shaped, or the key is not a canonical issue number.
+ */
+export function githubTicketRef(repo: string, key: string): GitHubTicketRef {
+	if (!isValidRepoPath("github", repo)) {
+		throw new TicketRefError(`${repo} is not a GitHub owner and repository`);
+	}
+	return { tracker: "github", repo: repo.toLowerCase(), key: requireCanonicalIssueKey(key) };
+}
+
+/**
+ * A GitHub reference built from values a tracker answered with, refused in the caller's own class.
+ *
+ * A tracker saying something no reference can hold is a bad response, which is what each adapter's own error
+ * class means and what `cli.ts` classifies. `TicketRefError` escaping from there would be neither. Shared rather
+ * than written once per adapter, because the only thing that differed was the class — and `refuse` is the same
+ * seam `resolveCheckoutIdentity` uses for the same reason.
+ *
+ * @throws whatever `refuse` builds, when the path or the key is not one a reference can hold.
+ */
+export function githubTicketRefOr(repo: string, key: string, refuse: (reason: string) => Error): GitHubTicketRef {
+	try {
+		return githubTicketRef(repo, key);
+	} catch (cause) {
+		if (cause instanceof TicketRefError) throw refuse(cause.message);
+		throw cause;
+	}
+}
+
+/**
+ * The GitLab reference for `repo`, `host` and `key`, or a refusal. The path is kept as spelled, for the reason
+ * `GitLabTicketRef` gives.
+ *
+ * @throws TicketRefError when the path is not `namespace/project`, or the key is not a canonical issue number.
+ */
+export function gitlabTicketRef(repo: string, host: string | null, key: string): GitLabTicketRef {
+	if (!isValidRepoPath("gitlab", repo)) {
+		throw new TicketRefError(`${repo} is not a GitLab namespace and project`);
+	}
+	return { tracker: "gitlab", repo, host, key: requireCanonicalIssueKey(key) };
+}
+
+/**
+ * The Jira reference for `host` and `key`, or a refusal.
+ *
+ * The key is checked against Jira's own `PROJECT-<number>` shape rather than through
+ * `requireCanonicalIssueKey`: Jira addresses an issue by that whole string and does not renumber it, so the
+ * padding hazard that rule answers does not arise here.
+ *
+ * @throws TicketRefError when the key is not a `PROJECT-<number>` form.
+ */
+export function jiraTicketRef(host: string | null, key: string): JiraTicketRef {
+	if (!JIRA_KEY.test(key)) {
+		throw new TicketRefError(`${key} is not a valid PROJECT-<number> form`);
+	}
+	return { tracker: "jira", host, key };
+}
+
+/**
+ * The issue one reference names, refused unless it is a canonical issue number — leading zeros and a bare `0`
+ * as much as non-digits.
+ *
+ * `gh` normalizes `037` to issue 37 while `compareTicketRefs` treats the two as different tickets, so a padded
+ * key would act on one issue under a reference naming another and exit 0. ADR-0032 records the measurement:
+ * `gh issue view --repo <repo> -- 022` answered issue 22 on gh 2.100.0. Not measured on `gh issue edit`, which
+ * shares the parser — and that inference is exactly why one guard covers both rather than each trusting its own
+ * subcommand. `--` does not help: it stops flag parsing, not number normalization.
+ *
+ * Here rather than at the argv boundary, which is where ADR-0032 first put it: a key is identity, so `ticketId`,
+ * the ranking ladder, the worktree path and the session prompt all read it too, and a rule at the argv boundary
+ * reaches none of them. ADR-0039 has the full account.
+ *
+ * @throws TicketRefError when the key is not a canonical issue number.
+ */
+export function requireCanonicalIssueKey(key: string): string {
+	if (!/^[1-9][0-9]*$/.test(key)) {
+		throw new TicketRefError(`${key} is not a canonical issue number, so the issue acted on would not be the one it names`);
+	}
+	return key;
+}
 
 const SCHEME_OF: Record<Tracker, string> = { github: "gh", gitlab: "glab", jira: "jira" };
 
@@ -69,7 +176,8 @@ const SCHEME_OF: Record<Tracker, string> = { github: "gh", gitlab: "glab", jira:
  */
 export function formatTicketRef(ref: TicketRef): string {
 	const scheme = SCHEME_OF[ref.tracker];
-	return ref.repo === null ? `${scheme}:${ref.key}` : `${scheme}:${ref.repo}#${ref.key}`;
+	const repo = refRepo(ref);
+	return repo === null ? `${scheme}:${ref.key}` : `${scheme}:${repo}#${ref.key}`;
 }
 
 /**
@@ -83,8 +191,8 @@ export function formatTicketRef(ref: TicketRef): string {
 export function compareTicketRefs(a: TicketRef, b: TicketRef): number {
 	return (
 		compareText(a.tracker, b.tracker) ||
-		compareOptional(a.host, b.host) ||
-		compareOptional(a.repo, b.repo) ||
+		compareOptional(refHost(a), refHost(b)) ||
+		compareOptional(refRepo(a), refRepo(b)) ||
 		compareKeys(a.key, b.key)
 	);
 }
@@ -139,54 +247,37 @@ function compareNumerals(a: string, b: string): number {
 }
 
 /**
- * The repository and issue a reference names on GitHub, or why it names none.
+ * The GitHub reference a command can act on, or why the reference it was given is not one.
  *
- * A union rather than a nullable pair, so a caller cannot reach the repository without having dealt with the
- * refusal — the three checks below are the ones that decide whether a command acts on the ticket it names.
- */
-export type GitHubTicketTarget =
-	| {
-			readonly kind: "ticket";
-			readonly repo: string;
-			/**
-			 * Carried as the reference spells it, unvalidated: put it through `requireCanonicalIssueKey` before it
-			 * reaches an argv, or `gh` resolves a padded form to a different issue. The builders do that themselves;
-			 * a caller reaching past them has to.
-			 */
-			readonly key: string;
-	  }
-	| { readonly kind: "refused"; readonly reason: string };
-
-/**
- * Whether a reference names a GitHub ticket a command can act on, and what to act on.
- *
- * Shared by both commands that act on one — the claim's write and the override path's single-ticket read — so
- * that a reference one of them refuses cannot be accepted by the other. The host check is the one that matters
- * and ADR-0032 has why: neither command sends a hostname, so `owner/repo` from a reference on another host
- * resolves to whatever sits at that path on GitHub, which is a different repository of the same name.
+ * Narrowing only: `githubTicketRef` settles the host, the path and the key at construction, so a caller reaching
+ * here cannot be holding a reference that fails any of them. ADR-0039 records the collapse.
  *
  * The reason comes back rather than being thrown, because each caller raises its own class: `cli.ts` decides
  * which recovery a failure leaves open from that class, and one shared error would collapse the two.
  */
+export type GitHubTicketTarget =
+	| { readonly kind: "ticket"; readonly ref: GitHubTicketRef }
+	| { readonly kind: "refused"; readonly reason: string };
+
 export function githubTicketTarget(ref: TicketRef): GitHubTicketTarget {
-	const what = formatTicketRef(ref);
 	if (ref.tracker !== "github") {
-		return { kind: "refused", reason: `${what} is not a GitHub ticket, and GitHub is the only tracker this has an adapter for` };
+		return { kind: "refused", reason: `${formatTicketRef(ref)} is not a GitHub ticket, and GitHub is the only tracker this has an adapter for` };
 	}
-	if (ref.repo === null || !isValidRepoPath("github", ref.repo)) {
-		return { kind: "refused", reason: `${what} names no GitHub owner and repository` };
-	}
-	if (ref.host !== null && !isGitHubHost(ref.host)) {
-		return {
-			kind: "refused",
-			reason: `${what} is on ${ref.host}, and this works on ${GITHUB_HOST} only — the same path on another host is a different repository`,
-		};
-	}
-	return { kind: "ticket", repo: ref.repo, key: ref.key };
+	return { kind: "ticket", ref };
 }
 
 export interface ResolveDeps {
 	runner?: Runner;
+	/**
+	 * Which repository the caller is standing in, for the one form that has no repository of its own: a bare
+	 * `gh:<number>`. Supplied by a caller that has already resolved it, so a run asks git once rather than once
+	 * here and again when the checkout is checked — ADR-0040. Defaults to resolving it from `runner`.
+	 *
+	 * A bare `glab:<number>` is outside this: it needs the remote's path unfolded on any host, which is not a
+	 * `CheckoutIdentity`, so it reads the remote itself. Nothing downstream compares a GitLab reference against a
+	 * checkout, so the two readings cannot disagree.
+	 */
+	checkout?: (refuse: RefuseCheckout) => CheckoutIdentity;
 }
 
 const SHORT_FORM = /^(gh|glab|jira):(.+)$/;
@@ -205,7 +296,7 @@ const JIRA_KEY = /^[A-Za-z][A-Za-z0-9]*-\d+$/;
 const GITLAB_ISSUE_URL = /^https?:\/\/([^/?#]+)\/([^?#]+?)\/-\/issues\/(\d+)(?:[/?#].*)?$/i;
 // Two or more segments before /issues/, and never a "/-/issues/" path (that's GITLAB_ISSUE_URL's
 // shape). Exactly two segments is genuinely ambiguous between GitHub and a GitLab instance still
-// on the pre-11.0 route with no "/-/" (shape alone can't tell them apart — see disambiguateHost).
+// on the pre-11.0 route with no "/-/" (shape alone can't tell them apart — see whichTracker).
 // Three or more can only be GitLab: GitHub has no subgroups, so it never has more than owner/repo.
 const GENERIC_ISSUES_URL = /^https?:\/\/([^/?#]+)\/(?!.*\/-\/issues\/)([^/?#]+(?:\/[^/?#]+)+?)\/issues\/(\d+)(?:[/?#].*)?$/i;
 // A self-hosted Jira Server/Data Center instance is commonly deployed under a context path
@@ -214,6 +305,7 @@ const JIRA_ISSUE_URL = /^https?:\/\/([^/?#]+)\/(?:[^?#]*?\/)?browse\/([A-Za-z][A
 
 export function resolveTicketRef(input: string, deps: ResolveDeps = {}): TicketRef {
 	const runner = deps.runner ?? defaultRunner;
+	const checkout = deps.checkout ?? ((refuse: RefuseCheckout) => resolveCheckoutIdentity(runner, refuse));
 	const trimmed = input.trim();
 
 	const short = SHORT_FORM.exec(trimmed);
@@ -222,11 +314,11 @@ export function resolveTicketRef(input: string, deps: ResolveDeps = {}): TicketR
 		const body = short[2] as string;
 		switch (scheme) {
 			case "gh":
-				return resolveRepoScopedShort("github", "gh", body, runner);
+				return resolveRepoScopedShort("github", "gh", body, runner, checkout);
 			case "glab":
-				return resolveRepoScopedShort("gitlab", "glab", body, runner);
+				return resolveRepoScopedShort("gitlab", "glab", body, runner, checkout);
 			case "jira":
-				return resolveJiraShort(body);
+				return jiraTicketRef(null, body);
 		}
 	}
 
@@ -239,58 +331,44 @@ export function resolveTicketRef(input: string, deps: ResolveDeps = {}): TicketR
 	);
 }
 
-// GitHub is always exactly owner/repo; GitLab allows a nested namespace/subgroup, so two or
-// more. Either way every segment must be non-empty, rejecting shapes like "/repo", "owner/",
-// or "group//repo" that `repo.includes("/")` alone would have let through.
-export function isValidRepoPath(tracker: "github" | "gitlab", repo: string): boolean {
-	const segments = repo.split("/");
-	if (segments.some((segment) => segment === "")) return false;
-	return tracker === "github" ? segments.length === 2 : segments.length >= 2;
-}
 
+/**
+ * A `gh:` or `glab:` short form, in either of its two shapes: a bare number against the checkout's own
+ * repository, or an explicit `repo#number`.
+ *
+ * The bare shape is the one that reaches outside the string it was given, and the two trackers ask different
+ * questions of the checkout. GitHub asks for a `CheckoutIdentity`, which exists only where the origin remote is
+ * on GitHub. GitLab asks only for the remote's path, because a self-hosted instance can be any host and so its
+ * remote carries no comparable evidence; ADR-0040 has why the two readings stay distinct.
+ *
+ * @throws TicketRefError on either shape the short form does not have, and on anything the reference
+ * constructors refuse.
+ */
 function resolveRepoScopedShort(
 	tracker: "github" | "gitlab",
 	scheme: "gh" | "glab",
 	body: string,
 	runner: Runner,
+	checkout: (refuse: RefuseCheckout) => CheckoutIdentity,
 ): TicketRef {
 	const hashIndex = body.indexOf("#");
 	if (hashIndex === -1) {
+		// The shape, before the checkout is consulted, so a mistyped `gh:owner/repo/12` is told what a short form
+		// looks like rather than what is wrong with its number. Padding is left to the constructor.
 		if (!/^\d+$/.test(body)) {
 			throw new TicketRefError(`${scheme}:${body} is not a valid short form (expected a bare number or a repo#number form)`);
 		}
-		const origin = resolveOriginRemote(runner);
-		if (!origin || !isValidRepoPath(tracker, origin.repo)) {
-			throw new TicketRefError(
-				`${scheme}:${body} has no explicit repository, and the working directory's git remote could not be resolved`,
-			);
-		}
-		// A short form carries no host, so the remote's is the only evidence of which system it names — and a
-		// resolved `owner/repo` is indistinguishable from the same path on any other host. Without this, `gh:1` in
-		// a GitHub Enterprise or GitLab checkout resolves to whatever sits at that path on github.com, and every
-		// reader downstream operates on a repository the user never named. GitLab is not checked the same way
-		// because a self-hosted instance can be any host, so its remote carries no comparable evidence.
-		if (tracker === "github" && !isGitHubHost(origin.host)) {
-			throw new TicketRefError(
-				`${scheme}:${body} resolves through a remote on ${origin.host}, which is not ${GITHUB_HOST} — name the repository explicitly if that is what you meant`,
-			);
-		}
-		return { tracker, repo: origin.repo, host: null, key: body };
+		// "takes its repository from this checkout" rather than "has no explicit repository": the second reads as
+		// the complaint when the remote resolved fine and merely sits on another host, which is the commoner case.
+		const refuse = (reason: string) => new TicketRefError(`${scheme}:${body} takes its repository from this checkout, and ${reason}`);
+		return tracker === "github"
+			? githubTicketRef(checkout(refuse).repo, body)
+			: gitlabTicketRef(resolveCheckoutRepoPath(runner, refuse), null, body);
 	}
 
 	const repo = body.slice(0, hashIndex);
 	const key = body.slice(hashIndex + 1);
-	if (!isValidRepoPath(tracker, repo) || !/^\d+$/.test(key)) {
-		throw new TicketRefError(`${scheme}:${body} is not a valid repo#number form`);
-	}
-	return { tracker, repo, host: null, key };
-}
-
-function resolveJiraShort(body: string): TicketRef {
-	if (!JIRA_KEY.test(body)) {
-		throw new TicketRefError(`jira:${body} is not a valid PROJECT-<number> form`);
-	}
-	return { tracker: "jira", repo: null, host: null, key: body };
+	return tracker === "github" ? githubTicketRef(repo, key) : gitlabTicketRef(repo, null, key);
 }
 
 function resolveUrl(url: string, runner: Runner): TicketRef {
@@ -301,23 +379,20 @@ function resolveUrl(url: string, runner: Runner): TicketRef {
 	if (gitlab?.[1] && gitlab[2] && gitlab[3]) {
 		const [, rawHost, repo, key] = gitlab;
 		const host = normalizeHost(rawHost);
-		if (!isValidRepoPath("gitlab", repo)) {
-			throw new TicketRefError(`${url} does not have a valid namespace/project path`);
-		}
-		requireAuthenticatedHost("gitlab", host, runner);
-		return { tracker: "gitlab", repo, host, key };
+		return authenticatedGitLabRef(repo, host, key, runner);
 	}
 
 	const generic = GENERIC_ISSUES_URL.exec(url);
 	if (generic?.[1] && generic[2] && generic[3]) {
 		const [, rawHost, repo, key] = generic;
 		const host = normalizeHost(rawHost);
-		if (repo.split("/").length > 2) {
-			requireAuthenticatedHost("gitlab", host, runner);
-			return { tracker: "gitlab", repo, host, key };
-		}
-		const tracker = disambiguateHost(host, runner);
-		return { tracker, repo, host, key };
+		// GitHub has no subgroups, so three or more segments can only be GitLab and the host question does not
+		// arise. Exactly two is the ambiguous shape `whichTracker` settles.
+		if (repo.split("/").length > 2) return authenticatedGitLabRef(repo, host, key, runner);
+		return whichTracker(url, host, runner) === "github"
+			? githubTicketRef(repo, key)
+			// `whichTracker` reached this arm by confirming the authentication, so it is not asked twice.
+			: gitlabTicketRef(repo, host, key);
 	}
 
 	const jira = JIRA_ISSUE_URL.exec(url);
@@ -325,7 +400,7 @@ function resolveUrl(url: string, runner: Runner): TicketRef {
 		const [, rawHost, key] = jira;
 		const host = normalizeHost(rawHost);
 		requireJiraAuth(host, runner);
-		return { tracker: "jira", repo: null, host, key };
+		return jiraTicketRef(host, key);
 	}
 
 	throw new TicketRefError(`${url} does not match a GitHub, GitLab, or Jira issue URL shape`);
@@ -338,24 +413,44 @@ function normalizeHost(host: string): string {
 	return host.toLowerCase();
 }
 
-function disambiguateHost(host: string, runner: Runner): "github" | "gitlab" {
-	const githubAuthed = isAuthenticatedHost("github", host, runner);
-	const gitlabAuthed = isAuthenticatedHost("gitlab", host, runner);
-	if (githubAuthed && gitlabAuthed) {
-		throw new TicketRefError(
-			`${host} is authenticated to both the gh and glab CLIs, and the URL shape does not say which tracker it belongs to`,
-		);
-	}
-	if (githubAuthed) return "github";
-	if (gitlabAuthed) return "gitlab";
-	throw new TicketRefError(`${host} does not match any host the gh or glab CLI is authenticated to`);
+/**
+ * Which tracker a two-segment `/<a>/<b>/issues/<n>` URL belongs to, which `GENERIC_ISSUES_URL`'s comment says
+ * its shape alone cannot.
+ *
+ * The host decides, and only the host. GitHub serves its issues from the authorities `isGitHubHost` enumerates
+ * and from nowhere else, so a URL on one of them is GitHub's and a URL on any other is not — whatever the `gh`
+ * CLI is authenticated to. That is the scope boundary ADR-0039 draws, and it is why this no longer asks `gh`:
+ * a GitHub Enterprise host is one `gh` answers for and one this tool cannot act on, so treating that answer as
+ * evidence admitted exactly the reference the type now refuses to hold.
+ *
+ * `glab` is still asked, because a GitLab instance really can be any host and nothing else distinguishes one.
+ *
+ * @throws TicketRefError when the host is neither GitHub's nor one `glab` is authenticated to. The message names
+ * the scope boundary rather than reporting an unrecognized URL, because the URL was recognized: what it names is
+ * out of scope, and those are different things to be told.
+ */
+function whichTracker(url: string, host: string, runner: Runner): "github" | "gitlab" {
+	if (isGitHubHost(host)) return "github";
+	if (isAuthenticatedHost("gitlab", host, runner)) return "gitlab";
+	throw new TicketRefError(
+		`${url} is an issue on ${host}, and this works on ${GITHUB_HOST} only — a GitHub Enterprise instance is out of scope, and ${host} does not match any host the glab CLI is authenticated to either`,
+	);
 }
 
-function requireAuthenticatedHost(tracker: "github" | "gitlab", host: string, runner: Runner): void {
-	if (!isAuthenticatedHost(tracker, host, runner)) {
-		const cli = tracker === "github" ? "gh" : "glab";
-		throw new TicketRefError(`${host} does not match any host the ${cli} CLI is authenticated to`);
+/**
+ * A GitLab reference from a URL whose shape already says it is GitLab's, once the host is one `glab` can reach.
+ *
+ * Built before the authentication is asked about, so that a malformed path or key is reported as the malformed
+ * thing it is rather than as an unreachable host.
+ *
+ * @throws TicketRefError from the constructor, and when `glab` is authenticated to no such host.
+ */
+function authenticatedGitLabRef(repo: string, host: string, key: string, runner: Runner): GitLabTicketRef {
+	const ref = gitlabTicketRef(repo, host, key);
+	if (!isAuthenticatedHost("gitlab", host, runner)) {
+		throw new TicketRefError(`${host} does not match any host the glab CLI is authenticated to`);
 	}
+	return ref;
 }
 
 function requireJiraAuth(host: string, runner: Runner): void {

@@ -3,7 +3,7 @@ import { seedGraph } from "./graph-store";
 import { DEFAULT_LABEL_FILTER, type LabelFilterSpec, compileLabelFilter } from "./label-filter";
 import { type Deadlock, SelectionError, type SelectionInput, select } from "./selector";
 import { type Claim, type Ticket, ticketId } from "./ticket";
-import { type TicketRef, formatTicketRef } from "./ticket-ref";
+import { type TicketRef, formatTicketRef, githubTicketRef } from "./ticket-ref";
 
 interface Spec {
 	readonly key: string;
@@ -17,7 +17,7 @@ interface Spec {
 }
 
 function refOf(key: string): TicketRef {
-	return { tracker: "github", repo: "example/repo", host: null, key };
+	return githubTicketRef("example/repo", key);
 }
 
 function ticketOf(spec: Spec): Ticket {
@@ -115,7 +115,7 @@ describe("the ranking ladder", () => {
 		expect(selection.decision).toEqual({
 			kind: "rung",
 			rung: "priority",
-			over: { tracker: "github", repo: "example/repo", host: null, key: "1" },
+			over: { tracker: "github", repo: "example/repo", key: "1" },
 		});
 	});
 

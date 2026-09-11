@@ -174,4 +174,11 @@ _Avoid_: planning ticket, decision ticket
 **Scope binding**:
 The record of which tracker and which project a repository's tickets live in, for the one case that
 cannot be inferred from a git remote. Holds only that — never ticket state or ranking configuration.
-_Avoid_: config, settings, project registry
+_Avoid_: config, settings, project registry, checkout identity
+
+**Checkout identity**:
+Which repository the checkout a command was invoked in *is*, resolved once per run from the origin
+remote. About the checkout rather than about a ticket — a **TicketRef** names a ticket, and `ticketId`
+already uses "identity" for a ticket's graph key. Distinct from **Scope binding**, which records what
+cannot be inferred from a remote; this is what *is* inferred from one.
+_Avoid_: repo identity, origin, current repo, scope binding

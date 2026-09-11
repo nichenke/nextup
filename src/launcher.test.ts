@@ -5,7 +5,7 @@ import type { CommandResult, Runner } from "./runner";
 import { fakeRunner } from "./test-support";
 import type { TicketRef } from "./ticket-ref";
 
-const REF: TicketRef = { tracker: "github", repo: "example/repo", host: null, key: "1" };
+const REF: TicketRef = { tracker: "github", repo: "example/repo", key: "1" };
 const WORKTREE = "/repo/.worktrees/reader-1";
 
 const OK: CommandResult = { code: 0, stdout: "PONG\n", stderr: "" };

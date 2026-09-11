@@ -13,6 +13,13 @@ import type { Runner } from "./runner";
  * splitting tenants by port on the same hostname is documented, so this is left unguarded
  * rather than adding an exact-host:port-only mode nothing currently needs.
  */
+/**
+ * The `"github"` arm has no production caller since ADR-0039: a URL on GitHub's own authorities is GitHub's
+ * whatever `gh` reports, and every other host asks `glab`. It is kept rather than narrowed away because
+ * `authStatusCommand`'s `--active` branch encodes a measured `gh` behaviour — it exits 1 when any account on a
+ * host has a problem, so the question has to be narrowed to the account that would be used — and a golden pins
+ * that spelling. Deleting the arm would delete the measurement's only home.
+ */
 export function isAuthenticatedHost(tracker: "github" | "gitlab", host: string, runner: Runner): boolean {
 	const check = (hostname: string): boolean => runner([...authStatusCommand(tracker, hostname)]).code === 0;
 	if (check(host)) return true;

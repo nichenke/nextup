@@ -1,14 +1,23 @@
-import { type GitHubClaimCommandInput, githubClaimCommand } from "./command-builders";
+import type { CheckoutIdentity } from "./checkout-identity";
+import { githubClaimCommand } from "./command-builders";
 import { classifyFailure, failureDetail } from "./failure-class";
 import type { CommandResult, Runner } from "./runner";
-import { type TicketRef, formatTicketRef, githubTicketTarget } from "./ticket-ref";
+import { type GitHubTicketRef, type TicketRef, formatTicketRef } from "./ticket-ref";
 
 export class GitHubClaimError extends Error {}
 
 export interface GitHubClaimInput {
 	readonly runner: Runner;
-	/** The ticket to claim, which already names its repository: a read resolved one, or `resolveTicketRef` did. */
-	readonly ref: TicketRef;
+	/** The ticket to claim, already a GitHub reference: `githubTicketTarget` is what narrows one, upstream. */
+	readonly ref: GitHubTicketRef;
+	/**
+	 * The repository this run is standing in, required rather than looked up here.
+	 *
+	 * A parameter so that a caller cannot write the claim without having resolved it — the split this exists to
+	 * prevent is the claim landing in one repository while the worktree and the session are made in another,
+	 * and a check the caller has to remember is what let that reach review three times. ADR-0040.
+	 */
+	readonly checkout: CheckoutIdentity;
 }
 
 /**
@@ -21,29 +30,46 @@ export interface GitHubClaimInput {
  * There is no release path and no rollback either, and a caller must not add one: ADR-0016 has why the ordering
  * makes recovery the ordinary path.
  *
- * @throws GitHubClaimError when the reference is not a claimable GitHub one, or when the write fails. Both
- * failure classes throw, because a failed claim aborts either way; which one it was is what the message says.
- * @throws CommandBuilderError when the reference's key is not a canonical issue number. Not folded into the
- * error above: `resolveTicketRef` can still mint a padded key, so this is reachable rather than impossible, and
- * a stack naming the builder says more than a message about claiming would. ADR-0032, and issue 56 for the mint
- * point.
+ * @throws GitHubClaimError when the ticket is not in this checkout, or when the write fails. Both failure
+ * classes throw, because a failed claim aborts either way; which one it was is what the message says.
+ * @throws TicketRefError from the builder's own canonical-key assertion, which no input reaching here can trip:
+ * `githubTicketRef` refuses a padded key at construction. ADR-0039 has why the builder keeps it anyway.
  */
 export function claimGitHubTicket(input: GitHubClaimInput): void {
-	const argv = githubClaimCommand(requireClaimable(input.ref));
-	const result = input.runner([...argv]);
+	requireThisCheckout(input.ref, input.checkout);
+	const result = input.runner([...githubClaimCommand(input.ref)]);
 	if (result.code !== 0) throw failedClaim(input.ref, result);
 }
 
 /**
- * The repository and issue to write to, or a refusal. The checks are `githubTicketTarget`'s, shared with the
- * override path's read so that a reference one refuses cannot be accepted by the other; ADR-0032 has why the
- * host check is the one that matters. Raised as this class rather than passed through, because `cli.ts` reads
- * the class to decide which recovery a failed claim leaves open.
+ * Why this ticket is not one to act on from this checkout, or null where it is.
+ *
+ * The split it catches is the claim landing in one repository while the worktree and the session are made in
+ * another. A stale local remote is the reachable way there: a repository renamed on GitHub keeps answering
+ * under its new name, and `requireOneRepository` deliberately tolerates that, so the references a ranked run
+ * holds name a repository this checkout is not. ADR-0040.
+ *
+ * Here rather than beside `CheckoutIdentity`, which is the data it reads and where review first put it: moving
+ * it there makes `checkout-identity.ts` import `formatTicketRef`, which is the `ticket-ref.ts` cycle
+ * `repo-address.ts` exists to have removed. A module graph that stays acyclic is worth more than a function
+ * living beside the type it reads.
+ *
+ * The reason comes back rather than being thrown, the way `githubTicketTarget`'s does and for the same reason:
+ * `cli.ts` asks before anything is written and raises a `StartError`, this file asks again at the write and
+ * raises its own class, and one shared error would collapse the two recoveries.
  */
-function requireClaimable(ref: TicketRef): GitHubClaimCommandInput {
-	const target = githubTicketTarget(ref);
-	if (target.kind === "refused") throw new GitHubClaimError(target.reason);
-	return target;
+export function outsideThisCheckout(ref: GitHubTicketRef, checkout: CheckoutIdentity): string | null {
+	if (ref.repo === checkout.repo) return null;
+	return `${formatTicketRef(ref)} is in ${ref.repo} and this checkout is ${checkout.repo} — the claim would land there while the worktree and the session were made here`;
+}
+
+/**
+ * The same question at the write, where it cannot be forgotten. `cli.ts` refuses earlier so that nothing is
+ * created first; reaching this one means that caller was skipped, and it is a write, so it asks anyway.
+ */
+function requireThisCheckout(ref: GitHubTicketRef, checkout: CheckoutIdentity): void {
+	const outside = outsideThisCheckout(ref, checkout);
+	if (outside !== null) throw new GitHubClaimError(`${outside}, so it was not claimed`);
 }
 
 function failedClaim(ref: TicketRef, result: CommandResult): GitHubClaimError {

@@ -1,5 +1,5 @@
 import type { IssueId } from "./effective-blockedness";
-import type { TicketRef } from "./ticket-ref";
+import { type TicketRef, refHost, refRepo } from "./ticket-ref";
 
 /**
  * A claim on a ticket. `null` is unclaimed; `by` is null where a tracker can record that a ticket
@@ -49,9 +49,10 @@ export interface Ticket {
  *
  * Two constraints follow, and they are the reason this is worth reading before adding an adapter:
  *
- * - Refs entering one graph must agree on how much they know. A short form resolved from a git remote
- *   has no host while a pasted URL for the same ticket does, so the two would occupy different nodes —
- *   an adapter must emit one consistent form for a set rather than mixing them.
+ * - Refs entering one graph must agree on how much they know. A GitLab short form resolved from a git
+ *   remote has no host while a pasted URL for the same ticket does, so the two occupy different nodes —
+ *   an adapter must emit one consistent form for a set rather than mixing them. GitHub is the exception
+ *   and not by luck: its variant has no host to differ on, and ADR-0039 has why.
  * - A Jira short form carries neither host nor repo — nothing resolves a tenant — so the same key from
  *   two tenants lands on one id. A caller merging ticket sets across tenants must qualify the host first.
  */
@@ -65,5 +66,5 @@ export function ticketId(ref: TicketRef): IssueId {
 	// Escaping the delimiter, or choosing one no tracker permits, would also work and both rest on an
 	// assumption about which characters someone else's system allows. This rests on none. Ids are graph
 	// keys and never reach a user, so there is nothing to trade away by making them ugly.
-	return JSON.stringify([ref.tracker, ref.host, ref.repo, ref.key]);
+	return JSON.stringify([ref.tracker, refHost(ref), refRepo(ref), ref.key]);
 }

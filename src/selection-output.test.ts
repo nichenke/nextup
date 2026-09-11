@@ -13,7 +13,7 @@ import {
 import { type Selection, select } from "./selector";
 import { deadlockLines, sentinelLines } from "./test-support";
 import { type Ticket, ticketId } from "./ticket";
-import type { TicketRef } from "./ticket-ref";
+import { type TicketRef, githubTicketRef } from "./ticket-ref";
 import type { ReadDegrade } from "./ticket-set-read";
 
 interface Spec {
@@ -26,7 +26,7 @@ interface Spec {
 }
 
 function refOf(key: string): TicketRef {
-	return { tracker: "github", repo: "example/repo", host: null, key };
+	return githubTicketRef("example/repo", key);
 }
 
 function selectionOf(
@@ -253,7 +253,7 @@ describe("renderSelection", () => {
 });
 
 describe("renderAnswer", () => {
-	const REF: TicketRef = { tracker: "github", repo: "example/repo", host: null, key: "4" };
+	const REF: TicketRef = { tracker: "github", repo: "example/repo", key: "4" };
 
 	function answerOf(readDegraded: readonly ReadDegrade[], specs: readonly Spec[] = [{ key: "1" }]): Answer {
 		return { selection: selectionOf(specs), readDegraded };
@@ -309,7 +309,7 @@ describe("answerJson", () => {
 	test("carries each read degrade by kind, with its references in short form", () => {
 		const json = answerJson({
 			selection: selectionOf([{ key: "1" }]),
-			readDegraded: [{ kind: "partial-blocking", refs: [{ tracker: "github", repo: "example/repo", host: null, key: "4" }] }],
+			readDegraded: [{ kind: "partial-blocking", refs: [{ tracker: "github", repo: "example/repo", key: "4" }] }],
 		});
 		expect(JSON.parse(JSON.stringify(json))).toEqual(json);
 		expect(json.readDegraded).toEqual([{ kind: "partial-blocking", refs: ["gh:example/repo#4"] }]);
@@ -318,7 +318,7 @@ describe("answerJson", () => {
 });
 
 describe("readCaveats", () => {
-	const PARTIAL: readonly ReadDegrade[] = [{ kind: "partial-blocking", refs: [{ tracker: "github", repo: "example/repo", host: null, key: "4" }] }];
+	const PARTIAL: readonly ReadDegrade[] = [{ kind: "partial-blocking", refs: [{ tracker: "github", repo: "example/repo", key: "4" }] }];
 
 	/**
 	 * One fact, two consequences. A set read drops such a ticket and that exclusion is the only account of it the
