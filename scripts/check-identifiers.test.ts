@@ -272,6 +272,29 @@ describe("check-identifiers under a redirected git environment", () => {
 		expect(result.stderr.toString()).toContain("could not read a tracked file");
 	});
 
+	// An earlier version probed for this diagnostic with one `--deleted` call and then took the listing from a
+	// second, so anything breaking the tree between the two put an unstattable path into the deleted set, where
+	// it is tolerated and never scanned. The shim dirties only the `-z` call, which the probe did not make.
+	test("refuses on a diagnostic from the deleted listing it actually consumes", () => {
+		const root = repositoryWith({ "a.md": "clean\n" });
+		const real = defaultRunner(["command", "-v", "git"]).stdout.trim() || "/usr/bin/git";
+		const shim = mkdtempSync(join(tmpdir(), "nextup-shim-"));
+		decoys.push(shim);
+		writeFileSync(
+			join(shim, "git"),
+			`#!/bin/sh\nd=0; z=0\nfor a in "$@"; do [ "$a" = "--deleted" ] && d=1; [ "$a" = "-z" ] && z=1; done\n` +
+				`[ "$d$z" = "11" ] && echo "error: cannot lstat 'ghost.md': Permission denied" >&2\nexec ${real} "$@"\n`,
+		);
+		chmodSync(join(shim, "git"), 0o755);
+		const result = spawnSync({
+			cmd: ["bash", join(import.meta.dir, "check-identifiers.sh")],
+			cwd: root,
+			env: { ...process.env, PATH: `${shim}:${process.env.PATH ?? ""}` },
+		});
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr.toString()).toContain("could not list the tree cleanly");
+	});
+
 	test("refuses a tracked file named as a lone hyphen, which grep would read as standard input", () => {
 		const root = repositoryWith({ "-": `leak at ${unknownHttpsUrl}\n` });
 		const result = guardIn(root);

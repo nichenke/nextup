@@ -155,11 +155,17 @@ open for an unstaged deletion. Each fix closed the case it was shown and left th
 
 It is now asked as two questions, because no single test answers both, and git does the classifying rather
 than a predicate standing in for it. The streams are not a partition and it matters that they are not: a path
-git cannot lstat appears on stdout *and* stderr, while a genuine deletion appears on stdout alone. Measured.
-The ordering is therefore load-bearing — the stderr test runs first and exits, so what reaches the
-deleted-list test is only ever a genuine deletion. Reverse the two and an unstattable path lands in that list,
-matches it, and is tolerated, which is the hole this closes. What remains after that is a path git could stat,
+git cannot lstat appears on stdout *and* stderr, while a genuine deletion appears on stdout alone, and the
+command exits 0 either way. Measured. So the diagnostic decides, and it has to be the diagnostic belonging to
+the listing that is used: a listing taken without it puts an unstattable path into the deleted set, where it
+is tolerated as an everyday deletion and never scanned. What remains after that is a path git could stat,
 where `[ -r ]` is the whole question — a mode-000 file reaches neither the error nor the deleted list.
+
+A draft of this ran the two as separate invocations — one to probe stderr, a second to take the listing — and
+that is a race rather than a shortcut. Anything breaking the tree between the two leaves the probe clean and
+the consumed listing carrying a path it could not stat, on a call whose stderr nothing read. It is one call
+now, with stdout and stderr captured and both checked. The general lesson is worth more than the instance:
+a check and the thing it licenses have to come from the same observation, or the gap between them is a window.
 
 The stderr test cannot say *why* git complained, so it does not try. A broken `core.fsmonitor` writes there
 too, and both it and an unreadable path exit 0, so the guard prints git's own text verbatim and then refuses

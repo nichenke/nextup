@@ -53,32 +53,6 @@ if [ "$(git config --bool --get core.sparseCheckout || true)" = "true" ]; then
 	exit 1
 fi
 
-# A tracked file the scan cannot open is skipped exactly as an absent one is, and the scan discards the error.
-# An unstaged deletion is the one shape of that worth tolerating, because it leaves no content on disk. Two
-# questions, because no single test answers both: `[ -e ]` cannot see through an unreadable directory, and git
-# reports a path behind one as deleted.
-#
-# The order is the mechanism here, not the streams. A path git cannot lstat appears on stdout *and* stderr; a
-# genuine deletion appears on stdout alone. Measured. So the stderr test has to run before the deleted-list
-# test below -- reversed, an unstattable path lands in that list, matches it, and is tolerated, which is the
-# hole this closes.
-#
-# What git wrote is reported verbatim and the second line does not name a cause, because this cannot tell an
-# unreadable path from a broken git: a bad `core.fsmonitor` also writes here, and both exit 0. Measured.
-#
-# `if !` rather than a bare assignment: under `set -e` the substitution's status is the assignment's, so a
-# failing git exited here with the stderr captured into the variable and never printed -- refusing in silence.
-if ! listing_diagnostic=$(git ls-files --deleted 2>&1 >/dev/null); then
-	printf 'check-identifiers: %s\n' "$listing_diagnostic" >&2
-	printf 'check-identifiers: git ls-files --deleted failed, so no file was scanned\n' >&2
-	exit 1
-fi
-if [ -n "$listing_diagnostic" ]; then
-	printf 'check-identifiers: %s\n' "$listing_diagnostic" >&2
-	printf 'check-identifiers: git could not list the tree cleanly, so a scan would cover part of it\n' >&2
-	exit 1
-fi
-
 # One directory for the listings, so a single trap cleans up whatever was created. They are files rather than
 # variables because bash strips the NUL that `xargs -0` separates on, and a listing piped straight into a
 # reader discards the exit status that says it was complete. ADR-0029.
@@ -89,20 +63,49 @@ fi
 trap 'rm -rf "$workdir"' EXIT
 listing="$workdir/tracked"
 deleted_listing="$workdir/deleted"
+deleted_errors="$workdir/deleted-errors"
 scan_listing="$workdir/scan"
 scan_errors="$workdir/errors"
+
+# Every line of `$1` prefixed, so a diagnostic running to several lines is attributable rather than only its
+# first line being marked as ours.
+report() {
+	while IFS= read -r line; do
+		printf 'check-identifiers: %s\n' "$line" >&2
+	done <"$1"
+}
 
 if ! git ls-files -z >"$listing"; then
 	printf 'check-identifiers: git ls-files failed while listing the tree, so no file was scanned\n' >&2
 	exit 1
 fi
 
-# `-z` here too, and compared as raw bytes. Read without it, git applies `core.quotePath` and returns
+# A tracked file the scan cannot open is skipped exactly as an absent one is, and the scan discards the error.
+# An unstaged deletion is the one shape of that worth tolerating, because it leaves no content on disk. Two
+# questions, because no single test answers both: `[ -e ]` cannot see through an unreadable directory, and git
+# reports a path behind one as deleted.
+#
+# One call answers both, and it has to be the call whose output is used. A path git cannot lstat goes to stdout
+# *and* stderr while the command still exits 0, so a listing taken without its diagnostic puts that path in the
+# deleted set, where it is tolerated as an everyday deletion and never scanned. Measured. An earlier version
+# probed with one invocation and trusted a second, which left that gap open to anything breaking the tree
+# between the two.
+#
+# The diagnostic is reported verbatim and the refusal names no cause, because this cannot tell an unreadable
+# path from a broken git: a bad `core.fsmonitor` also writes here, and both exit 0. Measured.
+#
+# `-z`, and compared as raw bytes below. Read without it, git applies `core.quotePath` and returns
 # `"caf\303\251.md"` where the tracked listing gives the actual bytes, so no path holding a non-ASCII
 # character, a quote or a backslash ever matched -- and an unstaged deletion of one was refused as unreadable,
 # the everyday tree this branch exists to keep scanning. Measured.
-if ! git ls-files --deleted -z >"$deleted_listing"; then
+if ! git ls-files --deleted -z >"$deleted_listing" 2>"$deleted_errors"; then
+	report "$deleted_errors"
 	printf 'check-identifiers: git ls-files --deleted failed, so no file was scanned\n' >&2
+	exit 1
+fi
+if [ -s "$deleted_errors" ]; then
+	report "$deleted_errors"
+	printf 'check-identifiers: git could not list the tree cleanly, so a scan would cover part of it\n' >&2
 	exit 1
 fi
 
@@ -256,9 +259,7 @@ normalized=$({
 } | awk '{ gsub(/\\\//, "/"); gsub(/\\[nrt]/, "\n"); print }' || true)
 
 if [ -s "$scan_errors" ]; then
-	while IFS= read -r line; do
-		printf 'check-identifiers: %s\n' "$line" >&2
-	done <"$scan_errors"
+	report "$scan_errors"
 	printf 'check-identifiers: the scan could not read a tracked file, so it covered part of the tree\n' >&2
 	exit 1
 fi
