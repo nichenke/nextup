@@ -93,6 +93,22 @@ the rung, and where the rung is the ladder's last it says the ladder separated n
 are arithmetic over the same edges; the goal form is preferred and the rung form is the fallback,
 which is why slot 6's missing input is a path and not a judgement.
 
+A pick can reach several downstream tickets, so "a path" has to be one path or the slot is not
+deterministic and could name a different goal each run off nothing but iteration order. The endpoint
+is **the farthest open ticket reachable from the pick over blocking edges, ties broken by
+`compareTicketRefs`** — and both halves are borrowed rather than invented. Open only, because
+`countUnblocks` already skips a ticket that is not open and a brief arguing toward a closed goal
+would contradict the count beside it ([0011](./0011-what-each-ranking-rung-reads.md)).
+`compareTicketRefs` because it is the ladder's last rung and is already how this repository makes a
+graph walk's output pinnable: `fromLowestRef` turns a deadlock cycle with it, having rejected
+`localeCompare` for depending on runtime locale data and so not being assertable in a fixture.
+
+Farthest rather than nearest is the substantive half. The nearest downstream ticket is often a
+formality, while the far end is what says how much is stacked behind the pick. It also settles the
+duplicate-derivation risk below in the right direction: a rung ranking on distance to an entry point
+wants the longest path too, so one walk serves both and the brief cannot argue a chain the ranking
+disputes.
+
 **The alternatives slot earns its place even on a tie.** The ladder reads priority, unblocks and
 reference — [0003](./0003-ranking-ladder-fixed-in-code.md) — and nothing else. Here the runner-up
 carries `bug` and `ready-for-agent` and the pick carries neither, and no rung looked. Naming the
