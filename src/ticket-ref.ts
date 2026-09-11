@@ -15,6 +15,16 @@ export const GITHUB_HOST = "github.com";
  *
  * A closed set rather than a pattern, because port-hosted GitHub is out of scope — so these are the whole rule
  * rather than a first approximation of one.
+ *
+ * Not paired with the scheme, and that is a decision rather than an omission. A set this size admits two
+ * mismatched pairs — HTTPS at 22, and SSH at 443 on the web host rather than on the `ssh.` endpoint GitHub
+ * publishes for it. Both are remotes that cannot connect: 22 on the web host answers SSH and 443 answers TLS, so
+ * each pair fails its own handshake rather than reaching somewhere else, and the repository the path names is the
+ * one a claim would land on either way. Pairing them would mean carrying the scheme through `RemoteAddress`, which
+ * every caller of the origin shares, to refuse a remote that is already broken.
+ *
+ * What would change that: supporting a GitHub at a port, which is out of scope. Then the port stops being a
+ * channel detail and starts selecting an endpoint, and the pair has to be checked.
  */
 const GITHUB_PORTS: ReadonlySet<string> = new Set(["22", "443"]);
 
