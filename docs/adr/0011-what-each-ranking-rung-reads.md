@@ -1,10 +1,11 @@
 # What each ranking rung reads
 
-> One sentence below is contradicted by
-> [0041](./0041-the-brief-is-slotted-and-the-tool-owns-every-slot-the-graph-can-write.md): a losing
-> candidate's labels are no longer a `--json` question, because 0041's alternatives slot puts them on
-> the human surface. Nothing here about what a rung *reads* changes, and the labels were always in
-> `Candidate.labels` — only where a reader has to go to see them.
+> One sentence below will be contradicted once
+> [0041](./0041-the-brief-is-slotted-and-the-tool-owns-every-slot-the-graph-can-write.md)'s
+> alternatives slot ships: a losing candidate's labels stop being a `--json` question and appear on
+> the human surface. Nothing has shipped yet, so the sentence still describes what the tool does
+> today. Nothing here about what a rung *reads* changes either way, and the labels were always in
+> `Candidate.labels` — what moves is only where a reader goes to see them.
 
 ADR-0003 fixes the ladder — priority, then unblocks-count, then reference — and the reference rung is
 fully specified there. The other two name a signal without saying how it is read, and each has a

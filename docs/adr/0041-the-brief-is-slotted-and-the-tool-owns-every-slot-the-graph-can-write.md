@@ -111,7 +111,7 @@ Ten, in this order. "Present" means the tool can already produce the input today
 
 | # | Slot | Written by | Input it needs | Present |
 | - | ---- | ---------- | -------------- | ------- |
-| 1 | Identity | tool | `pick.ref`, `title`, `url` | yes |
+| 1 | Headline | tool | `pick.ref`, `title`, `url` — or the reason there is none | yes |
 | 2 | Standing | tool | `counts`, `unblocks`, blocking phrase | yes |
 | 3 | Substance | session | the pick's raw body | **no** |
 | 4 | Scope | session | the same body | **no** |
@@ -121,6 +121,20 @@ Ten, in this order. "Present" means the tool can already produce the input today
 | 8 | In flight | tool | the viewer's tracker identity, against claims already read | **no** |
 | 9 | Contract lines | tool | `degraded: `, `deadlock: ` | yes |
 | 10 | Action | tool | the session command | yes |
+
+Slot 1 has two forms, the way slot 6 does, and `Selection.pick` decides which. With a pick it is the
+reference, the title and the URL. With none it is what the rendering already says — `no candidate to
+recommend` — and *why*: a quiet day, a wholly blocked set, a deadlock, or a read that failed. Those
+are today's four ([0038](./0038-the-plugin-ships-one-command-and-previews-before-it-starts.md) names
+them and `skills/nextup/SKILL.md` acts on them), and the reason is an open class rather than an enum
+fixed here — a scope that resolves to nothing is another member, and the slot takes it without a
+shape change.
+
+**Slot 1 is the one slot that is never omitted.** Every other slot disappears when its input is
+absent; this one has no absent case, because "there is no pick" is itself the answer. A no-pick brief
+is therefore slot 1, slot 2's counts, slot 8, and slot 9 — four slots, no action line, and the tool
+already suppresses that last one on its own (`renderStart` returns the empty string for
+`nothing-to-start`).
 
 The reason comes before the alternatives, which inverts the motivating example's order. "Also on the
 frontier" is not readable until you know whether the ranking decided anything: on a tie it is the
@@ -134,6 +148,11 @@ Slot 7 in particular needs nothing new — `ranked` already carries each candida
 
 Slot 8 costs no extra ticket read. The adapter already parses `assignees` into a claim on every row,
 which is where `counts.claimed` comes from; what is missing is only who the viewer is.
+
+Slot 6's path is the one missing input another ticket may derive first, for its own reasons — a rung
+ranking on distance to a named entry point needs the same walk over the same edges. Whichever lands
+first owns the derivation and the other reads it. Two implementations of one graph fact is how the
+brief comes to argue a chain the ranking does not agree with.
 
 ## What stays a contract
 
@@ -157,22 +176,23 @@ does — the prefixes are the contract and 0038 says so — but the difference b
 is exactly this, and stating only the stronger one would have promised a rendering the brief does
 not emit.
 
-References are qualified once, on the identity line, and bare thereafter. A run reads one
+References are qualified once, on the headline, and bare thereafter. A run reads one
 repository's tickets — checkout identity is resolved once and a foreign ticket is refused
 ([0040](./0040-checkout-identity-is-resolved-once-and-a-write-cannot-happen-without-one.md)) — so
 repeating the coordinates a dozen times restates something already fixed for the whole answer.
 
 ## The length budget
 
-Twenty-five content lines is the ceiling and today's six is the floor — the seven 0038 counts, less
-its blank. Blank lines between slots are not counted anywhere here, and the slots below sum to
+Twenty-five content lines is the ceiling and today's six is the floor on a run that picked something
+— the seven 0038 counts, less its blank. A run that picked nothing floors lower, at the four slots
+above, and is not padded up to meet this. Blank lines between slots are not counted anywhere here, and the slots below sum to
 twenty-three. The budget is allocated per slot
 rather than to the brief as a whole, because slots 3 to 5 are the only ones a model writes and an
 unbudgeted brief is one where they absorb everything:
 
 | Slot | Lines |
 | ---- | ----- |
-| Identity | 2 |
+| Headline | 2 |
 | Standing | 2 |
 | Substance | 6 |
 | Scope | 2 |
@@ -185,9 +205,10 @@ unbudgeted brief is one where they absorb everything:
 Contract lines are exempt. A warning is never cut to fit, and a set with four deadlock cycles prints
 four.
 
-**A slot with nothing to say is omitted, not padded.** That is what makes the floor reachable: on a
-pick with an empty body, slots 3 to 5 are absent and the brief is the plain rendering with slots 6
-to 8 around it. There is no "no acceptance criteria found" line, because a line saying
+**A slot with nothing to say is omitted, not padded — except slot 1.** That is what makes the floor
+reachable: on a pick with an empty body, slots 3 to 5 are absent and the brief is the plain rendering
+with slots 6 to 8 around it. The exception is what keeps the rule from deleting the answer on a run
+that picked nothing, where every other slot is empty and the headline is the whole point. There is no "no acceptance criteria found" line, because a line saying
 nothing was found costs the same as one that found something and is worth less than the blank.
 
 ## Thin inputs, which is the common case
