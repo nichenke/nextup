@@ -240,6 +240,9 @@ PATTERN='([a-z][a-z0-9+.-]*://[^[:space:]]+)|([A-Za-z0-9._%+/-]+@[A-Za-z0-9.-]*\
 # file named `-d` made BSD grep reject its own argument list, the error went to /dev/null, and the guard
 # printed `ok` over the identifier inside it. Measured.
 #
+# Before the pattern, not after it. GNU getopt stops permuting at the first non-option when POSIXLY_CORRECT
+# is set, and the empty pattern is that non-option -- so a trailing `--` becomes a filename grep cannot open.
+#
 # The symlink targets collected above join the file contents here: they are tracked content grep never
 # reaches, so they need the same normalization and the same allowlist comparison.
 #
@@ -253,7 +256,7 @@ PATTERN='([a-z][a-z0-9+.-]*://[^[:space:]]+)|([A-Za-z0-9._%+/-]+@[A-Za-z0-9.-]*\
 : >"$scan_errors"
 normalized=$({
 	if [ -s "$scan_listing" ]; then
-		xargs -0 grep -Ih '' -- <"$scan_listing" 2>"$scan_errors" || true
+		xargs -0 grep -Ih -- '' <"$scan_listing" 2>"$scan_errors" || true
 	fi
 	printf '%s' "$symlink_targets"
 } | awk '{ gsub(/\\\//, "/"); gsub(/\\[nrt]/, "\n"); print }' || true)
