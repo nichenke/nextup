@@ -9,6 +9,8 @@ import {
 	answeringOrigin,
 	deadlockLines,
 	githubRecording,
+	isOriginRead,
+	originStdout,
 	recordedIssue,
 	replayRunner,
 	respondingRunner,
@@ -218,7 +220,7 @@ function startSequence(
 		if (argv[0] === "gh" && argv[1] === "issue" && argv[2] === "edit") return { code: 0, stdout: "", stderr: "" };
 		if (argv[0] === "gh") return respondingRunner(githubRecording(read))(argv);
 		if (argv[0] !== "git") throw new Error(`nothing answers ${argv.join(" ")}`);
-		if (argv.includes("get-url")) return { code: 0, stdout: `git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo}.git\n`, stderr: "" };
+		if (isOriginRead(argv)) return { code: 0, stdout: originStdout(`git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo}.git`), stderr: "" };
 		if (argv.includes("list")) return { code: 0, stdout: `worktree ${primary}\0branch refs/heads/main\0\0`, stderr: "" };
 		if (argv.includes("--git-common-dir")) return { code: 0, stdout: `${primary}/.git\n`, stderr: "" };
 		if (argv.includes("symbolic-ref")) return { code: 0, stdout: "refs/remotes/origin/main\n", stderr: "" };
@@ -249,8 +251,8 @@ describe("starting work on the pick", () => {
 	 */
 	test("refuses to claim a ranked ticket whose rows name a repository this checkout is not", () => {
 		const renamed = (argv: string[]): CommandResult | null => {
-			if (argv[0] !== "git" || !argv.includes("get-url")) return null;
-			return { code: 0, stdout: `git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo.replace(/[^/]+$/, "old-name")}.git\n`, stderr: "" };
+			if (!isOriginRead(argv)) return null;
+			return { code: 0, stdout: originStdout(`git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo.replace(/[^/]+$/, "old-name")}.git`), stderr: "" };
 		};
 		const asked = terminal(true);
 		const { runner, of } = startSequence(renamed);
@@ -764,8 +766,8 @@ describe("starting a ticket named on the command line", () => {
 	 * refusing everything else, so a test using it proves no tracker was contacted.
 	 */
 	const gitOnly: Runner = (argv) => {
-		if (argv[0] === "git" && argv.includes("get-url")) {
-			return { code: 0, stdout: `git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo}.git\n`, stderr: "" };
+		if (isOriginRead(argv)) {
+			return { code: 0, stdout: originStdout(`git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo}.git`), stderr: "" };
 		}
 		throw new Error(`nothing may run ${argv.join(" ")} for a command that only prints`);
 	};
@@ -901,8 +903,8 @@ describe("starting a ticket named on the command line", () => {
 		// The path matches and only the host differs, so this reaches the host check rather than the path one. The
 		// remote is spelled as the allowlisted synthetic one, which the identifier guard already accepts.
 		const elsewhere: Runner = (argv) => {
-			if (argv[0] === "git" && argv.includes("get-url")) {
-				return { code: 0, stdout: "https://example.com/example/repo.git\n", stderr: "" };
+			if (isOriginRead(argv)) {
+				return { code: 0, stdout: originStdout("https://example.com/example/repo.git"), stderr: "" };
 			}
 			throw new Error(`nothing may run ${argv.join(" ")} for a checkout on another host`);
 		};
@@ -916,8 +918,8 @@ describe("starting a ticket named on the command line", () => {
 	// refusing it would send the operator to the checkout they are already standing in.
 	test("accepts a named ticket whose repository the remote spells in another case", () => {
 		const shouted: Runner = (argv) =>
-			argv[0] === "git" && argv.includes("get-url")
-				? { code: 0, stdout: `git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo.toUpperCase()}.git\n`, stderr: "" }
+			isOriginRead(argv)
+				? { code: 0, stdout: originStdout(`git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo.toUpperCase()}.git`), stderr: "" }
 				: { code: 1, stdout: "", stderr: "nothing else should be reached" };
 		const result = run([`gh:${GITHUB_TEST_TREE.repo}#1`, "--print-command"], deps(shouted));
 		expect(result.code).toBe(0);
@@ -960,7 +962,7 @@ describe("starting a ticket named on the command line", () => {
 	 */
 	test("refuses a named ticket when this checkout's own remote cannot be resolved", () => {
 		const noRemote: Runner = (argv) => {
-			if (argv[0] === "git" && argv.includes("get-url")) return { code: 1, stdout: "", stderr: "fatal: No such remote 'origin'\n" };
+			if (isOriginRead(argv)) return { code: 1, stdout: "", stderr: "fatal: No such remote 'origin'\n" };
 			throw new Error(`nothing may run ${argv.join(" ")} once the remote is unresolvable`);
 		};
 		const result = run(["gh:example/repo#1", "--yes"], deps(noRemote));
@@ -991,12 +993,12 @@ describe("starting a ticket named on the command line", () => {
 	});
 
 	test("resolves a bare short form against the working directory's remote", () => {
-		const { runner, of } = starting("ticket-view");
+		const { runner, calls, of } = starting("ticket-view");
 		const result = run([`gh:${recordedIssue(githubRecording("ticket-view"))}`, "--yes"], deps(runner));
 		expect(result.code).toBe(0);
 		// Resolving the bare form, checking the ticket belongs here, and the claim all take the same value; a
 		// second reading is what would let two of them disagree. ADR-0040.
-		expect(of("get-url")).toHaveLength(1);
+		expect(calls.filter(isOriginRead)).toHaveLength(1);
 		expect(of("issue", "view")).toHaveLength(1);
 	});
 

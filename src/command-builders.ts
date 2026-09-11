@@ -147,9 +147,20 @@ export function jiraIdentityCommand(): readonly string[] {
 	return ["jira", "me"];
 }
 
-/** The remote a repository-scoped reference is resolved against. */
-export function originRemoteCommand(): readonly string[] {
-	return ["git", "remote", "get-url", "origin"];
+/**
+ * The remote a repository-scoped reference is resolved against: the URL this checkout itself configures.
+ *
+ * `config` rather than `remote get-url`, which reads merged configuration — so a global file answers for a
+ * repository this checkout is not, at exit 0, with no `GIT_` variable for the runner to strip. ADR-0041 has the
+ * measurements, the scopes this keeps, and what the choice costs.
+ *
+ * `-z` is load-bearing rather than tidiness: a config value may contain a newline, and in the line-oriented
+ * form only a value's *first* line carries its scope, so a global value ending `\nlocal<tab><url>` presents a
+ * forged `local` record. Measured on git 2.50.1 and 2.55 — it is the ambient redirect this read exists to
+ * refuse, walking back in through the parser.
+ */
+export function originRemoteCommand(directory: string): readonly string[] {
+	return ["git", "-C", directory, "config", "-z", "--show-scope", "--includes", "--get-all", "remote.origin.url"];
 }
 
 export function worktreeListCommand(repo: string): readonly string[] {

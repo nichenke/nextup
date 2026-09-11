@@ -31,7 +31,18 @@ describe("readOnlyRunner", () => {
 
 	test("passes the origin remote read through, since the repository is resolved from it", () => {
 		const { run } = guarded();
-		expect(run([...originRemoteCommand()])).toEqual(answered);
+		expect(run([...originRemoteCommand("/repo")])).toEqual(answered);
+	});
+
+	test("refuses a git command the -C skip would otherwise walk past", () => {
+		const { run, issued } = guarded();
+		expect(() => run(["git", "-C", "/repo", "push", "origin", "main"])).toThrow(NotAReadError);
+		expect(issued).toEqual([]);
+	});
+
+	test("refuses a git config call that is not the get the read issues", () => {
+		const { run } = guarded();
+		expect(() => run(["git", "-C", "/repo", "config", "--local", "remote.origin.url", "x"])).toThrow(NotAReadError);
 	});
 
 	test("refuses the claim, which is the write this harness must never issue", () => {

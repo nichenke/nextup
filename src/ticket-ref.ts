@@ -269,6 +269,14 @@ export function githubTicketTarget(ref: TicketRef): GitHubTicketTarget {
 export interface ResolveDeps {
 	runner?: Runner;
 	/**
+	 * The checkout a bare short form takes its repository from — ADR-0041 has why the origin read is given a
+	 * directory rather than resolving from wherever git is standing. Defaults to the process's own.
+	 *
+	 * Supplying `checkout` does not replace it: only the GitHub arm consults that, while a bare `glab:<number>`
+	 * reads the remote itself and so resolves against this.
+	 */
+	directory?: string;
+	/**
 	 * Which repository the caller is standing in, for the one form that has no repository of its own: a bare
 	 * `gh:<number>`. Supplied by a caller that has already resolved it, so a run asks git once rather than once
 	 * here and again when the checkout is checked — ADR-0040. Defaults to resolving it from `runner`.
@@ -305,7 +313,8 @@ const JIRA_ISSUE_URL = /^https?:\/\/([^/?#]+)\/(?:[^?#]*?\/)?browse\/([A-Za-z][A
 
 export function resolveTicketRef(input: string, deps: ResolveDeps = {}): TicketRef {
 	const runner = deps.runner ?? defaultRunner;
-	const checkout = deps.checkout ?? ((refuse: RefuseCheckout) => resolveCheckoutIdentity(runner, refuse));
+	const directory = deps.directory ?? process.cwd();
+	const checkout = deps.checkout ?? ((refuse: RefuseCheckout) => resolveCheckoutIdentity(runner, directory, refuse));
 	const trimmed = input.trim();
 
 	const short = SHORT_FORM.exec(trimmed);
@@ -314,9 +323,9 @@ export function resolveTicketRef(input: string, deps: ResolveDeps = {}): TicketR
 		const body = short[2] as string;
 		switch (scheme) {
 			case "gh":
-				return resolveRepoScopedShort("github", "gh", body, runner, checkout);
+				return resolveRepoScopedShort("github", "gh", body, runner, directory, checkout);
 			case "glab":
-				return resolveRepoScopedShort("gitlab", "glab", body, runner, checkout);
+				return resolveRepoScopedShort("gitlab", "glab", body, runner, directory, checkout);
 			case "jira":
 				return jiraTicketRef(null, body);
 		}
@@ -349,6 +358,7 @@ function resolveRepoScopedShort(
 	scheme: "gh" | "glab",
 	body: string,
 	runner: Runner,
+	directory: string,
 	checkout: (refuse: RefuseCheckout) => CheckoutIdentity,
 ): TicketRef {
 	const hashIndex = body.indexOf("#");
@@ -363,7 +373,7 @@ function resolveRepoScopedShort(
 		const refuse = (reason: string) => new TicketRefError(`${scheme}:${body} takes its repository from this checkout, and ${reason}`);
 		return tracker === "github"
 			? githubTicketRef(checkout(refuse).repo, body)
-			: gitlabTicketRef(resolveCheckoutRepoPath(runner, refuse), null, body);
+			: gitlabTicketRef(resolveCheckoutRepoPath(runner, directory, refuse), null, body);
 	}
 
 	const repo = body.slice(0, hashIndex);

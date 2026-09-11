@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { originRemoteCommand } from "./command-builders";
 import { type Recording, RecordingError, loadRecording, recordingsDir } from "./recording";
 import type { CommandResult, Runner } from "./runner";
 import { DEADLOCK_PREFIX, DEGRADED_PREFIX } from "./selection-output";
@@ -12,9 +13,36 @@ export function githubRecording(name: string): Recording {
  * A runner answering the origin-remote question with `remote`, and every other call from `answer`. One
  * definition of how that call is faked, so a change to the argv a read resolves its repository through
  * cannot leave some tests answering the old shape.
+ *
+ * Any other git command reaches `answer` and fails there visibly rather than being answered with a remote.
  */
 export function answeringOrigin(remote: string, answer: Runner): Runner {
-	return (argv) => (argv[0] === "git" ? { code: 0, stdout: `${remote}\n`, stderr: "" } : answer(argv));
+	return (argv) => (isOriginRead(argv) ? { code: 0, stdout: originStdout(remote), stderr: "" } : answer(argv));
+}
+
+/**
+ * What the origin read prints for a remote this checkout configures: one `--show-scope` line in the scope
+ * `resolveOriginRemote` keeps. One definition, so a test cannot fake a shape the parser no longer reads.
+ */
+export function originStdout(url: string, scope = "local"): string {
+	return `${scope}\0${url}\0`;
+}
+
+/**
+ * Whether an argv is the origin read, for a test faking or counting it. Matched against the builder's own
+ * output with the directory wildcarded, so no word of that argv is spelled a second time here.
+ */
+export function isOriginRead(argv: readonly string[]): boolean {
+	return ORIGIN_READ.length === argv.length && ORIGIN_READ.every((word, index) => word === ANY_DIRECTORY || argv[index] === word);
+}
+
+// A NUL, which no argv word this tool builds can contain, so the wildcard cannot match a real directory.
+const ANY_DIRECTORY = "\u0000";
+const ORIGIN_READ = originRemoteCommand(ANY_DIRECTORY);
+
+/** The one `routedRunner` route that answers the origin read for `directory`, keyed off the builder. */
+export function originRoute(directory: string, url: string): Record<string, CommandResult> {
+	return { [originRemoteCommand(directory).join(" ")]: { code: 0, stdout: originStdout(url), stderr: "" } };
 }
 
 /** The sentinel lines of a rendering, which is the contract `DEGRADED_PREFIX` exists to be tested through. */
