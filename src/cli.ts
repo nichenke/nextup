@@ -527,15 +527,19 @@ function startedNothing(cause: unknown, pick: StartPick, worktree: WorktreeOutco
 		);
 	}
 	if (cause instanceof LaunchError) {
-		// A re-run does different things on the two paths, and this is the only place that says so: a named ticket is
-		// named again and is now claimed, where a ranked one has left the candidate set entirely.
-		const rerun = pick.named
-			? "Running this again would refuse it as claimed, since the claim above is now yours"
-			: "Running this again would pick a different ticket, because a claimed one is no longer a candidate";
+		// Nothing is predicted about a re-run of a named ticket. What one does there turns on whether the line carried
+		// `--force` — which clears the very claim check a warning would be about — and a sentence guessing at the next
+		// invocation has now been wrong twice in review. The command below is the recovery either way, which is what
+		// ADR-0035 leaves this line for.
+		//
+		// The ranked arm keeps its warning because it turns on nothing a later line can change: a claimed ticket is
+		// not a candidate, so a re-run picks something else whatever flags it carries, and an operator who does not
+		// know that starts work on the wrong ticket.
+		const rerun = pick.named ? "" : "Running this again would pick a different ticket, because a claimed one is no longer a candidate. ";
 		return new StartError(
 			// The `cd` goes through `formatCommand` too: this line is the only recovery offered for an already-claimed
 			// ticket, so it has to survive a checkout path holding a space, which is ordinary rather than exotic.
-			`${cause.message}\nThe ticket is claimed and ${worktree.path} is in place on ${worktree.branch}. ${rerun} — so start this session yourself instead:\n  ${formatCommand(["cd", worktree.path])} && ${formatCommand(command)}`,
+			`${cause.message}\nThe ticket is claimed and ${worktree.path} is in place on ${worktree.branch}. ${rerun}Start this session yourself instead:\n  ${formatCommand(["cd", worktree.path])} && ${formatCommand(command)}`,
 		);
 	}
 	return cause;

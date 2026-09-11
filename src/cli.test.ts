@@ -805,19 +805,22 @@ describe("starting a ticket named on the command line", () => {
 	});
 
 	/**
-	 * And the recovery a failed session leaves: a named ticket is named again by a re-run, where a ranked one has
-	 * left the candidate set. Saying it would pick a different ticket is false here.
+	 * The recovery a failed session leaves a named ticket: the command, and no guess about a re-run. What one would
+	 * do turns on whether the line carried `--force`, so the prediction is absent by design rather than missing.
 	 */
-	test("says what a re-run does for a named ticket whose session could not start", () => {
-		const { runner } = starting("ticket-view", (argv) =>
-			argv[1] === "new-workspace" ? { code: 1, stdout: "", stderr: "no window" } : null,
-		);
-		const result = run([named(), "--yes"], deps(runner));
+	test("offers the command and predicts nothing about a re-run, for a named ticket", () => {
+		for (const flags of [["--yes"], ["--force", "--yes"]]) {
+			const { runner } = starting("ticket-view", (argv) =>
+				argv[1] === "new-workspace" ? { code: 1, stdout: "", stderr: "no window" } : null,
+			);
+			const result = run([named(), ...flags], deps(runner));
 
-		expect(result.code).toBe(2);
-		expect(result.stderr).not.toContain("pick a different ticket");
-		expect(result.stderr).toContain("refuse it as claimed");
-		expect(result.stderr).toContain("cd ");
+			expect(result.code).toBe(2);
+			expect(result.stderr).not.toContain("pick a different ticket");
+			expect(result.stderr).not.toContain("Running this again");
+			expect(result.stderr).toContain("Start this session yourself instead");
+			expect(result.stderr).toContain("cd ");
+		}
 	});
 
 	test("reports a ticket the tracker does not have as something for a person, not as a quiet day", () => {
@@ -978,9 +981,14 @@ describe("starting a ticket named on the command line", () => {
 /**
  * What a failure after the worktree tells the operator, over every combination that changes the answer.
  *
- * Four inputs decide it: which step failed, whether the ticket carried a claim before this run, and whether the
- * operator named it. Three rounds of review landed on this wording because each round saw one combination, so the
- * cases are gathered here rather than left beside the test of whichever path introduced them.
+ * The inputs that decide it: which step failed, whether the ticket carried a claim before this run, and whether the
+ * operator named it. Four rounds of review landed on this wording, each seeing one combination, so the cases are
+ * gathered here rather than left beside the test of whichever path introduced them.
+ *
+ * `--force` is deliberately not among the inputs, and the fourth round is why: the session branch used to predict
+ * what a re-run would do for a named ticket, which `--force` changes, so the prediction was removed rather than
+ * given another input to read. A message that guesses at the next invocation's flags cannot be made correct by
+ * enumerating more of them.
  *
  * One arm is deliberately absent: a `Claim` whose `by` is null. `readClaim` demands a login string from GitHub's
  * assignees, so this tracker cannot produce one, and the wording handles it for an adapter that later can.
