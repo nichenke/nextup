@@ -272,8 +272,8 @@ describe("renderAnswer", () => {
 		expect(lines).toHaveLength(4);
 		expect(lines[0]).toContain("could not resolve host");
 		expect(lines[1]).toContain("2 of 9 rows read");
-		// The whole clause, not just "a page of their blockers": the wording this replaced also contained that much,
-		// so asserting the substring alone let the change ADR-0037 depends on survive a revert.
+		// The whole clause rather than a substring of it: the shorter assertion holds over wordings that say something
+		// else entirely, which is no assertion at all about what ADR-0037 depends on.
 		expect(lines[2]).toContain("only a page of their blockers arrived, so nothing confirms them unblocked");
 		// And the consequence a set read owns: these tickets were dropped, and nothing else in the answer says so.
 		expect(lines[2]).toContain("so they were held out of the answer");

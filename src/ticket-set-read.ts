@@ -18,11 +18,7 @@ import type { TicketRef } from "./ticket-ref";
 export type ReadDegrade =
 	| { readonly kind: "outage"; readonly detail: string }
 	| { readonly kind: "unreadable-blocking"; readonly tickets: number; readonly of: number }
-	/**
-	 * Tickets whose blocker list arrived as one page of a longer one. A set read holds these out of its answer, so
-	 * none is ever recommended; a single-ticket read returns the ticket with its blocking state unknown, because
-	 * that ticket is the answer — ADR-0037.
-	 */
+	/** Tickets whose blocker list arrived as one page of a longer one; what each read does about that is `TicketRead`. */
 	| { readonly kind: "partial-blocking"; readonly refs: readonly TicketRef[] }
 	| { readonly kind: "contradicted-blocker"; readonly refs: readonly TicketRef[] };
 
@@ -60,8 +56,9 @@ export interface BlockerOpenness {
  * This exists because `TicketRead`'s two halves can otherwise disagree, and one disagreement is the collapse
  * `CONTEXT.md` forbids: a ticket carrying `blockers: "unknown"` beside a graph seeding that same node `[]`
  * derives `unblocked`, and the override path then prints "blockers confirmed closed" over a read that confirmed
- * nothing. Seeding the ticket's own node from `ticket.blockers` here makes that unreachable for every adapter
- * and every test fixture, the way `seedGraph` makes an unread relation unreachable as `[]`.
+ * nothing. Seeding the ticket's own node from `ticket.blockers` here is what keeps the two agreeing, for every
+ * adapter and every fixture that builds one this way — a convention, where `seedGraph`'s refusal of a repeated id
+ * is enforcement, because `TicketRead` is a plain interface anyone can assemble by hand.
  *
  * A blocker the ticket names but `blockers` does not carry an openness for reads `"unknown"`, which is the
  * honest answer: the edge arrived without its state, or never arrived at all.
@@ -80,7 +77,8 @@ export function ticketRead(input: {
 		graph: seedGraph([
 			{
 				id,
-				// Containment is not a blocking channel (ADR-0017), so the traversal's ancestor walk stops at one hop.
+				// Containment is not a blocking channel (ADR-0017), so the traversal consults this node's edges and no
+				// ancestor's: a confirmed root has no hop to take.
 				parent: null,
 				blockers: input.ticket.blockers === "unknown" ? "unknown" : input.ticket.blockers.map(ticketId),
 				open: input.ticket.state === "open",
