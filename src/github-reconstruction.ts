@@ -76,7 +76,7 @@ function observe(input: GitHubReconstructionInput): readonly TrackerObservation[
 function observation(row: Record<string, unknown>, input: GitHubReconstructionInput, where: string): TrackerObservation {
 	const key = String(number(row.number, `${where} number`));
 	return {
-		ref: githubRef(repoOf(text(row.repository_url, `${where} repository_url`), `${where} repository_url`), key, `${where} repository_url`),
+		ref: githubRef(repoOf(text(row.repository_url, `${where} repository_url`), `${where} repository_url`), key, where),
 		claimed: list(row.assignees, `${where} assignees`).length > 0,
 		labels: list(row.labels, `${where} labels`).map((label, at) => text(object(label, `${where} labels[${at}]`).name, `${where} labels[${at}].name`)),
 		blockers: blockersOf(input, key, `${where} blockers`),
@@ -96,7 +96,7 @@ function blockersOf(input: GitHubReconstructionInput, key: string, where: string
 		const at = `${where}[${index}]`;
 		const repository = object(row.repository, `${at} repository`);
 		return {
-			ref: githubRef(text(repository.full_name, `${at} repository.full_name`), String(number(row.number, `${at} number`)), `${at} repository.full_name`),
+			ref: githubRef(text(repository.full_name, `${at} repository.full_name`), String(number(row.number, `${at} number`)), at),
 			open: isOpen(row.state, `${at} state`),
 		};
 	});

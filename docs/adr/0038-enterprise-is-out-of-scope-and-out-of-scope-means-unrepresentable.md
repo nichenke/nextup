@@ -39,10 +39,17 @@ three bugs. The worry was never any of these checks. It was the next route nobod
 One thing the type does not carry: `repo` and `key` are plain strings, so an object literal spelling
 `{ tracker: "github", repo: "Owner/Repo/Extra", key: "007" }` still compiles. Only the host is
 unrepresentable; the other two invariants hold because `githubTicketRef` is the documented and only
-builder, and every production construction site goes through it. Branding both fields would close that
-too, and was left out deliberately: it buys enforcement against a caller who has gone out of their way,
-at the cost of every literal in the tests. The host is the one that had to be a type fact, because it is
-the one a reference could legitimately *carry* and a consumer had to notice.
+builder, and every production construction site goes through it.
+
+Branding both fields would close that too, and was left out deliberately, for a reason narrower than
+cost: the tests assert the *shape* a resolver produces — `expect(ref).toEqual({ tracker, repo, key })` —
+and a brand forces every such assertion to compare the constructor's output against the constructor,
+which pins nothing. `CheckoutIdentity` is branded precisely because it has no such assertion to lose.
+The honest reading is that the host is a type fact and the other two are a convention the tests can
+still teach a future call site to break; that is the residual, and it is here rather than unrecorded.
+
+The host is the one that had to be a type fact regardless, because it is the one a reference could
+legitimately *carry* and a consumer had to notice.
 
 `githubTicketTarget` survives as a narrowing and nothing else. GitLab's variant keeps its host and its
 path as spelled: whether GitLab resolves a path case-insensitively belongs to issue 15, which wants a

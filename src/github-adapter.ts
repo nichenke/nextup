@@ -386,7 +386,7 @@ function readRows(stdout: string, repo: string): readonly Record<string, unknown
 
 function readRow(row: Record<string, unknown>, where: string): RowReading {
 	const address = url(row.url, `${where} url`);
-	const ref = githubRef(addressRepo(address, `${where} url`), String(number(row.number, `${where} number`)), `${where} url`);
+	const ref = githubRef(addressRepo(address, `${where} url`), String(number(row.number, `${where} number`)), where);
 	const edges = readEdges(row.blockedBy, where);
 	return {
 		ticket: {
@@ -408,7 +408,8 @@ function readRow(row: Record<string, unknown>, where: string): RowReading {
  *
  * The constructor's own class would escape this adapter untyped by anything `cli.ts` classifies, and what
  * actually happened is that the tracker said something this cannot read — which is what every other reader in
- * this file reports. `where` names the field, the way `text` and `number` do.
+ * `where` names the row rather than a field, because either argument can be the bad one and the constructor's
+ * own message says which.
  *
  * @throws GitHubAdapterError when the row's repository path or issue number is not one a reference can hold.
  */
@@ -454,7 +455,7 @@ function readEdges(raw: unknown, where: string): EdgeReading {
 		// The blocker's own repository, read from its address rather than assumed to be the one being read: a
 		// dependency may name an issue in another repository, and keying it under this one would land two
 		// different tickets on one graph node.
-		const ref = githubRef(addressRepo(text(blocker.url, `${at} url`), `${at} url`), String(number(blocker.number, `${at} number`)), `${at} url`);
+		const ref = githubRef(addressRepo(text(blocker.url, `${at} url`), `${at} url`), String(number(blocker.number, `${at} number`)), at);
 		edges.push({ ref, open: state(blocker.state, `${at} state`) === "open" });
 	}
 	return edges;

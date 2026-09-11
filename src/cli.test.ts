@@ -258,6 +258,8 @@ describe("starting work on the pick", () => {
 		expect(result.code).toBe(2);
 		expect(result.stderr).toContain("old-name");
 		expect(result.stderr).toContain(GITHUB_TEST_TREE.repo);
+		// Neither write, not just the claim: the comparison needs no I/O, so it belongs before the worktree.
+		expect(of("worktree", "add")).toEqual([]);
 		expect(of("issue", "edit")).toEqual([]);
 	});
 

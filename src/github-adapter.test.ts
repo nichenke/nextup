@@ -7,7 +7,6 @@ import type { Runner } from "./runner";
 import { githubRecording, recordedIssue, replayRunner, respondingRunner } from "./test-support";
 import { GITHUB_TEST_TREE, openIssues, shapeTitle } from "./test-tree";
 import { type Ticket, ticketId } from "./ticket";
-import { GITHUB_HOST } from "./repo-address";
 import { type TicketRef, githubTicketRef, gitlabTicketRef, jiraTicketRef } from "./ticket-ref";
 import type { TicketRead, TicketSetRead } from "./ticket-set-read";
 
@@ -23,9 +22,6 @@ const WHOLE_TREE = OPEN_ISSUES.length;
 
 /** The limit `ticket-set-truncated.json` was captured under, which `capture-github-recordings.ts` fixes. */
 const TRUNCATING = 3;
-
-// Built from the adapter's own accepted host, in git's scp form, so no spelling of it appears here for the
-// identifier guard to read — and so these cannot drift from the host the adapter actually accepts.
 
 /**
  * The ticket carrying one test-tree shape, found by the spec's title rather than by number, because a

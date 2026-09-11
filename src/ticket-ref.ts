@@ -255,6 +255,10 @@ export interface ResolveDeps {
 	 * Which repository the caller is standing in, for the one form that has no repository of its own: a bare
 	 * `gh:<number>`. Supplied by a caller that has already resolved it, so a run asks git once rather than once
 	 * here and again when the checkout is checked — ADR-0039. Defaults to resolving it from `runner`.
+	 *
+	 * A bare `glab:<number>` is outside this: it needs the remote's path unfolded on any host, which is not a
+	 * `CheckoutIdentity`, so it reads the remote itself. Nothing downstream compares a GitLab reference against a
+	 * checkout, so the two readings cannot disagree.
 	 */
 	checkout?: (refuse: RefuseCheckout) => CheckoutIdentity;
 }

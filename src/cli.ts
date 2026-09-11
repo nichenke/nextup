@@ -1,6 +1,5 @@
 import {
 	type Argv,
-	CommandBuilderError,
 	DEFAULT_SLASH_COMMAND,
 	WORKSPACE_HOST,
 	formatCommand,
@@ -8,7 +7,7 @@ import {
 } from "./command-builders";
 import type { BlockedState } from "./effective-blockedness";
 import { GitHubAdapterError, isReadableLimit, readGitHubTicket, readGitHubTicketSet } from "./github-adapter";
-import { GitHubClaimError, claimGitHubTicket } from "./github-claim";
+import { GitHubClaimError, claimGitHubTicket, outsideThisCheckout } from "./github-claim";
 import {
 	DEFAULT_LABEL_FILTER,
 	type LabelFilter,
@@ -468,7 +467,13 @@ function startPick(pick: StartPick, options: Options, deps: CliDeps, checkout: C
 	requireSessionBinary(deps.runner);
 	if (!approved(pick, options, deps)) return { kind: "declined", ref };
 
+	// Both refusals here rather than at the claim, which is after the worktree exists: neither needs any I/O, and
+	// this function's contract is that a run stopping at a refusal leaves the repository and the tracker as they
+	// were. A ranked ticket is compared nowhere else — `requireTicketInThisCheckout` only sees a named one.
 	const here = checkout((reason) => new StartError(`${formatTicketRef(ref)} cannot be claimed, because ${reason}`));
+	const outside = outsideThisCheckout(target.ref, here);
+	if (outside !== null) throw new StartError(`${outside}, so nothing was started. Correct this checkout's origin remote, or run this inside ${target.ref.repo}.`);
+
 	const worktree = ensure({ runner: deps.runner, repo: deps.cwd, ticket: pick.ticket });
 	try {
 		claimGitHubTicket({ runner: deps.runner, ref: target.ref, checkout: here });

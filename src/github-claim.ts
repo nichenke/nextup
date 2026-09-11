@@ -42,19 +42,29 @@ export function claimGitHubTicket(input: GitHubClaimInput): void {
 }
 
 /**
- * Refuses a claim on a ticket that lives somewhere other than the checkout this run is standing in.
+ * Why this ticket is not one to act on from this checkout, or null where it is.
  *
- * Load-bearing on the ranked path, where it is the only such comparison: `cli.ts` checks a *named* ticket
- * before anything is written, but a ranked one is never compared — the set read is merely scoped to this
- * repository, and `requireOneRepository` deliberately tolerates rows answering under a different name after a
- * rename. So a stale local remote reaches here with a reference this checkout does not match, and this is what
- * turns that into a refusal rather than a claim written somewhere the worktree is not. ADR-0039.
+ * The split it catches is the claim landing in one repository while the worktree and the session are made in
+ * another. A stale local remote is the reachable way there: a repository renamed on GitHub keeps answering
+ * under its new name, and `requireOneRepository` deliberately tolerates that, so the references a ranked run
+ * holds name a repository this checkout does not. ADR-0039.
+ *
+ * The reason comes back rather than being thrown, the way `githubTicketTarget`'s does and for the same reason:
+ * `cli.ts` asks before the worktree is written and raises a `StartError`, this file asks again at the write and
+ * raises its own class, and one shared error would collapse the two recoveries.
+ */
+export function outsideThisCheckout(ref: GitHubTicketRef, checkout: CheckoutIdentity): string | null {
+	if (ref.repo === checkout.repo) return null;
+	return `${formatTicketRef(ref)} is in ${ref.repo} and this checkout is ${checkout.repo} — the claim would land there while the worktree and the session were made here`;
+}
+
+/**
+ * The same question at the write, where it cannot be forgotten. `cli.ts` refuses earlier so that nothing is
+ * created first; reaching this one means that caller was skipped, and it is a write, so it asks anyway.
  */
 function requireThisCheckout(ref: GitHubTicketRef, checkout: CheckoutIdentity): void {
-	if (ref.repo === checkout.repo) return;
-	throw new GitHubClaimError(
-		`${formatTicketRef(ref)} is in ${ref.repo} and this checkout is ${checkout.repo}, so it was not claimed — the claim would land there while the worktree and the session were made here`,
-	);
+	const outside = outsideThisCheckout(ref, checkout);
+	if (outside !== null) throw new GitHubClaimError(`${outside}, so it was not claimed`);
 }
 
 function failedClaim(ref: TicketRef, result: CommandResult): GitHubClaimError {
