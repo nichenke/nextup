@@ -39,8 +39,8 @@ interface Case {
 	readonly build: () => readonly string[];
 }
 
-const github: TicketRef = { tracker: "github", repo: "example/repo", host: null, key: "1" };
-const jira: TicketRef = { tracker: "jira", repo: null, host: null, key: "ABC-7" };
+const github: TicketRef = { tracker: "github", repo: "example/repo", key: "1" };
+const jira: TicketRef = { tracker: "jira", host: null, key: "ABC-7" };
 
 const BRANCH = "feature/reader-8";
 const WORKTREE_PATH = "/repo/.worktrees/reader-8";

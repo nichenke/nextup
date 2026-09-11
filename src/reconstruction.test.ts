@@ -13,7 +13,7 @@ import {
 	heldEverywhere,
 } from "./reconstruction";
 import { type Ticket, ticketId } from "./ticket";
-import type { TicketRef } from "./ticket-ref";
+import { type TicketRef, githubTicketRef, gitlabTicketRef } from "./ticket-ref";
 import { type TicketRead, type TicketSetRead, ticketRead } from "./ticket-set-read";
 
 const REPO = "example/repo";
@@ -22,7 +22,7 @@ const FILTER = compileLabelFilter(DEFAULT_LABEL_FILTER);
 const ISSUE_URL = "https://example.com/example/repo/issues/1";
 
 function ref(key: string, repo = REPO): TicketRef {
-	return { tracker: "github", repo, host: null, key };
+	return githubTicketRef(repo, key);
 }
 
 interface Shape {
@@ -324,13 +324,16 @@ describe("whole-set-read", () => {
 });
 
 describe("references-parse", () => {
-	test("fails a reference this tool's own parser will not take back", () => {
+	// A GitLab reference that knows its host, which `formatTicketRef` deliberately drops: the short form has
+	// nowhere to carry one, so the printed reference parses back as a different node. The shape this used to use
+	// — a three-segment GitHub path — is one `githubTicketRef` now refuses to build, so it cannot reach a read.
+	test("fails a reference this tool's own parser does not take back to the same ticket", () => {
 		const input = world();
-		// Three path segments: `isValidRepoPath` refuses it for GitHub, so the short form does not resolve.
-		const tickets = [{ ...ticketOf({ key: "1" }), ref: ref("1", "owner/repo/extra") }, ...input.read.tickets.slice(1)];
+		const elsewhere = gitlabTicketRef("group/project", "example.com", "1");
+		const tickets = [{ ...ticketOf({ key: "1" }), ref: elsewhere }, ...input.read.tickets.slice(1)];
 		expect(checkNamed({ ...input, read: { ...input.read, tickets } }, "references-parse")).toMatchObject({
 			verdict: "failed",
-			detail: expect.stringContaining("did not re-parse"),
+			detail: expect.stringContaining("re-parsed as"),
 		});
 	});
 });

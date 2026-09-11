@@ -7,7 +7,7 @@ import type { Runner } from "./runner";
 import { answeringOrigin, githubRecording, recordedIssue, replayRunner, respondingRunner } from "./test-support";
 import { GITHUB_TEST_TREE, openIssues, shapeTitle } from "./test-tree";
 import { type Ticket, ticketId } from "./ticket";
-import { GITHUB_HOST, type TicketRef } from "./ticket-ref";
+import { GITHUB_HOST, type TicketRef, githubTicketRef, gitlabTicketRef, jiraTicketRef } from "./ticket-ref";
 import type { TicketRead, TicketSetRead } from "./ticket-set-read";
 
 const REPO = GITHUB_TEST_TREE.repo;
@@ -57,12 +57,10 @@ describe("readGitHubTicketSet, over the whole test tree", () => {
 		expect([...read.tickets].map((one) => one.title).sort()).toEqual([...OPEN_ISSUES].map((one) => one.title).sort());
 	});
 
-	test("emits one reference form for the whole set, carrying the repository and no host", () => {
+	test("emits one reference form for the whole set, so no ticket can occupy two graph nodes", () => {
 		for (const ticket of wholeTree().tickets) {
-			expect(ticket.ref.tracker).toBe("github");
-			expect(ticket.ref.repo).toBe(REPO);
-			expect(ticket.ref.host).toBeNull();
-			expect(ticket.ref.key).toMatch(/^\d+$/);
+			expect(ticket.ref).toEqual(githubTicketRef(REPO, ticket.ref.key));
+			expect(ticket.ref.key).toMatch(/^[1-9][0-9]*$/);
 		}
 	});
 
@@ -386,7 +384,7 @@ describe("a response the read cannot parse", () => {
 	test("takes the repository before the last issue number, not the first", () => {
 		const nodes = [{ number: 2, state: "OPEN", url: `outer/repo/issues/1/${INLINE_REPO}/issues/2` }];
 		const read = reading(issueRow({ blockedBy: { nodes, totalCount: 1 } }));
-		expect(read.tickets[0]?.blockers).toEqual([{ tracker: "github", repo: INLINE_REPO, host: null, key: "2" }]);
+		expect(read.tickets[0]?.blockers).toEqual([{ tracker: "github", repo: INLINE_REPO, key: "2" }]);
 	});
 
 	test("reads a blocker address carrying a trailing slash, a query, a fragment, or a pull request", () => {
@@ -400,7 +398,7 @@ describe("a response the read cannot parse", () => {
 		]) {
 			const nodes = [{ number: 2, state: "OPEN", url: address }];
 			const read = reading(issueRow({ blockedBy: { nodes, totalCount: 1 } }));
-			expect(read.tickets[0]?.blockers).toEqual([{ tracker: "github", repo: INLINE_REPO, host: null, key: "2" }]);
+			expect(read.tickets[0]?.blockers).toEqual([{ tracker: "github", repo: INLINE_REPO, key: "2" }]);
 		}
 	});
 
@@ -447,7 +445,7 @@ describe("a repository spelled differently from how the tracker spells it", () =
 			limit: 5,
 			runner: () => ({ code: 0, stdout, stderr: "" }),
 		});
-		expect(read.tickets[0]?.ref.repo).toBe(INLINE_REPO);
+		expect(read.tickets[0]?.ref).toEqual(githubTicketRef(INLINE_REPO, read.tickets[0]!.ref.key));
 		expect(blockednessOfFirst(read)).toBe("blocked");
 		expect(read.degraded).toEqual([]);
 	});
@@ -463,7 +461,7 @@ describe("a blocker list that arrived as a page", () => {
 		const read = reading(issueRow({ blockedBy }), issueRow({ number: 5, title: "readable", url: `${INLINE_REPO}/issues/5` }));
 		expect(read.tickets.map((one) => one.ref.key)).toEqual(["5"]);
 		expect(read.degraded).toEqual([
-			{ kind: "partial-blocking", refs: [{ tracker: "github", repo: INLINE_REPO, host: null, key: "1" }] },
+			{ kind: "partial-blocking", refs: [{ tracker: "github", repo: INLINE_REPO, key: "1" }] },
 		]);
 	});
 });
@@ -492,7 +490,7 @@ describe("two edges disagreeing about one blocker outside the read", () => {
 		expect(read.degraded).toHaveLength(1);
 		expect(read.degraded[0]).toEqual({
 			kind: "contradicted-blocker",
-			refs: [{ tracker: "github", repo: INLINE_REPO, host: null, key: "99" }],
+			refs: [{ tracker: "github", repo: INLINE_REPO, key: "99" }],
 		});
 	});
 
@@ -529,7 +527,7 @@ describe("the repository a read is about", () => {
 		// A read carries no hostname, so a remote elsewhere would be asked of github.com — answering about a
 		// different repository that happens to share the path, which is somebody else's work.
 		const { asked, runner } = watching(ELSEWHERE_REMOTE, respondingRunner(githubRecording("ticket-set")));
-		expect(() => readGitHubTicketSet({ limit: 1, runner })).toThrow(/reads github/);
+		expect(() => readGitHubTicketSet({ limit: 1, runner })).toThrow(/the same name somewhere else/);
 		expect(asked).toHaveLength(1);
 	});
 
@@ -574,12 +572,9 @@ describe("the limit a read is given", () => {
 });
 
 describe("readGitHubTicket, over a single named ticket", () => {
-	function viewing(name: string, overrides: Partial<TicketRef> = {}): TicketRead {
+	function viewing(name: string, repo: string = REPO): TicketRead {
 		const recording = githubRecording(name);
-		return readGitHubTicket({
-			runner: replayRunner([recording]),
-			ref: { tracker: "github", repo: REPO, host: null, key: recordedIssue(recording), ...overrides },
-		});
+		return readGitHubTicket({ runner: replayRunner([recording]), ref: githubTicketRef(repo, recordedIssue(recording)) });
 	}
 
 	function refusing(ref: TicketRef): () => TicketRead {
@@ -617,17 +612,18 @@ describe("readGitHubTicket, over a single named ticket", () => {
 		expect(deriveEffectiveBlockedness(ticketId(read.ticket.ref), read.graph)).toBe("blocked");
 	});
 
+	// The repository spelled in another case is the interesting half now: a pasted URL cannot carry a host past
+	// construction at all, so the two forms differ only in what a user typed.
 	test("emits the same reference form the set read does, so one ticket cannot occupy two graph nodes", () => {
-		const read = viewing("ticket-view", { host: GITHUB_HOST });
-		expect(read.ticket.ref.host).toBeNull();
-		expect(read.ticket.ref.repo).toBe(REPO);
+		const read = viewing("ticket-view", REPO.toUpperCase());
+		expect(read.ticket.ref).toEqual(githubTicketRef(REPO, read.ticket.ref.key));
 	});
 
 	test("fails loud on a ticket the tracker does not have, rather than reporting it unreadable", () => {
 		const defect = githubRecording("ticket-view-defect");
 		const key = defect.argv[defect.argv.indexOf("--") + 1]!;
 		const refused = () =>
-			readGitHubTicket({ runner: replayRunner([defect]), ref: { tracker: "github", repo: REPO, host: null, key } });
+			readGitHubTicket({ runner: replayRunner([defect]), ref: githubTicketRef(REPO, key) });
 		expect(refused).toThrow(GitHubAdapterError);
 		expect(refused).toThrow(/retry will not fix/);
 	});
@@ -636,20 +632,17 @@ describe("readGitHubTicket, over a single named ticket", () => {
 		const refused = () =>
 			readGitHubTicket({
 				runner: respondingRunner(githubRecording("read-outage")),
-				ref: { tracker: "github", repo: REPO, host: null, key: "1" },
+				ref: githubTicketRef(REPO, "1"),
 			});
 		expect(refused).toThrow(GitHubAdapterError);
 		expect(refused).toThrow(/could not be reached/);
 	});
 
+	// The only refusal the reference can still carry here. A path that is not owner-and-repository, and a host
+	// that is not GitHub's, are shapes `githubTicketRef` refuses to build — `ticket-ref.test.ts` holds those now.
 	test("refuses a reference on a tracker this has no adapter for, before asking anything", () => {
-		expect(refusing({ tracker: "gitlab", repo: "group/project", host: null, key: "1" })).toThrow(/GitHub/);
-		expect(refusing({ tracker: "jira", repo: null, host: null, key: "ABC-7" })).toThrow(/GitHub/);
-	});
-
-	test("refuses a reference naming no owner and repository, and one on another host", () => {
-		expect(refusing({ tracker: "github", repo: null, host: null, key: "1" })).toThrow(/owner and repository/);
-		expect(refusing({ tracker: "github", repo: REPO, host: "example.test", key: "1" })).toThrow("example.test");
+		expect(refusing(gitlabTicketRef("group/project", null, "1"))).toThrow(/GitHub/);
+		expect(refusing(jiraTicketRef(null, "ABC-7"))).toThrow(/GitHub/);
 	});
 
 	/**
@@ -658,7 +651,7 @@ describe("readGitHubTicket, over a single named ticket", () => {
 	 */
 	test("refuses a row answering about the same number in another repository", () => {
 		const runner: Runner = () => ({ code: 0, stdout: JSON.stringify(issueRow()), stderr: "" });
-		const refused = () => readGitHubTicket({ runner, ref: { tracker: "github", repo: REPO, host: null, key: "1" } });
+		const refused = () => readGitHubTicket({ runner, ref: { tracker: "github", repo: REPO, key: "1" } });
 		expect(refused).toThrow(GitHubAdapterError);
 		expect(refused).toThrow(/answered about/);
 	});
@@ -667,19 +660,19 @@ describe("readGitHubTicket, over a single named ticket", () => {
 		const shouted = { ...issueRow(), url: `${INLINE_REPO.toUpperCase()}/issues/1` };
 		const read = readGitHubTicket({
 			runner: () => ({ code: 0, stdout: JSON.stringify(shouted), stderr: "" }),
-			ref: { tracker: "github", repo: INLINE_REPO, host: null, key: "1" },
+			ref: { tracker: "github", repo: INLINE_REPO, key: "1" },
 		});
 		expect(read.ticket.ref.key).toBe("1");
 	});
 
 	test("refuses a row answering about a different issue than the one named", () => {
 		const runner: Runner = () => ({ code: 0, stdout: JSON.stringify(issueRow({ number: 2, url: `${INLINE_REPO}/issues/2` })), stderr: "" });
-		const refused = () => readGitHubTicket({ runner, ref: { tracker: "github", repo: INLINE_REPO, host: null, key: "1" } });
+		const refused = () => readGitHubTicket({ runner, ref: { tracker: "github", repo: INLINE_REPO, key: "1" } });
 		expect(refused).toThrow(/answered about/);
 	});
 
 	test("refuses a response that is not one issue object", () => {
-		const named: TicketRef = { tracker: "github", repo: INLINE_REPO, host: null, key: "1" };
+		const named: TicketRef = { tracker: "github", repo: INLINE_REPO, key: "1" };
 		const answering = (stdout: string) => () => readGitHubTicket({ runner: () => ({ code: 0, stdout, stderr: "" }), ref: named });
 		expect(answering("not json")).toThrow(/returned no JSON/);
 		expect(answering(JSON.stringify([issueRow()]))).toThrow(/one issue/);
@@ -692,7 +685,7 @@ describe("readGitHubTicket, over a single named ticket", () => {
 			stdout: JSON.stringify(issueRow({ blockedBy: { nodes: [blockerNode(2, "CLOSED")], totalCount: 2 } })),
 			stderr: "",
 		});
-		const read = readGitHubTicket({ runner, ref: { tracker: "github", repo: INLINE_REPO, host: null, key: "1" } });
+		const read = readGitHubTicket({ runner, ref: { tracker: "github", repo: INLINE_REPO, key: "1" } });
 		expect(read.ticket.blockers).toBe("unknown");
 		expect(deriveEffectiveBlockedness(ticketId(read.ticket.ref), read.graph)).toBe("unknown");
 		expect(read.degraded).toEqual([{ kind: "partial-blocking", refs: [read.ticket.ref] }]);
@@ -703,7 +696,7 @@ describe("readGitHubTicket, over a single named ticket", () => {
 		delete row.blockedBy;
 		const read = readGitHubTicket({
 			runner: () => ({ code: 0, stdout: JSON.stringify(row), stderr: "" }),
-			ref: { tracker: "github", repo: INLINE_REPO, host: null, key: "1" },
+			ref: { tracker: "github", repo: INLINE_REPO, key: "1" },
 		});
 		expect(deriveEffectiveBlockedness(ticketId(read.ticket.ref), read.graph)).toBe("unknown");
 		expect(read.degraded).toEqual([{ kind: "unreadable-blocking", tickets: 1, of: 1 }]);
@@ -713,7 +706,7 @@ describe("readGitHubTicket, over a single named ticket", () => {
 		const row = issueRow({ blockedBy: { nodes: [blockerNode(1, "OPEN")], totalCount: 1 } });
 		const read = readGitHubTicket({
 			runner: () => ({ code: 0, stdout: JSON.stringify(row), stderr: "" }),
-			ref: { tracker: "github", repo: INLINE_REPO, host: null, key: "1" },
+			ref: { tracker: "github", repo: INLINE_REPO, key: "1" },
 		});
 		expect(deriveEffectiveBlockedness(ticketId(read.ticket.ref), read.graph)).toBe("blocked");
 	});

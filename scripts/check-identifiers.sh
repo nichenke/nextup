@@ -55,6 +55,7 @@ https://example.com/example/repo.git
 https://example.com/example/repo/issues/1
 https://example.com/example/repo/pull/1
 https://example.com/group/project/-/issues/1
+https://example.com/group/project/-/issues/037
 https://EXAMPLE.com/group/project/-/issues/1
 https://example.com/group/subgroup/project.git
 https://example.com/example/repo.git/
@@ -72,8 +73,10 @@ git@example.com:example/repo.git
 example.com:example/repo.git
 example.com:8443
 example.com/group/project/-/issues/1
+example/repo#0
 example/repo#1
 example/repo#2
+example/repo#037
 example/repo#3
 example/repo#4
 example/repo#8

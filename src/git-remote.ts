@@ -20,15 +20,14 @@ export function parseRemote(remote: string): RemoteAddress | null {
 	return repo === "" ? null : { host: host.toLowerCase(), repo };
 }
 
-/** The repository path segment of a git remote URL, minus a trailing `.git` and slash. */
-export function parseRepoPath(remote: string): string | null {
-	return parseRemote(remote)?.repo ?? null;
-}
-
-export function resolveRepoFromOrigin(runner: Runner): string | null {
-	return resolveOriginRemote(runner)?.repo ?? null;
-}
-
+/**
+ * The origin remote, or null where there is none to read.
+ *
+ * One caller, `resolveCheckoutIdentity`, and that is the whole point: "which repository am I standing in" is
+ * answered in one place and threaded, rather than asked afresh by everything that needs it. ADR-0039 has the
+ * five checks that arrangement replaced. A null here is not a state anything downstream can observe — the
+ * resolver turns it into a refusal.
+ */
 export function resolveOriginRemote(runner: Runner): RemoteAddress | null {
 	const result = runner([...originRemoteCommand()]);
 	if (result.code !== 0) return null;

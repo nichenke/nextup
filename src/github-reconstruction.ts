@@ -3,6 +3,7 @@ import { collapseFailure } from "./failure-class";
 import { readGitHubTicket, readGitHubTicketSet } from "./github-adapter";
 import type { TrackerObservation, ObservedBlocker, ReconstructionTracker } from "./reconstruction";
 import type { Runner } from "./runner";
+import { type GitHubTicketRef, TicketRefError, githubTicketRef } from "./ticket-ref";
 import type { TicketSetRead } from "./ticket-set-read";
 
 export class GitHubReconstructionError extends Error {}
@@ -75,7 +76,7 @@ function observe(input: GitHubReconstructionInput): readonly TrackerObservation[
 function observation(row: Record<string, unknown>, input: GitHubReconstructionInput, where: string): TrackerObservation {
 	const key = String(number(row.number, `${where} number`));
 	return {
-		ref: { tracker: "github", repo: repoOf(text(row.repository_url, `${where} repository_url`), `${where} repository_url`), host: null, key },
+		ref: githubRef(repoOf(text(row.repository_url, `${where} repository_url`), `${where} repository_url`), key, `${where} repository_url`),
 		claimed: list(row.assignees, `${where} assignees`).length > 0,
 		labels: list(row.labels, `${where} labels`).map((label, at) => text(object(label, `${where} labels[${at}]`).name, `${where} labels[${at}].name`)),
 		blockers: blockersOf(input, key, `${where} blockers`),
@@ -95,12 +96,7 @@ function blockersOf(input: GitHubReconstructionInput, key: string, where: string
 		const at = `${where}[${index}]`;
 		const repository = object(row.repository, `${at} repository`);
 		return {
-			ref: {
-				tracker: "github",
-				repo: text(repository.full_name, `${at} repository.full_name`),
-				host: null,
-				key: String(number(row.number, `${at} number`)),
-			},
+			ref: githubRef(text(repository.full_name, `${at} repository.full_name`), String(number(row.number, `${at} number`)), `${at} repository.full_name`),
 			open: isOpen(row.state, `${at} state`),
 		};
 	});
@@ -137,6 +133,21 @@ function request(runner: Runner, argv: readonly string[], where: string): readon
  * is the tempting simplification and it defeats the check: the two sides would agree about a repository by
  * construction rather than by both reading it right.
  */
+/**
+ * One reference built from a row this side read independently, reported as a bad response the way every other
+ * reader here does — `github-adapter.ts` has the same helper for the same reason.
+ *
+ * @throws GitHubReconstructionError when the row's repository path or issue number is not one a reference can hold.
+ */
+function githubRef(repo: string, key: string, where: string): GitHubTicketRef {
+	try {
+		return githubTicketRef(repo, key);
+	} catch (cause) {
+		if (cause instanceof TicketRefError) throw new GitHubReconstructionError(`${where}: ${cause.message}`);
+		throw cause;
+	}
+}
+
 function repoOf(address: string, where: string): string {
 	const repo = /\/repos\/([^/\s?#]+\/[^/\s?#]+)$/.exec(address)?.[1];
 	if (repo === undefined) throw new GitHubReconstructionError(`${where} names no owner and repository: ${address}`);

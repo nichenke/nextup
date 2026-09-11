@@ -1,4 +1,4 @@
-import { type TicketRef, formatTicketRef } from "./ticket-ref";
+import { type TicketRef, formatTicketRef, requireCanonicalIssueKey } from "./ticket-ref";
 
 export class CommandBuilderError extends Error {}
 
@@ -317,30 +317,12 @@ export interface GitHubIssueCommandInput {
  * reader parses. No state filter, unlike the list read: a closed ticket has to come back as closed, because
  * "closed" is the refusal an operator who named it needs to be told.
  *
- * @throws CommandBuilderError when `key` is not a canonical issue number, for the reason `requireCanonicalIssueKey` gives.
+ * @throws TicketRefError from the canonical-key assertion, which a `GitHubTicketRef` cannot trip. ADR-0038 has
+ * why it stays here anyway: this builder takes a bare `repo` and `key`, so a caller reaching past the reference
+ * types can still spell one, and the capture script does.
  */
 export function githubIssueViewCommand(input: GitHubIssueCommandInput): readonly string[] {
 	return ["gh", "issue", "view", "--repo", input.repo, "--json", GITHUB_TICKET_FIELDS.join(","), "--", requireCanonicalIssueKey(input.key)];
-}
-
-/**
- * The issue one `gh` subcommand acts on, refused unless it is a canonical issue number — leading zeros and a
- * bare `0` as much as non-digits. Exported because the override path refuses a typed key on the one route that
- * builds no argv to carry it: `--print-command`, which contacts no tracker and still must not print a command
- * naming an issue `gh` would resolve to a different one.
- *
- * `gh` normalizes `037` to issue 37 while `compareTicketRefs` treats the two as different tickets, so a padded
- * key would act on one issue under a reference naming another and exit 0. Measured on the read both times:
- * ADR-0032 records `gh issue view --repo <repo> -- 022` answering issue 22, and the `--json` form answers
- * `{"number":12}` for `-- 012` on gh 2.100.0. Not measured on `gh issue edit`, which shares the parser — and
- * that inference is exactly why one guard covers both rather than each trusting its own subcommand. `--` does
- * not help: it stops flag parsing, not number normalization.
- */
-export function requireCanonicalIssueKey(key: string): string {
-	if (!/^[1-9][0-9]*$/.test(key)) {
-		throw new CommandBuilderError(`${key} is not a canonical issue number, so the issue acted on would not be the one it names`);
-	}
-	return key;
 }
 
 export type GitHubClaimCommandInput = GitHubIssueCommandInput;
@@ -354,8 +336,8 @@ export type GitHubClaimCommandInput = GitHubIssueCommandInput;
  *
  * The key goes last, after `--`, so that no spelling of it can be read as a flag rather than as the issue.
  *
- * @throws CommandBuilderError when `key` is not a canonical issue number, for the reason `requireCanonicalIssueKey` gives.
- * ADR-0032 has why a write refuses it here rather than sending it and reading the exit status.
+ * @throws TicketRefError from the canonical-key assertion, for the reason `githubIssueViewCommand` gives.
+ * ADR-0032 has why a write refuses a padded key rather than sending it and reading the exit status.
  */
 export function githubClaimCommand(input: GitHubClaimCommandInput): readonly string[] {
 	return ["gh", "issue", "edit", "--repo", input.repo, "--add-assignee", "@me", "--", requireCanonicalIssueKey(input.key)];

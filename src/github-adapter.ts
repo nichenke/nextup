@@ -1,12 +1,12 @@
 import { GITHUB_TICKET_STATE, githubIssueListCommand, githubIssueViewCommand } from "./command-builders";
 import type { DependencyGraph, IssueId } from "./effective-blockedness";
 import { classifyFailure, collapseFailure, failureDetail } from "./failure-class";
-import { resolveOriginRemote } from "./git-remote";
 import { type GraphSeed, seedGraph } from "./graph-store";
 import type { CommandResult, Runner } from "./runner";
 import { type Claim, type Ticket, ticketId } from "./ticket";
 import { type ReadDegrade, type TicketRead, type TicketSetRead, ticketRead } from "./ticket-set-read";
-import { GITHUB_HOST, type TicketRef, formatTicketRef, githubTicketTarget, isGitHubHost, isValidRepoPath } from "./ticket-ref";
+import { resolveCheckoutIdentity } from "./checkout-identity";
+import { type GitHubTicketRef, type TicketRef, TicketRefError, formatTicketRef, githubTicketRef, githubTicketTarget, isValidRepoPath } from "./ticket-ref";
 
 export class GitHubAdapterError extends Error {}
 
@@ -114,7 +114,7 @@ export function readGitHubTicket(input: GitHubTicketReadInput): TicketRead {
 	if (target.kind === "refused") throw new GitHubAdapterError(target.reason);
 
 	const named = formatTicketRef(input.ref);
-	const result = input.runner([...githubIssueViewCommand(target)]);
+	const result = input.runner([...githubIssueViewCommand(target.ref)]);
 	if (result.code !== 0) throw failedTicketRead(named, result);
 
 	const reading = readRow(readOneRow(result.stdout, named), named);
@@ -129,9 +129,9 @@ export function readGitHubTicket(input: GitHubTicketReadInput): TicketRead {
 	// expectation to hold the answer to. A rename with a stale local remote is refused here, and the message names
 	// both so the remote can be corrected.
 	//
-	// Repositories compared with case folded away, for the reason `requireTicketInThisCheckout` gives.
+	// A plain `===` on both halves: `githubTicketRef` folded the case and refused a padded key on each side.
 	const answered = reading.ticket.ref;
-	if (answered.key !== target.key || answered.repo?.toLowerCase() !== target.repo.toLowerCase()) {
+	if (answered.key !== target.ref.key || answered.repo !== target.ref.repo) {
 		throw new GitHubAdapterError(`reading ${named} answered about ${formatTicketRef(answered)}`);
 	}
 
@@ -269,16 +269,10 @@ function requireOneRepository(readings: readonly RowReading[], asked: string): v
 }
 
 function requireGitHubOrigin(runner: Runner): string {
-	const origin = resolveOriginRemote(runner);
-	if (origin === null) {
-		throw new GitHubAdapterError("no repository was named, and the working directory's git remote could not be resolved");
-	}
-	if (!isGitHubHost(origin.host)) {
-		throw new GitHubAdapterError(
-			`the origin remote points at ${origin.host}, and this adapter reads ${GITHUB_HOST} only — reading ${origin.repo} here would answer about a different repository of the same name`,
-		);
-	}
-	return origin.repo;
+	return resolveCheckoutIdentity(
+		runner,
+		(reason) => new GitHubAdapterError(`no repository was named, and ${reason}`),
+	).repo;
 }
 
 interface Edge {
@@ -293,7 +287,13 @@ interface Edge {
 type EdgeReading = readonly Edge[] | "unknown" | "partial";
 
 interface RowReading {
-	readonly ticket: Ticket;
+	/**
+	 * Narrowed to a GitHub reference, which `readRow` builds every one of. That narrowing is what lets the
+	 * response-identity check and `requireOneRepository` read a repository at all — `Ticket.ref` is the whole
+	 * union, and a Jira reference has none. `Ticket`'s own docstring has why every property is `readonly`, which
+	 * is what makes narrowing one in a subtype sound.
+	 */
+	readonly ticket: Ticket & { readonly ref: GitHubTicketRef };
 	readonly edges: EdgeReading;
 }
 
@@ -392,12 +392,7 @@ function readRows(stdout: string, repo: string): readonly Record<string, unknown
 
 function readRow(row: Record<string, unknown>, where: string): RowReading {
 	const address = url(row.url, `${where} url`);
-	const ref: TicketRef = {
-		tracker: "github",
-		repo: addressRepo(address, `${where} url`),
-		host: null,
-		key: String(number(row.number, `${where} number`)),
-	};
+	const ref = githubRef(addressRepo(address, `${where} url`), String(number(row.number, `${where} number`)), `${where} url`);
 	const edges = readEdges(row.blockedBy, where);
 	return {
 		ticket: {
@@ -411,6 +406,25 @@ function readRow(row: Record<string, unknown>, where: string): RowReading {
 		},
 		edges,
 	};
+}
+
+/**
+ * One reference built from a row the tracker answered with, reported as a bad response rather than as a bad
+ * reference.
+ *
+ * The constructor's own class would escape this adapter untyped by anything `cli.ts` classifies, and what
+ * actually happened is that the tracker said something this cannot read — which is what every other reader in
+ * this file reports. `where` names the field, the way `text` and `number` do.
+ *
+ * @throws GitHubAdapterError when the row's repository path or issue number is not one a reference can hold.
+ */
+function githubRef(repo: string, key: string, where: string): GitHubTicketRef {
+	try {
+		return githubTicketRef(repo, key);
+	} catch (cause) {
+		if (cause instanceof TicketRefError) throw new GitHubAdapterError(`${where}: ${cause.message}`);
+		throw cause;
+	}
 }
 
 /**
@@ -443,15 +457,10 @@ function readEdges(raw: unknown, where: string): EdgeReading {
 			throw new GitHubAdapterError(`${at} is not a blocker`);
 		}
 		const blocker = node as Record<string, unknown>;
-		const ref: TicketRef = {
-			tracker: "github",
-			// The blocker's own repository, read from its address rather than assumed to be the one being read:
-			// a dependency may name an issue in another repository, and keying it under this one would land two
-			// different tickets on one graph node.
-			repo: addressRepo(text(blocker.url, `${at} url`), `${at} url`),
-			host: null,
-			key: String(number(blocker.number, `${at} number`)),
-		};
+		// The blocker's own repository, read from its address rather than assumed to be the one being read: a
+		// dependency may name an issue in another repository, and keying it under this one would land two
+		// different tickets on one graph node.
+		const ref = githubRef(addressRepo(text(blocker.url, `${at} url`), `${at} url`), String(number(blocker.number, `${at} number`)), `${at} url`);
 		edges.push({ ref, open: state(blocker.state, `${at} state`) === "open" });
 	}
 	return edges;

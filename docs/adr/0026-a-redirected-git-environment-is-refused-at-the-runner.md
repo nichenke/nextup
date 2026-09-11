@@ -10,8 +10,10 @@ because every answer git gives is self-consistent — about the wrong repository
 
 Reproduced against git 2.55: `git -C <intended> worktree list --porcelain` reports `<other>`, so `ensure()`
 took `<other>` as its primary checkout, created the ticket's branch and worktree there, and returned
-`created`. The same override reaches `resolveRepoFromOrigin`, which reads `git remote get-url origin` to
-decide which repository's tickets a run considers — so the wrong *ticket set* arrives before the worktree
+`created`. The same override reaches the origin-remote read — `resolveRepoFromOrigin` when this was
+measured, `resolveCheckoutIdentity` since
+[0039](./0039-checkout-identity-is-resolved-once-and-a-write-cannot-happen-without-one.md) — which reads
+`git remote get-url origin` to decide which repository's tickets a run considers — so the wrong *ticket set* arrives before the worktree
 step is ever reached.
 
 Which variables do this was measured, not taken from git's documentation. `GIT_DIR` and `GIT_COMMON_DIR`

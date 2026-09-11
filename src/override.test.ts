@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { type Override, clearedByForce, decideOverride } from "./override";
 import type { Ticket } from "./ticket";
-import type { TicketRef } from "./ticket-ref";
+import { type TicketRef, githubTicketRef } from "./ticket-ref";
 import { type TicketRead, ticketRead } from "./ticket-set-read";
 
 const REPO = "example/repo";
 
 function ref(key: string): TicketRef {
-	return { tracker: "github", repo: REPO, host: null, key };
+	return githubTicketRef(REPO, key);
 }
 
 function ticket(fields: Partial<Ticket> = {}): Ticket {

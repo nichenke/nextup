@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { CommandBuilderError, githubClaimCommand } from "./command-builders";
+import type { CheckoutIdentity } from "./checkout-identity";
+import { githubClaimCommand } from "./command-builders";
 import { GitHubClaimError, claimGitHubTicket } from "./github-claim";
 import type { Runner } from "./runner";
 import { fakeRunner, githubRecording, replayRunner, respondingRunner } from "./test-support";
 import { GITHUB_TEST_TREE } from "./test-tree";
-import { GITHUB_HOST, type TicketRef, formatTicketRef } from "./ticket-ref";
+import { type GitHubTicketRef, formatTicketRef, githubTicketRef } from "./ticket-ref";
 
 const REPO = GITHUB_TEST_TREE.repo;
 
@@ -38,9 +39,12 @@ function claimedIssueIn(argv: readonly string[]): string {
 	return key;
 }
 
-function githubRef(overrides: Partial<TicketRef> = {}): TicketRef {
-	return { tracker: "github", repo: REPO, host: null, key: WRITE_TARGET, ...overrides };
+function githubRef(key: string = WRITE_TARGET, repo: string = REPO): GitHubTicketRef {
+	return githubTicketRef(repo, key);
 }
+
+/** The checkout every claim below is standing in: the test tree, which is where its references live. */
+const HERE: CheckoutIdentity = { repo: REPO.toLowerCase() };
 
 /** A runner keeping every call it was handed, so a claim can be asserted to be one write and no read. */
 function counted(runner: Runner): { readonly runner: Runner; readonly calls: readonly string[][] } {
@@ -57,43 +61,43 @@ describe("claimGitHubTicket, against the captured write", () => {
 	// The call count is the assertion, not an incidental: ADR-0018 has why a read-back could decide nothing.
 	test("is one write and no read, so no call can be mistaken for arbitration", () => {
 		const tracker = counted(replayRunner([CLAIM]));
-		claimGitHubTicket({ runner: tracker.runner, ref: githubRef() });
+		claimGitHubTicket({ runner: tracker.runner, ref: githubRef(), checkout: HERE });
 		expect(tracker.calls).toEqual([[...githubClaimCommand({ repo: REPO, key: WRITE_TARGET })]]);
 	});
 
-	test("accepts a reference naming GitHub's own host, which a pasted URL carries", () => {
+	test("accepts a reference a pasted URL produced, which carries no host to disagree about", () => {
 		const runner = replayRunner([CLAIM]);
-		expect(() => claimGitHubTicket({ runner, ref: githubRef({ host: GITHUB_HOST }) })).not.toThrow();
+		expect(() => claimGitHubTicket({ runner, ref: githubRef(), checkout: HERE })).not.toThrow();
 	});
 });
 
 describe("claimGitHubTicket, when the write fails", () => {
 	const DEFECT = githubRecording("claim-defect");
-	const defectRef = githubRef({ key: claimedIssueIn(DEFECT.argv) });
+	const defectRef = githubRef(claimedIssueIn(DEFECT.argv));
 
 	// The outage capture's argv names a host this refuses outright, so its response is replayed without its argv
 	// — the same reason `read-outage` is answered this way.
 	const outageRunner: Runner = respondingRunner(githubRecording("claim-outage"));
 
 	test("aborts on a defect, saying a retry will not help", () => {
-		expect(() => claimGitHubTicket({ runner: replayRunner([DEFECT]), ref: defectRef })).toThrow(GitHubClaimError);
-		expect(() => claimGitHubTicket({ runner: replayRunner([DEFECT]), ref: defectRef })).toThrow(/retry will not fix/);
+		expect(() => claimGitHubTicket({ runner: replayRunner([DEFECT]), ref: defectRef, checkout: HERE })).toThrow(GitHubClaimError);
+		expect(() => claimGitHubTicket({ runner: replayRunner([DEFECT]), ref: defectRef, checkout: HERE })).toThrow(/retry will not fix/);
 	});
 
 	test("aborts on an outage too, and only the message tells the two apart", () => {
-		expect(() => claimGitHubTicket({ runner: outageRunner, ref: githubRef() })).toThrow(GitHubClaimError);
-		expect(() => claimGitHubTicket({ runner: outageRunner, ref: githubRef() })).toThrow(/could not be reached/);
+		expect(() => claimGitHubTicket({ runner: outageRunner, ref: githubRef(), checkout: HERE })).toThrow(GitHubClaimError);
+		expect(() => claimGitHubTicket({ runner: outageRunner, ref: githubRef(), checkout: HERE })).toThrow(/could not be reached/);
 	});
 
 	test("carries the failure's own words, so the message is not only our reading of it", () => {
-		expect(() => claimGitHubTicket({ runner: outageRunner, ref: githubRef() })).toThrow(/error connecting to/);
+		expect(() => claimGitHubTicket({ runner: outageRunner, ref: githubRef(), checkout: HERE })).toThrow(/error connecting to/);
 	});
 
 	// A literal rather than a built pattern: the repository path is interpolated from the tree spec, and a `.` in
 	// a renamed tree would become a wildcard that passes on a message naming a different repository.
 	test("names the ticket it failed to claim, since the run stops here and nothing downstream will", () => {
 		try {
-			claimGitHubTicket({ runner: outageRunner, ref: githubRef() });
+			claimGitHubTicket({ runner: outageRunner, ref: githubRef(), checkout: HERE });
 			throw new Error("the claim was expected to abort");
 		} catch (cause) {
 			expect(cause).toBeInstanceOf(GitHubClaimError);
@@ -105,19 +109,19 @@ describe("claimGitHubTicket, when the write fails", () => {
 	// here, since the run halts with a worktree already made, so it must not abort on a bare colon.
 	test("falls back to stdout when a failure wrote nothing to stderr", () => {
 		const runner = fakeRunner({ code: 1, stdout: "could not write to that repository\n", stderr: "" });
-		expect(() => claimGitHubTicket({ runner, ref: githubRef() })).toThrow(/could not write to that repository/);
+		expect(() => claimGitHubTicket({ runner, ref: githubRef(), checkout: HERE })).toThrow(/could not write to that repository/);
 	});
 
 	// Nothing is left to quote, so the code has to be the evidence rather than the message trailing off after its
 	// colon. Exit 1 rather than a made-up code: that is what a command exiting non-zero in silence really gives.
 	test("names the exit code when a failure wrote nothing at all", () => {
 		const runner = fakeRunner({ code: 1, stdout: "", stderr: "" });
-		expect(() => claimGitHubTicket({ runner, ref: githubRef() })).toThrow(/no output, exit 1/);
+		expect(() => claimGitHubTicket({ runner, ref: githubRef(), checkout: HERE })).toThrow(/no output, exit 1/);
 	});
 
 	test("collapses a multi-line failure, so one abort is one line", () => {
 		try {
-			claimGitHubTicket({ runner: outageRunner, ref: githubRef() });
+			claimGitHubTicket({ runner: outageRunner, ref: githubRef(), checkout: HERE });
 			throw new Error("the claim was expected to abort");
 		} catch (cause) {
 			expect(cause).toBeInstanceOf(GitHubClaimError);
@@ -127,41 +131,20 @@ describe("claimGitHubTicket, when the write fails", () => {
 });
 
 describe("claimGitHubTicket, before it writes anything", () => {
-	test("refuses a reference belonging to another tracker", () => {
-		expect(() => claimGitHubTicket({ runner: unreachable, ref: githubRef({ tracker: "gitlab" }) })).toThrow(
-			GitHubClaimError,
-		);
+	// The one refusal left here. The four this block used to hold — another tracker, no repository, a path that is
+	// not owner-and-repository, and a host that is not GitHub's — are shapes `GitHubTicketRef` cannot hold, so
+	// there is no value to hand this function that would trip them. ADR-0038 records the collapse and
+	// `ticket-ref.test.ts` is where each refusal moved to; the padded-key and flag-shaped-key pair moved there too.
+	test("refuses a ticket in another repository, rather than claiming there while the work happens here", () => {
+		expect(() =>
+			claimGitHubTicket({ runner: unreachable, ref: githubRef(WRITE_TARGET, "example/elsewhere"), checkout: HERE }),
+		).toThrow(GitHubClaimError);
 	});
 
-	test("refuses a reference carrying no repository, which an issue number means nothing without", () => {
-		expect(() => claimGitHubTicket({ runner: unreachable, ref: githubRef({ repo: null }) })).toThrow(/repository/);
-	});
-
-	test("refuses a repository path that is not one owner and one repository", () => {
-		expect(() => claimGitHubTicket({ runner: unreachable, ref: githubRef({ repo: "group/sub/project" }) })).toThrow(
-			GitHubClaimError,
-		);
-		expect(() => claimGitHubTicket({ runner: unreachable, ref: githubRef({ repo: "lonely" }) })).toThrow(GitHubClaimError);
-	});
-
-	test("refuses a reference whose host is not GitHub's, rather than writing to that path on GitHub", () => {
-		expect(() => claimGitHubTicket({ runner: unreachable, ref: githubRef({ host: "github.example.test" }) })).toThrow(
-			GitHubClaimError,
-		);
-	});
-
-	test("does not reach the CLI with a key the CLI would read as a flag", () => {
-		expect(() => claimGitHubTicket({ runner: unreachable, ref: githubRef({ key: "--help" }) })).toThrow(
-			CommandBuilderError,
-		);
-	});
-
-	// The reachable one, and the one ADR-0032 calls the safety rather than an assertion: `resolveTicketRef` mints a
-	// padded key (issue 56) where it can never mint a flag-shaped one. Driven through the claim rather than the
-	// builder alone, so the refusal is shown to land before any call goes out.
-	test("does not reach the CLI with a zero-padded key, which would claim a different issue", () => {
-		expect(() => claimGitHubTicket({ runner: unreachable, ref: githubRef({ key: `0${WRITE_TARGET}` }) })).toThrow(
-			CommandBuilderError,
-		);
+	// Both sides were folded at construction, so a clone spelled in another case is this repository rather than a
+	// different one — the fold that used to happen at this comparison.
+	test("accepts a reference whose repository was spelled in another case", () => {
+		const runner = replayRunner([CLAIM]);
+		expect(() => claimGitHubTicket({ runner, ref: githubRef(WRITE_TARGET, REPO.toUpperCase()), checkout: HERE })).not.toThrow();
 	});
 });

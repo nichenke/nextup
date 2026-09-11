@@ -14,7 +14,6 @@ describe("debug-ref", () => {
 		expect(result.exitCode).toBe(0);
 		expect(JSON.parse(result.stdout.toString())).toEqual({
 			tracker: "jira",
-			repo: null,
 			host: null,
 			key: "TEST-42",
 		});

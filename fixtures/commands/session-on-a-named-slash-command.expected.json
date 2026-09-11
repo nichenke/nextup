@@ -4,7 +4,6 @@
 		"ref": {
 			"tracker": "github",
 			"repo": "example/repo",
-			"host": null,
 			"key": "1"
 		},
 		"slashCommand": "/triage"

@@ -5,7 +5,6 @@ import {
 	WORKSPACE_HOST,
 	formatCommand,
 	isSlashCommand,
-	requireCanonicalIssueKey,
 } from "./command-builders";
 import type { BlockedState } from "./effective-blockedness";
 import { GitHubAdapterError, isReadableLimit, readGitHubTicket, readGitHubTicketSet } from "./github-adapter";
@@ -17,7 +16,7 @@ import {
 	type LabelFilterSpec,
 	compileLabelFilter,
 } from "./label-filter";
-import { resolveOriginRemote } from "./git-remote";
+import { type CheckoutIdentity, type RefuseCheckout, resolveCheckoutIdentity } from "./checkout-identity";
 import { LaunchError, launch, planLaunch, requireSessionBinary, requireWorkspaceHost } from "./launcher";
 import { decideOverride } from "./override";
 import { type OverrideAnswer, forcedCaveats, overrideJson, renderForced, renderOverride, renderRefusal } from "./override-output";
@@ -33,15 +32,7 @@ import {
 } from "./selection-output";
 import { SelectionError, select } from "./selector";
 import type { Claim, Ticket } from "./ticket";
-import {
-	GITHUB_HOST,
-	type TicketRef,
-	TicketRefError,
-	formatTicketRef,
-	githubTicketTarget,
-	isGitHubHost,
-	resolveTicketRef,
-} from "./ticket-ref";
+import { type TicketRef, TicketRefError, formatTicketRef, githubTicketTarget, resolveTicketRef } from "./ticket-ref";
 import { WorktreeError, type WorktreeOutcome, ensure } from "./worktree";
 import { renderWorktree } from "./worktree-output";
 
@@ -179,6 +170,24 @@ cycle reported beside one is still 0, and a set with nothing to recommend is 1 w
 merely blocked or deadlocked. A wrapper deciding whether to retry has to read the "deadlock: " lines.
 `;
 
+/**
+ * The repository this run is standing in, asked for on demand and resolved at most once.
+ *
+ * A function rather than a value, because not every run needs one: `--help` and a usage error answer without
+ * touching git, and a `gh:<owner>/<name>#12` typed in a directory with no remote is still a reference this can
+ * refuse on its own terms. A memo rather than a second resolution, so that the claim and the check that came
+ * before it cannot disagree about where "here" is — ADR-0039.
+ *
+ * `refuse` belongs to the caller because the class decides the recovery: a failed identification is a
+ * `StartError` where a start was being attempted and a usage error where a reference was being parsed.
+ */
+type Checkout = (refuse: RefuseCheckout) => CheckoutIdentity;
+
+function checkoutResolver(deps: CliDeps): Checkout {
+	let resolved: CheckoutIdentity | null = null;
+	return (refuse) => (resolved ??= resolveCheckoutIdentity(deps.runner, refuse));
+}
+
 export function run(argv: readonly string[], deps: CliDeps): CliResult {
 	if (asksForHelp(argv)) return { code: 0, stdout: USAGE, stderr: "" };
 
@@ -189,15 +198,17 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 		return usageError(cause);
 	}
 
+	const checkout = checkoutResolver(deps);
+
 	let named: TicketRef | null;
 	try {
 		// Resolved here rather than in `parse`, which is handed no runner: a bare `gh:12` is resolved against the
 		// working directory's remote, and a pasted URL against the tracker CLIs' authenticated hosts.
-		named = options.named === null ? null : resolveTicketRef(options.named, { runner: deps.runner });
+		named = options.named === null ? null : resolveTicketRef(options.named, { runner: deps.runner, checkout });
 	} catch (cause) {
 		return usageError(cause);
 	}
-	if (named !== null) return runNamed(named, options, deps);
+	if (named !== null) return runNamed(named, options, deps, checkout);
 
 	let filter: LabelFilter;
 	try {
@@ -206,9 +217,18 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 		return usageError(cause);
 	}
 
+	// Resolved before the read rather than left to the adapter's own fallback, so that the set this ranks and the
+	// claim it ends with are provably about one repository: both take this value. ADR-0039.
+	let here: CheckoutIdentity;
+	try {
+		here = checkout((reason) => new StartError(`a run ranks the tickets of the repository it is standing in, and ${reason}`));
+	} catch (cause) {
+		return failedStart(cause);
+	}
+
 	let answer: Answer;
 	try {
-		const read = readGitHubTicketSet({ runner: deps.runner, limit: options.limit });
+		const read = readGitHubTicketSet({ runner: deps.runner, limit: options.limit, repo: here.repo });
 		const selection = select({
 			tickets: read.tickets,
 			graph: read.graph,
@@ -223,7 +243,7 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 
 	let start: StartOutcome;
 	try {
-		start = startWork(answer, options, deps);
+		start = startWork(answer, options, deps, checkout);
 	} catch (cause) {
 		return failedStart(cause);
 	}
@@ -245,27 +265,22 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
  *
  * Neither a refusal nor a failed read is ever the 1 that means nothing to recommend, for the reason `USAGE` gives.
  */
-function runNamed(ref: TicketRef, options: Options, deps: CliDeps): CliResult {
+function runNamed(ref: TicketRef, options: Options, deps: CliDeps, checkout: Checkout): CliResult {
 	// Before the print branch too, because what that prints is a line to paste and run in this checkout.
 	try {
-		requireTicketInThisCheckout(ref, deps);
+		requireTicketInThisCheckout(ref, checkout);
 	} catch (cause) {
 		return failedStart(cause);
 	}
 
 	if (options.printCommand) {
-		// Starts nothing, creates nothing and claims nothing, so it reads no tracker — ADR-0037. The reference is
-		// still checked, because "reads nothing" is not "accepts anything": without this, a `jira:` reference or a
-		// padded key prints a command every other path refuses, and the refusal is pure and reads nothing either.
+		// Starts nothing, creates nothing and claims nothing, so it reads no tracker — ADR-0037. The tracker is
+		// still checked, because "reads nothing" is not "accepts anything": without this, a `jira:` reference
+		// prints a command every other path refuses, and the refusal is pure and reads nothing either. A padded
+		// key needs no check here, having been refused where the reference was built.
 		const target = githubTicketTarget(ref);
 		if (target.kind === "refused") return usageError(new CliError(target.reason));
-		try {
-			requireCanonicalIssueKey(target.key);
-			return namedResult({ kind: "printed", command: planLaunch({ ref, slashCommand: options.slashCommand }).command }, null, options);
-		} catch (cause) {
-			if (cause instanceof CommandBuilderError) return usageError(new CliError(cause.message));
-			return failedStart(cause);
-		}
+		return namedResult({ kind: "printed", command: planLaunch({ ref, slashCommand: options.slashCommand }).command }, null, options);
 	}
 
 	let answer: OverrideAnswer;
@@ -273,11 +288,6 @@ function runNamed(ref: TicketRef, options: Options, deps: CliDeps): CliResult {
 		const read = readGitHubTicket({ runner: deps.runner, ref });
 		answer = { override: decideOverride({ read, force: options.force }), readDegraded: read.degraded };
 	} catch (cause) {
-		// A key the read's own argv will not take is a mistyped reference here, where on the ranking path it is an
-		// internal inconsistency: this one was typed rather than read off a tracker. So the usage goes beside it
-		// instead of the stack ADR-0032 keeps for the claim, which is reached only by the other route.
-		// nichenke/nextup issue 56 owns the refusal itself, at the resolver that mints such a key.
-		if (cause instanceof CommandBuilderError) return usageError(new CliError(cause.message));
 		return failedAnswer(cause);
 	}
 
@@ -303,6 +313,7 @@ function runNamed(ref: TicketRef, options: Options, deps: CliDeps): CliResult {
 			},
 			options,
 			deps,
+			checkout,
 		);
 	} catch (cause) {
 		return failedStart(cause);
@@ -392,12 +403,12 @@ export type StartOutcome =
  * is written; and a claim whose key is not a canonical issue number, which is after the worktree exists.
  * `startedNothing` has why it stays unwrapped there rather than gaining the worktree path.
  */
-function startWork(answer: Answer, options: Options, deps: CliDeps): StartOutcome {
+function startWork(answer: Answer, options: Options, deps: CliDeps, checkout: Checkout): StartOutcome {
 	const pick = answer.selection.pick;
 	if (pick === null) return { kind: "nothing-to-start" };
 	// `claim: null` is a fact rather than a default: `place` puts a claimed ticket outside the candidate set, so a
 	// pick that reached here carried no claim when it was read.
-	return startPick({ ticket: pick, blocked: pick.blocked, caveats: answerCaveats(answer), claim: null, named: false }, options, deps);
+	return startPick({ ticket: pick, blocked: pick.blocked, caveats: answerCaveats(answer), claim: null, named: false }, options, deps, checkout);
 }
 
 /**
@@ -426,20 +437,28 @@ interface StartPick {
 }
 
 /** The refusals, the gate, and then the three writes. `startWork`'s own comment is the contract for all of it. */
-function startPick(pick: StartPick, options: Options, deps: CliDeps): StartedSomething {
+function startPick(pick: StartPick, options: Options, deps: CliDeps, checkout: Checkout): StartedSomething {
 	const ref = pick.ticket.ref;
 	// Built first, so the one input that can fail without touching anything fails while that is still true.
 	const { command } = planLaunch({ ref, slashCommand: options.slashCommand });
 	if (options.printCommand) return { kind: "printed", command };
+
+	// Narrowed here rather than at the claim, so that a tracker with no adapter is refused before the worktree
+	// exists rather than after it. Neither path can currently deliver one — the ranked pick comes from the GitHub
+	// adapter and the named one from a read that refuses anything else — so this states the requirement the write
+	// sequence has rather than catching a live case.
+	const target = githubTicketTarget(ref);
+	if (target.kind === "refused") throw new StartError(target.reason);
 
 	requireSomeoneToAsk(options, deps);
 	requireWorkspaceHost(deps.runner);
 	requireSessionBinary(deps.runner);
 	if (!approved(pick, options, deps)) return { kind: "declined", ref };
 
+	const here = checkout((reason) => new StartError(`${formatTicketRef(ref)} cannot be claimed, because ${reason}`));
 	const worktree = ensure({ runner: deps.runner, repo: deps.cwd, ticket: pick.ticket });
 	try {
-		claimGitHubTicket({ runner: deps.runner, ref });
+		claimGitHubTicket({ runner: deps.runner, ref: target.ref, checkout: here });
 		launch({ runner: deps.runner, ref, command, worktree: worktree.path });
 		return { kind: "requested", ref, worktree, command };
 	} catch (cause) {
@@ -741,37 +760,31 @@ function parse(argv: readonly string[]): Options {
  * worktree and the session are made here, which is the outcome `CliDeps.cwd` exists to prevent. The branch name
  * carries only the key besides, so the worktree could collide with this repository's own ticket of that number.
  *
- * A bare short form can never trip this, because it was resolved from this remote; an explicit `repo#number` and a
- * pasted URL can. Checked for `--print-command` too, which prints a line meant to be pasted and run.
+ * A bare short form can never trip this, because it was resolved from this same checkout; an explicit
+ * `repo#number` and a pasted URL can. Checked for `--print-command` too, which prints a line meant to be pasted
+ * and run.
+ *
+ * The host half of this check is gone, and its absence is the point: a `GitHubTicketRef` cannot carry another
+ * host, and a `CheckoutIdentity` cannot be resolved from a remote on one. ADR-0038 and ADR-0039 have the pair.
  *
  * A `StartError` rather than a usage error, though a reference is what triggers it: the remedy is to run the
  * command somewhere else, not to spell the line differently, and the usage beside it would bury that.
  *
- * @throws StartError when the reference names another repository, and when the remote cannot be resolved at all —
- * the second because a reference that may or may not belong here is not one to start work on.
+ * @throws StartError when the reference names another repository, and when this checkout cannot be identified at
+ * all — the second because a reference that may or may not belong here is not one to start work on.
  */
-function requireTicketInThisCheckout(ref: TicketRef, deps: CliDeps): void {
-	if (ref.repo === null) return;
-	const origin = resolveOriginRemote(deps.runner);
-	if (origin === null) {
-		throw new StartError(
-			`${formatTicketRef(ref)} names a repository, and this checkout's own remote could not be resolved to compare it against, so nothing was started`,
-		);
-	}
-	// The host as well as the path, because the path alone leaves the split reachable by another route: a checkout
-	// whose origin is a GitLab or Enterprise host carrying this same `owner/repo` would match on the path while the
-	// claim still went to github.com. `resolveRepoScopedShort` refuses that for a bare `gh:12`, which leaves the
-	// explicit `repo#number` and a pasted URL to be refused here.
-	if (ref.tracker === "github" && !isGitHubHost(origin.host)) {
-		throw new StartError(
-			`${formatTicketRef(ref)} is a ${GITHUB_HOST} ticket and this checkout's remote is on ${origin.host}, so nothing was started — the claim would be written to a repository of the same name somewhere else entirely.`,
-		);
-	}
-	// Compared with case folded away, because a tracker resolves `owner/repo` case-insensitively while a remote
-	// records whatever was typed — and a clone spelled in another case is this repository, not a different one.
-	if (origin.repo.toLowerCase() === ref.repo.toLowerCase()) return;
+function requireTicketInThisCheckout(ref: TicketRef, checkout: Checkout): void {
+	// Only GitHub's, because only GitHub's can be started: a reference on any other tracker is refused a moment
+	// later by `githubTicketTarget`, which says why in terms of the tracker rather than of the repository.
+	if (ref.tracker !== "github") return;
+	const here = checkout(
+		(reason) => new StartError(`${formatTicketRef(ref)} names a repository, and ${reason}, so nothing was started`),
+	);
+	// A plain `===`: both paths were folded to lower case where they were built, because GitHub resolves
+	// `owner/repo` case-insensitively while a remote records whatever was typed.
+	if (ref.repo === here.repo) return;
 	throw new StartError(
-		`${formatTicketRef(ref)} is in ${ref.repo} and this checkout is ${origin.repo}, so nothing was started — the worktree and the session would be made here while the claim landed there. Run this inside ${ref.repo} instead.`,
+		`${formatTicketRef(ref)} is in ${ref.repo} and this checkout is ${here.repo}, so nothing was started — the worktree and the session would be made here while the claim landed there. Run this inside ${ref.repo} instead.`,
 	);
 }
 

@@ -88,10 +88,11 @@ const REDIRECTING_GH_VARIABLE = "GH_HOST";
 /**
  * Refuses a `gh` command when the environment names a host for it.
  *
- * Refused rather than accommodated, because GitHub Enterprise is out of scope: the read adapter already turns away
- * an origin remote on any other host, so a set `GH_HOST` is either redundant or points somewhere this tool does not
- * work. Accommodating it instead means carrying a host into every repository argument — the preflight, the reads,
- * the write, the release and its verification — and one missed call site puts a write on the wrong server at exit 0.
+ * Refused rather than accommodated, because GitHub Enterprise is out of scope — ADR-0038 has why, and why that
+ * boundary is a property of the reference types rather than a rule stated in several places. A set `GH_HOST` is
+ * therefore either redundant or points somewhere this tool does not work. Accommodating it instead means carrying a
+ * host into every repository argument — the preflight, the reads, the write, the release and its verification — and
+ * one missed call site puts a write on the wrong server at exit 0.
  *
  * Refused whatever it names, including GitHub's own host. Comparing it would need `isGitHubHost`, which lives with
  * the reference types that import this module, so the check would have to move away from the seam it protects to

@@ -91,9 +91,11 @@ sandbox-safe path the spec calls it — usable with no credentials and no networ
 cannot tell you the ticket is blocked. The checks gate writes, and this writes nothing.
 
 Reading nothing is not accepting anything, though. The reference is still resolved and put through
-`githubTicketTarget` and the key guard: without that, this is the one path that prints a session command
-for a tracker there is no adapter for, or for a padded key every other path refuses — and what it prints
-is meant to be pasted and run.
+`githubTicketTarget`: without that, this is the one path that prints a session command for a tracker
+there is no adapter for — and what it prints is meant to be pasted and run. The key guard that stood
+beside it is gone from this path because a padded key no longer survives resolution at all
+([0038](./0038-enterprise-is-out-of-scope-and-out-of-scope-means-unrepresentable.md)); the refusal is
+earlier rather than absent.
 
 So "no network" is the short form's property, not the flag's. Resolving reads this checkout's git remote,
 and a pasted URL asks the tracker CLIs which hosts they are authenticated to, because that is what

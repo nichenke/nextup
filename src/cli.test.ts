@@ -952,9 +952,9 @@ describe("starting a ticket named on the command line", () => {
 		const { runner, of } = starting("ticket-view");
 		const result = run([`gh:${recordedIssue(githubRecording("ticket-view"))}`, "--yes"], deps(runner));
 		expect(result.code).toBe(0);
-		// Consulted rather than counted: the remote answers twice here, once to resolve the bare form and once to
-		// check the ticket belongs to this checkout, and neither is a cost worth pinning a number to.
-		expect(of("get-url").length).toBeGreaterThan(0);
+		// Once, and the count is the assertion: resolving the bare form, checking the ticket belongs here, and the
+		// claim all take the same value, and a second reading is what would let two of them disagree. ADR-0039.
+		expect(of("get-url")).toHaveLength(1);
 		expect(of("issue", "view")).toHaveLength(1);
 	});
 

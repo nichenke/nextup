@@ -23,7 +23,7 @@ function tempDir(prefix: string): string {
 
 type Subject = Pick<Ticket, "ref" | "title" | "labels">;
 
-const github: TicketRef = { tracker: "github", repo: "example/repo", host: null, key: "8" };
+const github: TicketRef = { tracker: "github", repo: "example/repo", key: "8" };
 
 function ticket(over: Partial<Subject> = {}): Subject {
 	return { ref: github, title: "Worktree ensure and branch naming", labels: [], ...over };
@@ -50,7 +50,7 @@ describe("branchName", () => {
 	});
 
 	test("lowercases a key carrying letters rather than leaving a branch half shouted", () => {
-		const jira: TicketRef = { tracker: "jira", repo: null, host: null, key: "ABC-7" };
+		const jira: TicketRef = { tracker: "jira", host: null, key: "ABC-7" };
 		expect(branchName(ticket({ ref: jira }))).toBe("feature/worktree-ensure-and-branch-naming-abc-7");
 	});
 
@@ -72,15 +72,15 @@ describe("branchName", () => {
 	});
 
 	test("refuses a key a branch name cannot spell, rather than letting two tickets share one branch", () => {
-		const cyrillic: TicketRef = { tracker: "jira", repo: null, host: null, key: "ЖУК-7" };
-		const other: TicketRef = { tracker: "jira", repo: null, host: null, key: "ЛИС-7" };
+		const cyrillic: TicketRef = { tracker: "jira", host: null, key: "ЖУК-7" };
+		const other: TicketRef = { tracker: "jira", host: null, key: "ЛИС-7" };
 
 		expect(kindOf(() => branchName(ticket({ ref: cyrillic })))).toBe("unnameable-ticket");
 		expect(kindOf(() => branchName(ticket({ ref: other })))).toBe("unnameable-ticket");
 	});
 
 	test("refuses a ticket with no key, which would name a branch git will not accept", () => {
-		const keyless: TicketRef = { tracker: "jira", repo: null, host: null, key: "" };
+		const keyless: TicketRef = { tracker: "jira", host: null, key: "" };
 
 		expect(kindOf(() => branchName({ ref: keyless, title: "—— ?? ——", labels: [] }))).toBe("unnameable-ticket");
 		expect(kindOf(() => branchName(ticket({ ref: keyless })))).toBe("unnameable-ticket");
@@ -98,20 +98,20 @@ describe("branchName", () => {
 
 	test("keeps a key longer than the title limit whole, rather than refusing it as unspellable", () => {
 		const long = "a".repeat(60);
-		const ref: TicketRef = { tracker: "jira", repo: null, host: null, key: long };
+		const ref: TicketRef = { tracker: "jira", host: null, key: long };
 
 		expect(branchName(ticket({ ref }))).toBe(`feature/worktree-ensure-and-branch-naming-${long}`);
 	});
 
 	test("keeps an underscore, which git accepts and dropping refused keys for no reason", () => {
-		const ref: TicketRef = { tracker: "jira", repo: null, host: null, key: "PROJ_12" };
+		const ref: TicketRef = { tracker: "jira", host: null, key: "PROJ_12" };
 
 		expect(branchName(ticket({ ref, title: "Reader" }))).toBe("feature/reader-proj_12");
 	});
 
 	test("lets a key through whose only change is case, which is every real tracker key", () => {
 		for (const key of ["8", "123", "ABC-7", "abc-7", "PROJ-1234", "PROJ_12", "A_B_C-9"]) {
-			const ref: TicketRef = { tracker: "jira", repo: null, host: null, key };
+			const ref: TicketRef = { tracker: "jira", host: null, key };
 			expect(() => branchName(ticket({ ref }))).not.toThrow();
 		}
 	});
@@ -712,7 +712,7 @@ describe("ensure", () => {
 	});
 
 	test("refuses a ticket that cannot name a branch before asking git anything", () => {
-		const cyrillic: TicketRef = { tracker: "jira", repo: null, host: null, key: "ЖУК-7" };
+		const cyrillic: TicketRef = { tracker: "jira", host: null, key: "ЖУК-7" };
 		const runner: Runner = (argv) => {
 			throw new Error(`nothing should run: ${argv.join(" ")}`);
 		};
