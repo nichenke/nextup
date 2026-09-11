@@ -12,7 +12,7 @@ Run this from the repository the user is working in — the tool reads the track
 points at, so the working directory is what chooses the ticket set:
 
 ```sh
-bun "${CLAUDE_PLUGIN_ROOT:?}/bin/nextup.ts" --print-command
+bun "${CLAUDE_PLUGIN_ROOT}/bin/nextup.ts" --print-command
 ```
 
 Run it exactly once. It writes nothing: no claim, no worktree, no session.
@@ -52,7 +52,7 @@ Branch on the status, not on what the text looks like.
 Only once the user has agreed. Start the ticket the preview named, by its reference:
 
 ```sh
-bun "${CLAUDE_PLUGIN_ROOT:?}/bin/nextup.ts" <ticket> --yes
+bun "${CLAUDE_PLUGIN_ROOT}/bin/nextup.ts" <ticket> --yes
 ```
 
 `<ticket>` is the reference the preview printed — or the one it named as the runner-up, if that is the
