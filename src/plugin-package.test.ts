@@ -63,13 +63,13 @@ describe("the repository ships an invokable plugin", () => {
 		expect(existsSync(join(root, "skills", "nextup", "SKILL.md"))).toBe(true);
 	});
 
-	// `:?` rather than a bare expansion. Unset, `bun /bin/nextup.ts` resolves against the working
-	// directory rather than the filesystem root, so standing at the root of any checkout of this
-	// repository it runs that copy at exit 0 and reports a pick from the wrong branch -- measured, and
-	// measured again with no package.json anywhere, which is what rules out package-root resolution.
-	// `:?` refuses instead, and the quotes carry a path with a space in it.
-	test("the command reaches the entry point through the plugin root, and refuses an unset one", () => {
-		expect(skill()).toContain('"${CLAUDE_PLUGIN_ROOT:?}/bin/nextup.ts"');
+	// Claude Code substitutes this exact token into the skill's markdown; it is not a shell variable, so
+	// any suffixed spelling passes through untouched and expands to nothing. `${CLAUDE_PLUGIN_ROOT:?}`
+	// shipped once and made the skill unrunnable (issue 71). Prose is rewritten too, so the token cannot
+	// be written as documentation and a sentinel testing for it reads as tripped whenever it worked.
+	test("the entry point is reached through the token that gets substituted", () => {
+		expect(skill()).toContain('"${CLAUDE_PLUGIN_ROOT}/bin/nextup.ts"');
+		expect(skill()).not.toMatch(/\$\{CLAUDE_PLUGIN_ROOT[^}]/);
 	});
 
 	// Run rather than stat: a file that exists but does not parse is the same broken install as a
@@ -85,8 +85,8 @@ describe("the repository ships an invokable plugin", () => {
 	// third invocation anywhere in the file, fails here. ADR-0038 has why neither may ship.
 	test("the command ships two invocations: a preview that writes nothing and a start that names a ticket", () => {
 		expect(entryPointLines(skill())).toEqual([
-			'bun "${CLAUDE_PLUGIN_ROOT:?}/bin/nextup.ts" --print-command',
-			'bun "${CLAUDE_PLUGIN_ROOT:?}/bin/nextup.ts" <ticket> --yes',
+			'bun "${CLAUDE_PLUGIN_ROOT}/bin/nextup.ts" --print-command',
+			'bun "${CLAUDE_PLUGIN_ROOT}/bin/nextup.ts" <ticket> --yes',
 		]);
 	});
 
