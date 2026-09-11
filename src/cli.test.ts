@@ -34,10 +34,10 @@ function terminal(answer = true): { confirm: CliDeps["confirm"]; questions: stri
 }
 
 /**
- * A primary checkout that is deliberately not there. `ensure` asks the filesystem whether the worktree path
- * is occupied and whether the root is reached through a symlink, so the path has to be one where both
- * answers are settled — absent settles them, and a real temp directory would not: on macOS every path under
- * one is reached through a symlinked `/var`, which `ensure` refuses.
+ * A primary checkout that is deliberately not there. `ensure` asks the filesystem what is at the worktree
+ * path and resolves the root against it, so the path has to be one whose answers do not depend on the
+ * machine the suite runs on — absent settles both, where a real temp directory would leave what is found
+ * there up to whatever a previous run or another suite left behind.
  */
 const PRIMARY = "/nextup-not-a-real-checkout";
 

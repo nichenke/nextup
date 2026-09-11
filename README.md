@@ -195,8 +195,8 @@ then the title as a slug, then the ticket's key last. It goes under
 `.worktrees/` in the primary checkout unless a caller names another root, and never gets removed —
 [ADR-0013](./docs/adr/0013-worktrees-go-under-the-primary-checkout.md) has why there and
 [ADR-0005](./docs/adr/0005-worktree-removal-stays-unimplemented.md) why nothing cleans up. A named root is
-resolved to the spelling git registers a worktree under, so a root under a symlinked directory — which on
-macOS is every root under `/tmp`, `/var` or `$TMPDIR` — works rather than being refused; the worktree
+resolved to the spelling git registers a worktree under, so a root under a symlinked directory works
+rather than being refused; the worktree
 directory itself still may not be a symlink, and a root that is the primary checkout or sits inside the git
 directory is refused. [ADR-0041](./docs/adr/0041-a-worktree-root-is-resolved-and-only-the-worktree-refuses-a-link.md)
 has why those and not more. A primary

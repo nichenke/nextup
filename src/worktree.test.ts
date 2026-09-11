@@ -697,7 +697,7 @@ describe("ensure", () => {
 		symlinkSync(join(outer, "a"), join(outer, "b"));
 		const git = stubGit(state);
 
-		// Not absence: the loop answers `ELOOP`, and read as absence it would be taken as a root to create.
+		// `ELOOP`, not `ENOENT` — and only absence may be read as a root to create.
 		expect(() => ensure({ runner: git.runner, repo, ticket: READER, root: join(outer, "a", "trees") })).toThrow(
 			/could not be resolved/,
 		);
@@ -709,7 +709,7 @@ describe("ensure", () => {
 		const git = stubGit(state);
 
 		expect(() => ensure({ runner: git.runner, repo, ticket: READER, root: join(repo, "not-a-directory", "trees") })).toThrow(
-			/could not be resolved/,
+			/could not be inspected/,
 		);
 	});
 
@@ -848,7 +848,7 @@ function realRepo(): string {
 	return realpathSync(root);
 }
 
-/** Where git says this repository's worktrees are, which is the spelling `ensure` has to compute. */
+/** The spelling `ensure` has to compute, straight from git. */
 function registeredPaths(repo: string): readonly string[] {
 	return parseWorktreeList(defaultRunner([...worktreeListCommand(repo)]).stdout).map((one) => one.path);
 }
@@ -1011,8 +1011,6 @@ describe("ensure against real git", () => {
 		const root = join(outer, "link", "trees");
 		const first = ensure({ runner: defaultRunner, repo, ticket: READER, root });
 
-		// The shape that made every absolute root under a macOS `/tmp`, `/var` or `$TMPDIR` unusable: the
-		// container is not itself a link and does not exist yet, but an ancestor is one.
 		expect(first.path).toBe(join(outer, "real", "trees", READER_LEAF));
 		expect(registeredPaths(repo)).toContain(first.path);
 		expect(ensure({ runner: defaultRunner, repo, ticket: READER, root }).kind).toBe("attached");
@@ -1027,9 +1025,22 @@ describe("ensure against real git", () => {
 		const root = `${join(outer, "link")}${sep}..`;
 		const first = ensure({ runner: defaultRunner, repo, ticket: READER, root });
 
-		// Collapsing `..` lexically would name `outer`; git resolves the link first and registers under
-		// `away`, and a root whose spelling disagrees with git's is the whole failure this guards.
+		// Collapsing `..` lexically would name `outer`; git resolves the link first and registers under `away`.
 		expect(first.path).toBe(join(outer, "away", READER_LEAF));
+		expect(registeredPaths(repo)).toContain(first.path);
+	});
+
+	test("resolves a symlink that follows a segment which is not there, rather than stopping at the first gap", () => {
+		const repo = realRepo();
+		const outer = tempDir("nextup-link-after-gap-");
+		mkdirSync(join(outer, "real"), { recursive: true });
+		symlinkSync(join(outer, "real"), join(outer, "link"));
+		const root = `${outer}${sep}nope${sep}..${sep}link${sep}trees`;
+		const first = ensure({ runner: defaultRunner, repo, ticket: READER, root });
+
+		// `nope/..` cancels out and hands `link` back to a walk that has to keep resolving; taking the
+		// remainder as written instead leaves the link in the path and git registers under its target.
+		expect(first.path).toBe(join(outer, "real", "trees", READER_LEAF));
 		expect(registeredPaths(repo)).toContain(first.path);
 	});
 

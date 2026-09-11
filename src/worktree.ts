@@ -541,48 +541,45 @@ function adoptableFromOrigin(runner: Runner, repo: string, branch: string): bool
 }
 
 /**
- * `path` with the symlinks along it resolved, which is the spelling git registers a worktree under —
- * ADR-0041 has why that is computed rather than refused, and why the worktree's own leaf is still refused.
+ * `path`, which must be absolute, with the symlinks along it resolved — the spelling git registers a
+ * worktree under. ADR-0041 has why that is computed rather than refused, why the worktree's own leaf is
+ * still refused, and the measurements behind both paragraphs below.
  *
- * Walked one segment at a time from the filesystem root, resolving each against what the segments before
- * it resolved to. Handing the whole path to `realpathSync` instead gives a different answer: Bun and Node
- * both collapse a `..` lexically before resolving, so `<link>/..` names the link's own parent, while
- * `realpath(3)`, Python and git all name the target's parent. Measured on both runtimes against a C
- * `realpath` on macOS 25.4. Fed a segment at a time, `realpathSync` never sees a `..` and the two agree.
+ * Do not replace this with one `realpathSync` call over the whole path. Bun resolves `<link>/..` to the
+ * link's own parent, where `realpath(3)` and `git worktree add` both name the target's parent, and Bun's
+ * `realpathSync.native` agrees with Bun rather than with git — so there is no escape hatch in the API.
+ * Fed one segment at a time, `realpathSync` never sees a `..` and the two agree.
  *
- * Stops at the first segment that is not there, since a root that does not exist yet is the ordinary case,
- * and appends the rest with `join`, which collapses a `.` or `..` among segments that do not exist —
- * matching git, which likewise resolves as far as it can and takes the remainder as written.
+ * A segment that is not there is appended and the walk continues, rather than the remainder being taken
+ * as written: a `..` can cancel that segment out and hand a symlink back to a walk that then has to
+ * resolve it. git does the same.
  */
 function canonical(path: string): string {
-	const segments = path.split(sep);
 	let at: string = sep;
-	for (const [index, segment] of segments.entries()) {
+	for (const segment of path.split(sep)) {
 		if (segment === "" || segment === ".") continue;
 		if (segment === "..") {
 			at = dirname(at);
 			continue;
 		}
-		const real = resolved(join(at, segment));
-		if (real === undefined) return join(at, ...segments.slice(index));
-		at = real;
+		const candidate = join(at, segment);
+		at = resolved(candidate) ?? candidate;
 	}
 	return at;
 }
 
-/** `path` resolved, or `undefined` where it is not there. @throws WorktreeError for every other answer. */
+/**
+ * `path` resolved, or `undefined` where nothing is there at all.
+ *
+ * Absence is read from `lstat` rather than from a caught `ENOENT`, which cannot tell a segment that does
+ * not exist yet — the ordinary case, since a root is usually created here — from a symlink to nothing,
+ * which is a refusal. `realpathSync` raises `ENOENT` for both.
+ *
+ * @throws WorktreeError `"stale-directory"` for every other answer, `refusingOnError` classifying it.
+ */
 function resolved(path: string): string | undefined {
-	try {
-		return realpathSync(path);
-	} catch (cause) {
-		if ((cause as NodeJS.ErrnoException).code !== "ENOENT") {
-			throw new WorktreeError(`${path} could not be resolved: ${message(cause)}`, "stale-directory");
-		}
-		if (inspect(path) !== undefined) {
-			throw new WorktreeError(`${path} is a symlink to nothing, so no worktree can be reached through it`, "stale-directory");
-		}
-		return undefined;
-	}
+	if (inspect(path) === undefined) return undefined;
+	return refusingOnError(path, "resolved", () => realpathSync(path));
 }
 
 /**

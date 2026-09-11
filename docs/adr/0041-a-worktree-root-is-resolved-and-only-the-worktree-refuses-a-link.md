@@ -43,27 +43,37 @@ Issue 39 asks whether two other roots should join the refusals. Neither does.
 
 Both are accepted. The guards here exist to stop a *quiet* mismatch between the path this computes and
 the path git registers; neither of these produces one, and both are visible to the caller in their own
-`git status` or `git worktree list`. Refusing them would spend ADR-0013's "takes an absolute path as
+`git status` or `git worktree list`.
+
+An in-checkout root costs one thing that listing does not show, and it is worth naming rather than
+discovering: `bun test` skips a directory for being dot-prefixed, not for being ignored, so `.worktrees`
+escapes collection where `src` or `trees` would not — a worktree under a non-dot root folds its own suite
+into the primary's test run. Measured, not assumed. That is a reason to keep the default dot-prefixed, not
+a reason to refuse the root. Refusing them would spend ADR-0013's "takes an absolute path as
 given" on taste. The refusals that remain are the ones where the caller would otherwise be told something
 untrue — a root that is the primary checkout, a root inside the git directory, a worktree that is a link
 — plus a root the filesystem will not answer for at all.
 
 ## Resolution is not `realpathSync`
 
-Handing the whole path to `realpathSync` produces a different answer than git for one shape, and it is
-not a rare one. Bun 1.4.2 and Node both collapse a `..` lexically before resolving, so for
-`<link>/..` they name the link's own parent; `realpath(3)` on macOS 25.4, Python's `os.path.realpath`,
-and `git worktree add` all name the target's parent. Measured on all four rather than reasoned about.
-Walking a segment at a time means `realpathSync` never sees a `..`, and the two agree.
+Handing the whole path to `realpathSync` produces a different answer than git, and not for a rare shape.
+For `<link>/..`, Bun 1.4.2 and Node both name the link's own parent, while `realpath(3)` on macOS 25.4,
+Python's `os.path.realpath` and `git worktree add` all name the target's parent. Node's
+`realpathSync.native` is the one API in that set that agrees with git — and Bun's does not, so on this
+runtime there is no escape hatch. Measured on all six rather than reasoned about. Walking a segment at a
+time means `realpathSync` never sees a `..`, and the divergence cannot arise.
 
-Resolution stops at the first segment that is not there, because a root that does not exist yet is the
-ordinary case. The remainder is appended with `join`, which collapses `.` and `..` among segments that do
-not exist — which is what git does with the part of a path it could not resolve, confirmed the same way.
+A segment that is not there is appended and the walk continues. Stopping at the first gap and taking the
+remainder as written is wrong twice over, both confirmed against git: git normalizes the part it could not
+resolve rather than keeping it verbatim, and a `..` in that remainder can cancel the missing segment out
+and hand a symlink back — `<R>/nope/../link/trees` with `<R>/link -> <R>/real` registers under `<R>/real`,
+which a lexical remainder misses. Continuing the walk gets both right, including a `..` that pops back past
+the resolved prefix.
 
 A segment the filesystem answers about with anything other than absence is refused rather than walked
-past: a symlink to nothing, a loop, a file where a directory belongs. A dangling link is told apart from
-a segment that does not exist yet by `lstat`, which still sees it — the distinction ADR-0013's note said
-a whole-path comparison could not make.
+past: a symlink to nothing, a loop, a file where a directory belongs. Absence is read from `lstat`, not
+from a caught `ENOENT`, because `realpathSync` raises `ENOENT` for a dangling link and for a path that is
+not there alike, and only the second is a root to create.
 
 ## Consequences
 
