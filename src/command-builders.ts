@@ -157,9 +157,15 @@ export function jiraIdentityCommand(): readonly string[] {
  *
  * `--get-all` rather than `--get`, which answers with the *last* value where a remote carries several, while
  * git fetches from the first. The caller takes the first, which is the one `get-url` answered with.
+ *
+ * `--includes` because git defaults it *off* once a scope is named, so `--local` alone stops at the config
+ * file and reports nothing for a repository that reaches its origin through an `[include]`. An include is the
+ * repository naming the file itself, which is the same statement of identity as writing the URL inline — and
+ * measured, honouring it leaves the vectors above closed: a repository that names no include is unaffected by
+ * a redirected `HOME`.
  */
 export function originRemoteCommand(directory: string): readonly string[] {
-	return ["git", "-C", directory, "config", "--local", "--get-all", "remote.origin.url"];
+	return ["git", "-C", directory, "config", "--local", "--includes", "--get-all", "remote.origin.url"];
 }
 
 export function worktreeListCommand(repo: string): readonly string[] {

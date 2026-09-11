@@ -12,7 +12,7 @@ one deferred. 0029 carries a banner saying so.
 
 **`config --local` rather than `remote get-url`.** `get-url` reads merged configuration, so a global file
 answers for a repository the checkout is not, at exit 0, through two names the runner's `GIT_` scrub cannot
-reach. `--local` reads the repository's own config file and no other.
+reach. `--local` reads the repository's own config, and nothing it did not ask for.
 
 **`-C <directory>` rather than the ambient one.** This was the only one of the eight git commands the tool
 builds that named no repository. The directory is now a value a caller supplies — `CliDeps.cwd` in a run,
@@ -21,6 +21,28 @@ builds that named no repository. The directory is now a value a caller supplies 
 **`--get-all`, taking the first value.** A remote may carry several URLs. `get-url` answers with the first and
 a bare `--get` with the *last*, so `--get` alone would have silently changed which URL identifies a run's
 repository. git fetches from the first.
+
+**`--includes`, because naming a scope turns it off.** Measured: with `remote.origin.url` reached through an
+`[include]` or an `[includeIf "gitdir:"]` in `.git/config`, `get-url` answers and `--local --get-all` reports
+nothing at exit 1 — so without this the run refuses a checkout git resolves, and tells its operator to set an
+origin they can see in `git remote -v`.
+
+Honouring it is the decision rather than an exception to it. What this refuses is configuration the repository
+never asked for; an include is the repository naming a file, which is the same statement of identity as
+writing the URL inline. The distinction is measured rather than asserted, because it is the one that matters:
+
+| `.git/config` | `--local --includes` | `get-url` |
+| --- | --- | --- |
+| ordinary, with `HOME` naming another origin | `<intended>` | `<other>` |
+| explicitly carrying `[include] path = ~/.gitconfig` | `<other>` | `<other>` |
+
+A repository that names no include is unaffected by a redirected `HOME`, which is the whole property this
+decision buys. The only way an ambient file is read is that `.git/config` names it, which `get-url` did too —
+so the flag costs none of the safety and buys back the shape. Refusing the shape instead was weighed and
+declined: nothing here uses an include, but omitting the flag buys nothing either, and refusing *honestly*
+would cost more than honouring it, since naming the include in a refusal means reading it first.
+
+`--includes` does not weaken what the allowlist leans on: every write flag is still rejected beside `--get-all`.
 
 ## The measurement
 
@@ -99,8 +121,8 @@ have to arbitrate is exactly the alias case — where refusing is what this alre
 ## What else moved
 
 `readOnlyRunner` matches its allowlist after skipping a leading `git -C <directory>`, because a directory
-cannot be enumerated in a prefix. Its entry is `git config --local --get-all`: `--get-all` is what puts
-`git config` in a mode that cannot write, so it is part of the prefix rather than trailing detail.
+cannot be enumerated in a prefix. Its entry is `git config --local --includes --get-all`: `--get-all` is what
+puts `git config` in a mode that cannot write, so it is part of the prefix rather than trailing detail.
 
 `CliDeps.cwd` no longer carries an invariant that it must be where the process is standing. It is handed to
 the origin read, so a `cwd` naming somewhere else moves the whole run there rather than splitting it — the

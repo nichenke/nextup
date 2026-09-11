@@ -1,6 +1,6 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "bun";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { originRemoteCommand } from "./command-builders";
@@ -308,5 +308,27 @@ describe("a config location redirected by a variable the scrub cannot name", () 
 			XDG_CONFIG_HOME: xdg,
 		});
 		expect(stdout.trim()).toBe(shared().intended);
+	});
+});
+
+/**
+ * An origin the repository reaches through an `[include]` in its own config. Its own fixture, because the
+ * shape is a repository that does *not* spell the URL in `.git/config`.
+ *
+ * Real git because the claim is about a git default: `--includes` is off once a scope is named, so `--local`
+ * alone reports nothing here and the run would refuse a checkout `git remote get-url` resolves. ADR-0041.
+ */
+describe("an origin the repository's config reaches through an include", () => {
+	test("is read, because naming a file is the repository stating its identity as much as writing the url is", () => {
+		const root = realpathSync(mkdtempSync(join(tmpdir(), "nextup-include-")));
+		perTestRoots.push(root);
+		const repo = join(root, "repo");
+		expect(defaultRunner(["git", "init", "--quiet", "--initial-branch", "main", repo]).code).toBe(0);
+		originConfig(join(repo, ".git", "included"), repo);
+		appendFileSync(join(repo, ".git", "config"), "[include]\n\tpath = included\n");
+
+		const result = defaultRunner([...originRemoteCommand(repo)]);
+		expect(result.code).toBe(0);
+		expect(result.stdout.trim()).toBe(repo);
 	});
 });
