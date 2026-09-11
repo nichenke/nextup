@@ -109,8 +109,8 @@ rather than ignored, since no set is read. --force is refused without a named ti
 --print-command, which runs no check for it to clear.
 
 With a named ticket, --print-command reads no ticket, so it cannot tell you that one is blocked. It does
-still resolve the reference — which reads this checkout's git remote, and for a pasted URL asks the gh and
-glab CLIs which hosts they are authenticated to, since that is what says which tracker a URL belongs to.
+still resolve the reference — which reads this checkout's git remote, and for a pasted URL decides GitHub by
+the host alone and asks the glab CLI about anything else.
 
 A label may end in "*" to match a prefix. These exclusions always apply and --exclude adds to them
 rather than replacing them: 'wayfinder:*', so the planning and delivery tracks cannot compete for
@@ -183,21 +183,11 @@ merely blocked or deadlocked. A wrapper deciding whether to retry has to read th
 type Checkout = (refuse: RefuseCheckout) => CheckoutIdentity;
 
 function checkoutResolver(deps: CliDeps): Checkout {
-	let settled: { readonly identity: CheckoutIdentity } | { readonly failed: Error } | null = null;
-	return (refuse) => {
-		if (settled === null) {
-			try {
-				settled = { identity: resolveCheckoutIdentity(deps.runner, refuse) };
-			} catch (cause) {
-				// The failure is remembered too, so "once per run" holds on both paths rather than only where the
-				// remote answered. Every caller today aborts the run on the first throw, so this is the claim being
-				// made structural rather than a case anyone can reach.
-				settled = { failed: cause instanceof Error ? cause : new Error(String(cause)) };
-			}
-		}
-		if ("failed" in settled) throw settled.failed;
-		return settled.identity;
-	};
+	let resolved: CheckoutIdentity | null = null;
+	// Only the success is remembered. Caching the failure was tried and removed: it would hand a later caller the
+	// first one's error class, which is the collapse the `refuse` callback exists to prevent, and it can buy
+	// nothing because every caller here ends the run on the first throw.
+	return (refuse) => (resolved ??= resolveCheckoutIdentity(deps.runner, refuse));
 }
 
 export function run(argv: readonly string[], deps: CliDeps): CliResult {
@@ -586,8 +576,9 @@ function startedNothing(cause: unknown, pick: StartPick, worktree: WorktreeOutco
  * `failedAnswer` gives.
  *
  * `GitHubClaimError` is absent because it cannot arrive: `startedNothing` turns the claim's own failure into
- * a `StartError` carrying the worktree. `CommandBuilderError` is absent deliberately rather than by omission
- * — it is the one failure here whose stack says more than its message, so it takes the unclassified path.
+ * a `StartError` carrying the worktree. A builder's own assertion is absent deliberately rather than by
+ * omission — it is the one failure here whose stack says more than its message, so it takes the unclassified
+ * path.
  */
 function failedStart(cause: unknown): CliResult {
 	if (cause instanceof StartError || cause instanceof WorktreeError || cause instanceof LaunchError) {

@@ -63,11 +63,16 @@ reference against the checkout — it scopes the read to this repository and sto
 redirects. So a repository renamed on GitHub with a stale local remote produces ranked references naming
 a repository this checkout is not, with nothing upstream to notice.
 
-`CheckoutIdentity` is branded, so `resolveCheckoutIdentity` and its test-facing sibling are the only
-things that can produce one. Without the brand the type is structurally `{ repo: string }`, and the value
-this module deliberately does not hand to a write — `resolveCheckoutRepoPath`'s unfolded path off any
-host — could be passed straight into the claim as one. ADR-0038 rejects branding for `GitHubTicketRef` on
-the cost to every test literal; that argument does not transfer, because there is one such literal here.
+`CheckoutIdentity` is branded with a symbol only this module can name, so `resolveCheckoutIdentity` is the
+only thing that produces one — in tests as much as in production. Without the brand the type is
+structurally `{ repo: string }`, and the value this module deliberately does not hand to a write —
+`resolveCheckoutRepoPath`'s unfolded path off any host — could be passed straight into the claim as one.
+
+A test-facing factory was tried and removed: it was a door into the brand that production lacked, and the
+tests did not need it. `github-claim.test.ts` stands its checkout up through the real resolver off a fake
+remote, which exercises the host test and the fold rather than skipping them. ADR-0038 rejects branding
+for `GitHubTicketRef` on a different ground, which is that its tests assert the shape a resolver produces
+and a brand would make those assertions compare the constructor against itself.
 
 This is a refusal before the write, so it leaves the tracker untouched, which is what
 [0016](./0016-the-worktree-is-created-before-the-claim.md) intends. It arbitrates nothing and is not a

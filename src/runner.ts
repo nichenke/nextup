@@ -94,9 +94,8 @@ const REDIRECTING_GH_VARIABLE = "GH_HOST";
  * host into every repository argument — the preflight, the reads, the write, the release and its verification — and
  * one missed call site puts a write on the wrong server at exit 0.
  *
- * Refused whatever it names, including GitHub's own host. Comparing it would need `isGitHubHost`, which lives with
- * the reference types that import this module, so the check would have to move away from the seam it protects to
- * buy a value nothing here needs.
+ * Refused whatever it names, including GitHub's own host. Nothing this tool does needs the variable, so refusing
+ * all of it is the honest rule and a comparison would buy nothing.
  *
  * `GH_REPO` is the other variable that could redirect and does not: an explicit `--repo` overrides it, measured on
  * gh 2.100.0, and every command this tool issues passes one. `GH_CONFIG_DIR` is not covered — it selects a config

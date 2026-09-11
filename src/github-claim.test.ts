@@ -138,8 +138,8 @@ describe("claimGitHubTicket, when the write fails", () => {
 });
 
 describe("claimGitHubTicket, before it writes anything", () => {
-	// The refusals this block used to hold are shapes `GitHubTicketRef` cannot carry, so there is no value to hand
-	// this function that would trip them. `ticket-ref.test.ts` holds them now — ADR-0038.
+	// The other refusals are shapes `GitHubTicketRef` cannot carry, so no value handed to this function trips
+	// them; `ticket-ref.test.ts` is where they are asserted — ADR-0038.
 	test("refuses a ticket in another repository, rather than claiming there while the work happens here", () => {
 		expect(() =>
 			claimGitHubTicket({ runner: unreachable, ref: githubRef(WRITE_TARGET, "example/elsewhere"), checkout: HERE }),

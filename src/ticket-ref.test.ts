@@ -254,9 +254,8 @@ describe("resolveTicketRef: pasted URLs", () => {
 		});
 	});
 
-	// nichenke/nextup issue 56, measured: `gh` normalizes a padded number and this codebase did not, so the
-	// reference named one issue and addressed another. Refused where the reference is built, which is the layer
-	// ADR-0038 moved it to — every consumer reads `key` as identity, and an argv guard reaches none of them.
+	// nichenke/nextup issue 56, refused where the reference is built rather than at the argv boundary —
+	// `requireCanonicalIssueKey` has the measurement and ADR-0038 has why the layer moved.
 	describe("a padded issue number, at every entry point that could mint one", () => {
 		test("the bare short form is refused", () => {
 			expect(() => resolveTicketRef("gh:037", { runner: routedRunner(GIT_REMOTE) })).toThrow(/canonical issue number/);

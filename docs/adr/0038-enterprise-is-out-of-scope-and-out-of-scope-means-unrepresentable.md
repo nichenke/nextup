@@ -81,8 +81,9 @@ nodes whose openness overwrite each other.
 - **Host.** A pasted URL kept `host` set; every reference the adapter emits set it null. One ticket held
   `["github","github.com","owner/repo","1"]` and `["github",null,"owner/repo","1"]`.
 - **Repository case.** `parseRemote` folds the host and deliberately leaves the repository path as
-  spelled, so `NicHenke/NextUp` and `nichenke/nextup` were two identities for one ticket. Three sites
-  hand-folded case at comparison time instead; all three now compare with `===`. That GitHub resolves the
+  spelled, so `NicHenke/NextUp` and `nichenke/nextup` were two identities for one ticket. Two sites
+  hand-folded case at comparison time instead — the named-ticket check in `cli.ts` and the read's
+  response-identity check — and both now compare with `===`. That GitHub resolves the
   path case-insensitively is not measured here: [0027](./0027-blocking-is-read-from-edges-and-unknown-is-never-a-zero.md)
   infers it from exactly this collision, observed live, and that is the evidence the fold rests on.
 - **Key.** Issue 56's measurement, reproduced rather than paraphrased — gh 2.100.0:

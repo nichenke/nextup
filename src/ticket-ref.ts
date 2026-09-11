@@ -358,7 +358,9 @@ function resolveRepoScopedShort(
 		if (!/^\d+$/.test(body)) {
 			throw new TicketRefError(`${scheme}:${body} is not a valid short form (expected a bare number or a repo#number form)`);
 		}
-		const refuse = (reason: string) => new TicketRefError(`${scheme}:${body} has no explicit repository, and ${reason}`);
+		// "takes its repository from this checkout" rather than "has no explicit repository": the second reads as
+		// the complaint when the remote resolved fine and merely sits on another host, which is the commoner case.
+		const refuse = (reason: string) => new TicketRefError(`${scheme}:${body} takes its repository from this checkout, and ${reason}`);
 		return tracker === "github"
 			? githubTicketRef(checkout(refuse).repo, body)
 			: gitlabTicketRef(resolveCheckoutRepoPath(runner, refuse), null, body);

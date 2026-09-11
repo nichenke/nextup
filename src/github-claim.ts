@@ -47,10 +47,15 @@ export function claimGitHubTicket(input: GitHubClaimInput): void {
  * The split it catches is the claim landing in one repository while the worktree and the session are made in
  * another. A stale local remote is the reachable way there: a repository renamed on GitHub keeps answering
  * under its new name, and `requireOneRepository` deliberately tolerates that, so the references a ranked run
- * holds name a repository this checkout does not. ADR-0039.
+ * holds name a repository this checkout is not. ADR-0039.
+ *
+ * Here rather than beside `CheckoutIdentity`, which is the data it reads and where review first put it: moving
+ * it there makes `checkout-identity.ts` import `formatTicketRef`, which is the `ticket-ref.ts` cycle
+ * `repo-address.ts` exists to have removed. A module graph that stays acyclic is worth more than a function
+ * living beside the type it reads.
  *
  * The reason comes back rather than being thrown, the way `githubTicketTarget`'s does and for the same reason:
- * `cli.ts` asks before the worktree is written and raises a `StartError`, this file asks again at the write and
+ * `cli.ts` asks before anything is written and raises a `StartError`, this file asks again at the write and
  * raises its own class, and one shared error would collapse the two recoveries.
  */
 export function outsideThisCheckout(ref: GitHubTicketRef, checkout: CheckoutIdentity): string | null {

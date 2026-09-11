@@ -244,9 +244,9 @@ function failedRead(repo: string, stderr: string): TicketSetRead {
 /**
  * The repository to read, checked for shape.
  *
- * Kept even though every production caller now hands over a path a `CheckoutIdentity` already validated: this
- * is an exported entry point, and its parameter is a bare string that a caller reaching past the reference and
- * checkout types can spell any way at all.
+ * An exported entry point taking a bare string, so a caller reaching past the reference and checkout types can
+ * spell it any way at all — which is what this is for, since a `CheckoutIdentity` has already validated the path
+ * both production callers pass.
  */
 function requireRepoPath(repo: string): string {
 	if (!isValidRepoPath("github", repo)) {

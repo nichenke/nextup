@@ -19,9 +19,6 @@ describe("resolveCheckoutIdentity", () => {
 		expect(resolveCheckoutIdentity(runner, refuse).repo).toBe("example/repo");
 	});
 
-	// A clone spelled in another case is this repository, not a different one: GitHub resolves the path
-	// case-insensitively while the remote records whatever was typed. Folded here so that every comparison
-	// against a reference is `===`.
 	test("folds the repository path, so a remote spelled in another case is still this checkout", () => {
 		const runner = routedRunner(remote(`git@${GITHUB_HOST}:Example/Repo.git`));
 		expect(resolveCheckoutIdentity(runner, refuse).repo).toBe("example/repo");

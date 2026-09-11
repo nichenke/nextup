@@ -2,11 +2,10 @@
  * What a repository address looks like, and which authorities are GitHub's. Facts about addresses, depending on
  * neither a reference nor a checkout, so every module that needs one can import this without a cycle.
  *
- * A module of its own for that reason rather than for tidiness. `ticket-ref.ts` held all of it, and could not
- * keep holding it once `checkout-identity.ts` needed the host test while `ticket-ref.ts` needed the checkout:
- * `GITHUB_AUTHORITIES` below is a top-level `new Set`, and in a cycle a module-init-time call to `isGitHubHost`
- * reads it before it exists — a runtime error with nothing at compile time to warn. A leaf is a structural end
- * to that rather than a rule to remember, which is the move ADR-0025 records for a worktree's identity.
+ * A leaf for a reason rather than for tidiness: `GITHUB_AUTHORITIES` below is a top-level `new Set`, and any
+ * module that could import this one in a cycle would risk a module-init-time `isGitHubHost` reading it before it
+ * exists — a runtime error with nothing at compile time to warn. Nothing here imports anything, so that cannot
+ * arise, which is a structural end to the question rather than a rule to remember (ADR-0025's move).
  */
 
 /** GitHub's own host. The one spelling of it in this codebase; every other reference goes through here. */

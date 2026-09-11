@@ -21,7 +21,7 @@ const checkoutIdentity: unique symbol = Symbol("checkout-identity");
  */
 export interface CheckoutIdentity {
 	readonly [checkoutIdentity]: true;
-	/** `owner/repo`, folded to lower case, so a comparison against a reference is `===` rather than a fold. */
+	/** `owner/repo`, folded to lower case for the reason `githubTicketRef` gives, so comparisons are `===`. */
 	readonly repo: string;
 }
 
@@ -50,7 +50,7 @@ export function resolveCheckoutIdentity(runner: Runner, refuse: RefuseCheckout):
 	const origin = checkoutRemote(runner, refuse);
 	if (!isGitHubHost(origin.host)) {
 		throw refuse(
-			`this checkout's origin remote points at ${origin.host} rather than ${GITHUB_HOST}, so ${origin.repo} here is a repository of the same name somewhere else entirely`,
+			`this checkout's origin remote points at ${origin.host} rather than ${GITHUB_HOST}, so ${origin.repo} here is a repository of the same name somewhere else entirely — this works on ${GITHUB_HOST} only, so run it in a checkout of one`,
 		);
 	}
 	if (!isValidRepoPath("github", origin.repo)) {
@@ -78,6 +78,6 @@ export function resolveCheckoutRepoPath(runner: Runner, refuse: RefuseCheckout):
 
 function checkoutRemote(runner: Runner, refuse: RefuseCheckout): RemoteAddress {
 	const origin = resolveOriginRemote(runner);
-	if (origin === null) throw refuse("the working directory's git remote could not be resolved");
+	if (origin === null) throw refuse("the working directory's git remote could not be resolved — set an origin remote, or run this somewhere that has one");
 	return origin;
 }
