@@ -104,11 +104,11 @@ Ten, in this order. "Present" means the tool can already produce the input today
 | # | Slot | Written by | Input it needs | Present |
 | - | ---- | ---------- | -------------- | ------- |
 | 1 | Headline | tool | `pick.ref`, `title`, `url` — or the reason there is none | yes |
-| 2 | Standing | tool | `counts`, `unblocks`, blocking phrase | yes |
+| 2 | Standing | tool | `counts`; with a pick, also `unblocks` and the blocking phrase | yes |
 | 3 | Substance | session | the pick's raw body | **no** |
 | 4 | Scope | session | the same body | **no** |
 | 5 | Constraints no edge carries | session | the same body, checked against the graph | **no** |
-| 6 | Why this one | tool | `decision.rung`; a *path* to a downstream ticket | rung only |
+| 6 | Why this one | tool | `decision.rung`; a *path*, and its endpoint's open blockers | rung only |
 | 7 | Alternatives | tool | `ranked` with labels; the unranked partition's count | yes |
 | 8 | In flight | tool | the viewer's identity; the claimed tickets' references; every assignee | **no** |
 | 9 | Contract lines | tool | `degraded: `, `deadlock: ` | yes |
@@ -143,9 +143,19 @@ rule, so a quiet day with nothing in flight and no degrade prints two slots, not
 action line, and that needs no rule: the tool already suppresses it on its own (`renderStart`
 returns the empty string for `nothing-to-start`).
 
+Slot 2 has two forms as well, decided the same way: with a pick, the counts plus the pick's
+`unblocks` and blocking phrase; with none, the counts alone, which is how it still prints on a
+no-pick brief where the other two do not exist. Slots 1, 2 and 6 are the whole of it — the other
+seven have one form each, either because their input does not depend on the pick (8, 9) or because
+they omit themselves when it is absent (3, 4, 5, 7, 10).
+
 **Slot 6 has two forms too, and the path decides which.** Where one runs from the pick to a
 downstream ticket, the slot names that ticket and what is left of it — *clearing this leaves `#216`
-waiting on one more* — which is what a rung cannot say. Where none runs, it names the rung, and
+waiting on one more* — which is what a rung cannot say. "What is left of it" is a second fact rather
+than a by-product of the path: the endpoint's own open blockers, which `Selection` does not carry,
+because the graph does not survive it and `unblocks` counts the other direction on ranked candidates
+only. A path without it names a goal and cannot say what reaching it buys. Where none runs, it names
+the rung, and
 where the rung is the ladder's last it says the ladder separated nothing.
 
 A pick can reach several downstream tickets, so the goal form needs one endpoint rather than any
@@ -176,8 +186,9 @@ whole argument, and after a decisive rung it is an aside. Ordering it second let
 both.
 
 Three inputs are missing, and that is the whole of what issue 72 has to supply: **the pick's raw
-body**, **enough to say what the viewer is holding**, and **a path from the pick to a downstream
-ticket** rather than the count `unblocks` already is. Every other slot reads something the selector
+body**, **enough to say what the viewer is holding**, and **a path to a downstream ticket carrying
+that endpoint's remaining open blockers** — neither the count `unblocks` already is, nor the path on
+its own. Every other slot reads something the selector
 holds. Slot 7 in particular needs nothing new — `ranked` already carries each candidate's labels.
 
 Slot 8 needs three things, not one, and all three are plumbing over rows already fetched rather than
