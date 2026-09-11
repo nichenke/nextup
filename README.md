@@ -33,7 +33,10 @@ That entry is not in place yet.
 the next section belong to the binary and are reachable from a checkout rather than through the
 command.
 
-`bun`, `gh`, `cmux` and `claude` are expected on `PATH`.
+`bun`, `gh`, `cmux` and `claude` are expected on `PATH`. cmux must be new enough to accept every flag
+the workspace call spells, which means 0.64.22 or later — it is the version this was verified against,
+and `new-workspace` refuses an unknown flag outright rather than ignoring it, so a cmux missing one
+fails the launch after the worktree and the claim are already written.
 
 `/implement` has to come from somewhere else — this plugin declares that dependency rather than
 satisfying it. One provider is `mattpocock-skills` in the `claude-plugins-official` marketplace; any

@@ -1,4 +1,3 @@
-import { basename } from "node:path";
 import {
 	type Argv,
 	formatCommand,
@@ -6,9 +5,11 @@ import {
 	sessionCommand,
 	workspaceCommand,
 	workspaceHostAliveCommand,
+	workspaceName,
 } from "./command-builders";
 import { failureDetail } from "./failure-class";
 import type { Runner } from "./runner";
+import type { Ticket } from "./ticket";
 import { type TicketRef, formatTicketRef } from "./ticket-ref";
 
 /** Why no session was started. One class rather than an outage-and-defect pair — ADR-0035. */
@@ -71,10 +72,15 @@ export function requireSessionBinary(runner: Runner): void {
 
 export interface LaunchInput {
 	readonly runner: Runner;
-	readonly ref: TicketRef;
+	/**
+	 * The ticket the session is for, narrowed to what the workspace displays. More than the reference, because
+	 * the workspace carries the title too and nothing else here can read it; less than a whole `Ticket`, so that
+	 * the state and blockers a launch must not consult are not in reach.
+	 */
+	readonly ticket: Pick<Ticket, "ref" | "title">;
 	/** The session argv to run, built by `planLaunch` before any of this was written. */
 	readonly command: Argv;
-	/** The worktree the session runs in, whose own directory name is what the workspace is called. */
+	/** The worktree the session runs in. */
 	readonly worktree: string;
 }
 
@@ -94,9 +100,16 @@ export interface LaunchInput {
  * @throws LaunchError when the workspace could not be created.
  */
 export function launch(input: LaunchInput): void {
-	const workspace = workspaceCommand({ name: basename(input.worktree), cwd: input.worktree, command: input.command });
+	const workspace = workspaceCommand({
+		name: workspaceName(input.ticket.ref),
+		description: input.ticket.title,
+		cwd: input.worktree,
+		command: input.command,
+	});
 	const result = input.runner([...workspace]);
 	if (result.code !== 0) {
-		throw new LaunchError(`the workspace for ${formatTicketRef(input.ref)} could not be created: ${failureDetail(result)}`);
+		throw new LaunchError(
+			`the workspace for ${formatTicketRef(input.ticket.ref)} could not be created: ${failureDetail(result)}`,
+		);
 	}
 }
