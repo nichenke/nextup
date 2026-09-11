@@ -56,10 +56,17 @@ there is no invocation of it that reads a real project repository.
 Run it after changing what the adapter asks for, and read the diff: a recording that changed without the
 query changing is the CLI's projection moving under us, which is what the stored version line is for.
 
-Three of the eight captures write rather than read: the claim landing on `write-target`, a claim naming an
+Run it outside a network-filtering sandbox, and read the two unresolvable-host recordings in the diff first.
+A filtering proxy answers the unresolvable host itself rather than letting resolution fail, so the capture
+stores `Bad Gateway` where a connectivity error belongs — which `classifyFailure` reads as a **defect**, the
+opposite of what those two recordings exist to pin. Measured in a Claude Code sandbox on gh 2.100.0: both
+`read-outage` and `claim-outage` came back rewritten that way, with exit 1 intact, so `Capture.succeeds` does
+not catch it and the diff is the only control.
+
+Three of the thirteen captures write rather than read: the claim landing on `write-target`, a claim naming an
 issue the tree does not have, and a claim against an unresolvable host. They come last, and the run releases
-`write-target` on the way out, including out of a capture that threw, because every read capture above recorded
-it unassigned. A release that itself fails says so **and fails the run**, so a stray claim cannot be mistaken
+`write-target` on the way out, including out of a capture that threw, because every capture that read the whole
+tree recorded it unassigned. A release that itself fails says so **and fails the run**, so a stray claim cannot be mistaken
 for a clean capture.
 
 Interrupting the run is the gap: a `finally` does not cover Ctrl-C or a kill. An interrupted run cannot quietly
@@ -72,8 +79,9 @@ runs over every spec issue. The one claim it cannot clear is one landed on an is
 for, because `listIssues` refuses an undescribed title before any release happens. Only the failing write capture
 could produce that, which is why it names a number the tree cannot reach.
 
-Four captures are failures rather than successful exchanges: an unresolvable host, for the wording an outage
-is recognised by, and a request that is itself wrong, for a defect's — each in a read form and a write form.
+Five captures are failures rather than successful exchanges: an unresolvable host, for the wording an outage
+is recognised by, and a request that is itself wrong, for a defect's — the first in a read form and a write
+form, the second in those two and in the single-ticket read the override path uses.
 Each is refused if it stops failing, so neither a repository nor an issue number that later comes into
 existence is ever stored as a success. For the write forms that refusal fires after the call, so it protects
 the corpus rather than the tree — which is why the failing claim names a number inside the tree itself.

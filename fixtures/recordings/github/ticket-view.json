@@ -1,0 +1,18 @@
+{
+	"description": "A named ticket whose blockers are all closed, which is the one shape the override path starts without a flag.",
+	"cli": "gh version 2.100.0 (2026-09-03)",
+	"argv": [
+		"gh",
+		"issue",
+		"view",
+		"--repo",
+		"nichenke/nextup-test-tree-github",
+		"--json",
+		"number,title,state,assignees,labels,url,blockedBy",
+		"--",
+		"12"
+	],
+	"code": 0,
+	"stdout": "{\"assignees\":[],\"blockedBy\":{\"nodes\":[{\"id\":\"I_kwDOURrDoc8AAAABQKYGVQ\",\"number\":9,\"state\":\"CLOSED\",\"title\":\"Closed blocker: counted in the total, not in the open count\",\"url\":\"github-test-tree/nichenke/nextup-test-tree-github/issues/9\"}],\"totalCount\":1},\"labels\":[{\"id\":\"LA_kwDOURrDoc8AAAAC0S1a8w\",\"name\":\"P2\",\"description\":\"\",\"color\":\"fbca04\"}],\"number\":12,\"state\":\"OPEN\",\"title\":\"Every blocker closed: on the frontier, with a total above zero\",\"url\":\"github-test-tree/nichenke/nextup-test-tree-github/issues/12\"}\n",
+	"stderr": ""
+}

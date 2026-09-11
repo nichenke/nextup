@@ -28,11 +28,12 @@ is the obvious target; the test tree is a valid argument and a nearly worthless 
 | 1 | A check failed, or the repository never produced the state it needed |
 | 2 | The run could not be made — no repository, an unreachable tracker, a response nothing could read |
 
-## The eleven checks
+## The thirteen checks
 
 Checks two and three are properties of one read. Checks one and four to seven are comparisons against the
-independent query — the ones the rest exist to make trustworthy. The last four are the states issue 26 named as
-the ones that change the answer.
+independent query — the ones the rest exist to make trustworthy. Then four for the states issue 26 named as the
+ones that change the answer, and two for the override path's own single-ticket read, which asks the tracker a
+different question than the set read does and so can only be compared live.
 
 | Check | What it asserts |
 | --- | --- |
@@ -47,6 +48,8 @@ the ones that change the answer.
 | `closed-blocker-unblocks-its-dependent` | A closed blocker stops gating, rather than being counted as a blocker |
 | `blocker-outside-the-set` | Coverage only, with no fault of its own: that the read met a blocker it did not return, whose state `blockers-resolve` is what asserts |
 | `unknown-blocking-is-not-an-empty-list` | A response with no blocking field reads as unknown, never as no blockers |
+| `named-ticket-agrees-with-the-set` | One ticket read on its own says what the set read says about it, and never calls startable a ticket the set read knows is blocked |
+| `named-ticket-answers-about-a-closed-one` | A closed blocker, which the set read meets only as an edge, comes back from the single read as closed |
 
 ## Reading a verdict
 
@@ -89,13 +92,24 @@ would have called this comparable when it was not. Its line says which of the tw
 - `unknown-blocking-is-not-an-empty-list` failing is the collapse `CONTEXT.md` forbids, reached live. An
   absent blocking field came back as a confirmed absence of blockers, so every ticket in the set would be
   recommended as confirmed-unblocked on no evidence.
+- `named-ticket-agrees-with-the-set` compares the two surfaces on one ticket, chosen by lowest reference so a
+  re-run reads the same one. It faults in a single direction: the single read reporting a *less* confident
+  blocking state is expected, because it knows only that ticket's edges where the set read knows every row's own
+  state and ADR-0027 allows an edge to be staler than the row it copies. The fault is the other direction — the
+  override path calling startable what the ranking path knows is blocked. A disagreement about the ticket itself
+  is either the tracker's two surfaces differing or the ticket changing between two reads, and the report names
+  which field so a person can tell.
+- `named-ticket-answers-about-a-closed-one` is the one check behind ADR-0037's central claim. ADR-0028 keeps a
+  closed ticket out of the set read, so the override path's refusal of finished work rests entirely on the single
+  read answering about it — and nothing but a live call can say whether it does. It is `unexercised` in a
+  repository whose edges name no closed blocker.
 
 ## Adding a tracker
 
 `ReconstructionTracker` in `src/reconstruction.ts` is the seam: a name, an independent `observe`, the adapter's `read`,
-and a `readBlind` that answers the same read with no blocking field. Supply those four and every check above
-applies unchanged — that is what issue 26 meant by parameterised by tracker, and what tickets 15 and 17 are
-meant to reuse.
+a `readBlind` that answers the same read with no blocking field, and a `readNamed` for one ticket at a time.
+Supply those five and every check above applies unchanged — that is what issue 26 meant by parameterised by
+tracker, and what tickets 15 and 17 are meant to reuse.
 
 Two things a new tracker has to get right, both of which ADR-0033 argues, with its table as the worked example:
 

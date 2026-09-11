@@ -3,8 +3,17 @@ import { type CliDeps, DEFAULT_LIMIT, run } from "./cli";
 import { DEFAULT_SLASH_COMMAND } from "./command-builders";
 import { DEFAULT_LABEL_FILTER, compileLabelFilter } from "./label-filter";
 import type { CommandResult, Runner } from "./runner";
+import { FORCED_PREFIX } from "./override-output";
 import { DEADLOCK_PREFIX } from "./selection-output";
-import { answeringOrigin, deadlockLines, githubRecording, replayRunner, respondingRunner, sentinelLines } from "./test-support";
+import {
+	answeringOrigin,
+	deadlockLines,
+	githubRecording,
+	recordedIssue,
+	replayRunner,
+	respondingRunner,
+	sentinelLines,
+} from "./test-support";
 import { GITHUB_TEST_TREE, type TestTreeSpec, openIssues, shapeTitle } from "./test-tree";
 import { GITHUB_HOST } from "./ticket-ref";
 
@@ -434,6 +443,9 @@ describe("a start that could not finish", () => {
 		const result = run([...LIMIT, "--yes"], deps(runner));
 		expect(result.code).toBe(2);
 		expect(result.stderr).toContain("running this again");
+		// The claim state as well as the recovery: a ranked pick is unclaimed by construction, and this is the
+		// sentence that tells the operator what the tracker holds.
+		expect(result.stderr).toContain("the ticket is still unclaimed");
 		expect(result.stderr).toContain(`${PRIMARY}/.worktrees/`);
 		expect(of("new-workspace")).toEqual([]);
 	});
@@ -527,10 +539,37 @@ describe("the command line itself", () => {
 		expect(result.stderr).toContain("--include");
 	});
 
-	test("refuses a bare argument, which no flag takes yet", () => {
-		const result = run(["gh:1"], deps());
+	test("refuses a bare argument that is not a ticket reference", () => {
+		const result = run(["ticket-12"], deps());
 		expect(result.code).toBe(2);
-		expect(result.stderr).toContain("gh:1");
+		expect(result.stderr).toContain("ticket-12");
+	});
+
+	test("refuses two tickets, since a run starts one", () => {
+		const result = run(["gh:1", "gh:2"], deps());
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("gh:2");
+	});
+
+	test("refuses the ticket-set flags beside a named ticket, rather than ignoring them", () => {
+		for (const flag of [["--limit", "5"], ["--include", "bug"], ["--exclude", "spec"]]) {
+			const result = run([...flag, "gh:example/repo#1"], deps());
+			expect(result.code).toBe(2);
+			expect(result.stderr).toContain(flag[0]!);
+		}
+	});
+
+	test("refuses --force with no ticket to apply it to", () => {
+		const result = run(["--force"], deps());
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("--force");
+	});
+
+	// The other arm of the same rule: --print-command runs no check on the named ticket, so --force clears nothing.
+	test("refuses --force beside --print-command, which checks nothing for it to clear", () => {
+		const result = run(["gh:example/repo#1", "--force", "--print-command"], deps());
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("--force");
 	});
 
 	test("answers a help request even when another flag on the line is wrong", () => {
@@ -580,5 +619,435 @@ describe("the command line itself", () => {
 		const result = run(["--exclude", "way*er"], deps());
 		expect(result.code).toBe(2);
 		expect(result.stderr).toContain("way*er");
+	});
+});
+
+describe("starting a ticket named on the command line", () => {
+	/** The named form for one view recording's issue, which has to be the issue that recording answers about. */
+	function named(recording = "ticket-view"): string {
+		return `gh:${GITHUB_TEST_TREE.repo}#${recordedIssue(githubRecording(recording))}`;
+	}
+
+	function starting(recording: string, over: (argv: string[]) => CommandResult | null = () => null) {
+		return startSequence(over, recording);
+	}
+
+	test("starts the named ticket, reading one ticket rather than ranking a set", () => {
+		const { runner, of } = starting("ticket-view");
+		const result = run([named(), "--yes"], deps(runner));
+
+		expect(result.stderr).toBe("");
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain(shapeTitle(GITHUB_TEST_TREE, "every-blocker-closed"));
+		expect(result.stdout).toContain("named directly");
+		// The ranking is not merely unused: no set is read at all, which is what naming a ticket buys.
+		expect(of("issue", "list")).toEqual([]);
+		expect(of("issue", "view")).toHaveLength(1);
+		expect(of("worktree", "add")).toHaveLength(1);
+		expect(of("issue", "edit")).toHaveLength(1);
+	});
+
+	test("refuses a ticket with an open blocker, naming it, and writes nothing", () => {
+		const { runner, of } = starting("ticket-view-blocked");
+		const result = run([named("ticket-view-blocked"), "--yes"], deps(runner));
+
+		expect(result.code).toBe(2);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("blocked by");
+		expect(result.stderr).toContain("--force");
+		expect(of("worktree", "add")).toEqual([]);
+		expect(of("issue", "edit")).toEqual([]);
+	});
+
+	test("refuses a ticket somebody else holds, and writes nothing", () => {
+		const { runner, of } = starting("ticket-view-claimed");
+		const result = run([named("ticket-view-claimed"), "--yes"], deps(runner));
+
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("claimed by");
+		expect(of("issue", "edit")).toEqual([]);
+	});
+
+	// nichenke/nextup issue 12's fourth criterion, which ADR-0037 has the reasoning for.
+	test("--force starts a blocked ticket, says so loudly, and claims it anyway", () => {
+		const { runner, of } = starting("ticket-view-blocked");
+		const result = run([named("ticket-view-blocked"), "--force", "--yes"], deps(runner));
+
+		expect(result.code).toBe(0);
+		const forced = result.stdout.split("\n").filter((line) => line.startsWith(FORCED_PREFIX));
+		expect(forced).toHaveLength(1);
+		expect(forced[0]).toContain("blocked by");
+		expect(of("issue", "edit")).toHaveLength(1);
+	});
+
+	test("--force starts a claimed ticket, and the claim it writes does not replace the existing one", () => {
+		const { runner, of } = starting("ticket-view-claimed");
+		const result = run([named("ticket-view-claimed"), "--force", "--yes"], deps(runner));
+
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain(`${FORCED_PREFIX}`);
+		expect(of("issue", "edit")[0]).toContain("--add-assignee");
+	});
+
+	// ADR-0037, whose decision `override.test.ts` states beside its own test of it.
+	test("refuses a closed ticket, and --force does not reach it", () => {
+		const { runner, of } = starting("ticket-view-closed");
+		for (const argv of [[named("ticket-view-closed"), "--yes"], [named("ticket-view-closed"), "--force", "--yes"]]) {
+			const result = run(argv, deps(runner));
+			expect(result.code).toBe(2);
+			expect(result.stderr).toContain("closed");
+		}
+		expect(writes(of)).toEqual([]);
+	});
+
+	/** Both writes, asserted together: a refusal has to leave the tracker and the repository as they were. */
+	function writes(of: (...words: string[]) => string[][]): string[][] {
+		return [...of("worktree", "add"), ...of("issue", "edit")];
+	}
+
+	test("asks before a forced start, so the warning is read before the claim rather than after", () => {
+		const asked = terminal(false);
+		const { runner, of } = starting("ticket-view-blocked");
+		const outcome = run([named("ticket-view-blocked"), "--force"], deps(runner, asked.confirm));
+
+		expect(outcome.code).toBe(0);
+		expect(asked.questions).toHaveLength(1);
+		expect(asked.questions[0]).toContain("starting past it being");
+		expect(outcome.stdout).toContain("was not started");
+		expect(of("issue", "edit")).toEqual([]);
+	});
+
+	/**
+	 * A runner answering the one question that is not a tracker read — which repository this checkout is — and
+	 * refusing everything else, so a test using it proves no tracker was contacted.
+	 */
+	const gitOnly: Runner = (argv) => {
+		if (argv[0] === "git" && argv.includes("get-url")) {
+			return { code: 0, stdout: `git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo}.git\n`, stderr: "" };
+		}
+		throw new Error(`nothing may run ${argv.join(" ")} for a command that only prints`);
+	};
+
+	test("prints the session command for a named ticket without contacting any tracker", () => {
+		const result = run([named(), "--print-command"], deps(gitOnly));
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain(`${DEFAULT_SLASH_COMMAND} ${named()}`);
+		expect(result.stderr).toBe("");
+	});
+
+	test("carries the override and what the run did about it under --json", () => {
+		const { runner } = starting("ticket-view");
+		const result = run([named(), "--force", "--yes", "--json"], deps(runner));
+		const answer = JSON.parse(result.stdout) as {
+			override: { kind: string; target: { ticket: { ref: string }; blocked: string }; forced: unknown[] };
+			readDegraded: unknown[];
+			start: { kind: string };
+		};
+
+		expect(answer.override.kind).toBe("startable");
+		expect(answer.override.target.ticket.ref).toBe(named());
+		expect(answer.override.target.blocked).toBe("unblocked");
+		// Nothing needed clearing, so --force reports nothing: the warning is never spurious.
+		expect(answer.override.forced).toEqual([]);
+		expect(answer.readDegraded).toEqual([]);
+		expect(answer.start.kind).toBe("requested");
+	});
+
+	// A refusal is an answer rather than a failure — the checks ran and said no — so a consumer asking for JSON
+	// gets the document rather than prose it would have to parse, and the exit status tells the two apart.
+	test("carries a refusal as the same JSON document a started run gets", () => {
+		const { runner } = starting("ticket-view-blocked");
+		const result = run([named("ticket-view-blocked"), "--yes", "--json"], deps(runner));
+		const answer = JSON.parse(result.stdout) as {
+			override: { kind: string; refusals: { kind: string; blockers?: string[] }[] };
+			start: unknown;
+		};
+
+		expect(result.code).toBe(2);
+		expect(result.stderr).toBe("");
+		expect(answer.override.kind).toBe("refused");
+		expect(answer.override.refusals.map((refusal) => refusal.kind)).toEqual(["blocked"]);
+		expect(answer.override.refusals[0]!.blockers?.[0]).toStartWith("gh:");
+		// Null rather than an absent key, and never an arm claiming something was started.
+		expect(answer.start).toBeNull();
+	});
+
+	// "Reads nothing" is not "accepts anything": the reference is still checked, because a command printed for a
+	// tracker with no adapter, or for a key every other path refuses, is not one of the things this may print.
+	test("refuses a reference no adapter can act on even where it prints without reading", () => {
+		for (const reference of ["jira:TEST-7", `gh:${GITHUB_TEST_TREE.repo}#012`]) {
+			const result = run([reference, "--print-command"], deps(gitOnly));
+			expect(result.code).toBe(2);
+			expect(result.stdout).toBe("");
+		}
+	});
+
+	/**
+	 * The recovery a failed claim leaves open has to describe the tracker, not a ranked pick's assumptions: a forced
+	 * start overruled a claim that is still the only one on the ticket.
+	 */
+	test("does not call a forced ticket unclaimed when its claim failed", () => {
+		const { runner, of } = starting("ticket-view-claimed", (argv) =>
+			argv[1] === "issue" && argv[2] === "edit" ? { code: 1, stdout: "", stderr: "HTTP 403: Resource not accessible" } : null,
+		);
+		const result = run([named("ticket-view-claimed"), "--force", "--yes"], deps(runner));
+
+		expect(result.code).toBe(2);
+		expect(result.stderr).not.toContain("still unclaimed");
+		expect(result.stderr).toContain("still claimed");
+		// Named as one assignee among any others, never as the only one: `readClaim` keeps the first of them and
+		// says that which one it reports is display, so a count is not a thing a `Claim` can support.
+		expect(result.stderr).toContain("among its assignees");
+		expect(result.stderr).not.toContain("only one");
+		// The worktree is the leftover a failed claim is allowed to have, and the message has to name it.
+		expect(result.stderr).toContain(".worktrees");
+		expect(of("worktree", "add")).toHaveLength(1);
+	});
+
+	/**
+	 * The recovery a failed session leaves a named ticket: the command, and no guess about a re-run. What one would
+	 * do turns on whether the line carried `--force`, so the prediction is absent by design rather than missing.
+	 */
+	test("offers the command and predicts nothing about a re-run, for a named ticket", () => {
+		for (const flags of [["--yes"], ["--force", "--yes"]]) {
+			const { runner } = starting("ticket-view", (argv) =>
+				argv[1] === "new-workspace" ? { code: 1, stdout: "", stderr: "no window" } : null,
+			);
+			const result = run([named(), ...flags], deps(runner));
+
+			expect(result.code).toBe(2);
+			expect(result.stderr).not.toContain("pick a different ticket");
+			expect(result.stderr).not.toContain("Running this again");
+			expect(result.stderr).toContain("Start this session yourself instead");
+			expect(result.stderr).toContain("cd ");
+		}
+	});
+
+	test("reports a ticket the tracker does not have as something for a person, not as a quiet day", () => {
+		const { runner } = starting("ticket-view-defect");
+		const result = run([`gh:${GITHUB_TEST_TREE.repo}#999999`, "--yes"], deps(runner));
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("retry will not fix");
+		// A failure of the read itself is not a bad invocation, so it keeps its own report rather than the usage
+		// the mistyped-key branch above prints.
+		expect(result.stderr).not.toContain("usage: nextup");
+	});
+
+	/**
+	 * A padded key is a reference naming one issue and addressing another — nichenke/nextup issue 56 — and on
+	 * this path it is a typo, so what a person needs is the accepted forms rather than the builder's stack.
+	 *
+	 * The short form only, though both URL patterns capture a padded number just as readily. Every form reaches
+	 * the same refusal, in `githubIssueViewCommand`, because the reference is resolved before the read and the
+	 * read builds one argv — so a second case here would assert the resolver's captures rather than this
+	 * classification, and those belong to issue 56 and `ticket-ref.test.ts`.
+	 */
+	test("refuses a zero-padded key as a bad invocation, before any call goes out", () => {
+		const result = run([`gh:${GITHUB_TEST_TREE.repo}#012`], deps(gitOnly));
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("canonical");
+		expect(result.stderr).toContain("usage: nextup");
+		expect(result.stderr).not.toContain("    at ");
+	});
+
+	/**
+	 * The path alone is not the repository: `owner/repo` exists on every host, and a reference carries no host of
+	 * its own in the short form. Matching on the path would claim on github.com from a checkout that lives
+	 * somewhere else entirely — the same hazard ADR-0032 records for the claim, reached by another route.
+	 */
+	test("refuses a GitHub ticket from a checkout whose remote is on another host", () => {
+		// The path matches and only the host differs, so this reaches the host check rather than the path one. The
+		// remote is spelled as the allowlisted synthetic one, which the identifier guard already accepts.
+		const elsewhere: Runner = (argv) => {
+			if (argv[0] === "git" && argv.includes("get-url")) {
+				return { code: 0, stdout: "https://example.com/example/repo.git\n", stderr: "" };
+			}
+			throw new Error(`nothing may run ${argv.join(" ")} for a checkout on another host`);
+		};
+		const result = run(["gh:example/repo#1", "--yes"], deps(elsewhere));
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("example.com");
+		expect(result.stderr).not.toContain("usage: nextup");
+	});
+
+	// A tracker resolves the path case-insensitively, so a remote spelling it differently is this repository —
+	// refusing it would send the operator to the checkout they are already standing in.
+	test("accepts a named ticket whose repository the remote spells in another case", () => {
+		const shouted: Runner = (argv) =>
+			argv[0] === "git" && argv.includes("get-url")
+				? { code: 0, stdout: `git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo.toUpperCase()}.git\n`, stderr: "" }
+				: { code: 1, stdout: "", stderr: "nothing else should be reached" };
+		const result = run([`gh:${GITHUB_TEST_TREE.repo}#1`, "--print-command"], deps(shouted));
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain(DEFAULT_SLASH_COMMAND);
+	});
+
+	/**
+	 * The checkout boundary is checked before the read, against the reference as typed — but the claim is written
+	 * with the reference the *response* carried, which `readRow` builds from the issue's own address. An issue
+	 * transferred to another repository that lands on the same number therefore passes the number check, and the
+	 * claim goes there while the worktree is made here.
+	 */
+	test("refuses a response naming another repository, even at the number asked for", () => {
+		const elsewhere = (argv: string[]): CommandResult | null => {
+			if (argv[0] !== "gh" || argv[2] !== "view") return null;
+			const row = {
+				number: 1,
+				title: "an issue that moved",
+				state: "OPEN",
+				assignees: [],
+				labels: [],
+				url: "example/repo/issues/1",
+				blockedBy: { nodes: [], totalCount: 0 },
+			};
+			return { code: 0, stdout: JSON.stringify(row), stderr: "" };
+		};
+		const { runner, of } = starting("ticket-view", elsewhere);
+		const result = run([`gh:${GITHUB_TEST_TREE.repo}#1`, "--yes"], deps(runner));
+
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("example/repo");
+		expect(of("worktree", "add")).toEqual([]);
+		expect(of("issue", "edit")).toEqual([]);
+	});
+
+	/**
+	 * The arm that decides what happens when the comparison itself cannot be made. Refused rather than allowed
+	 * through: a reference that may or may not belong to this checkout is not one to start work on, and the
+	 * alternative fails in the direction that splits the two writes across repositories.
+	 */
+	test("refuses a named ticket when this checkout's own remote cannot be resolved", () => {
+		const noRemote: Runner = (argv) => {
+			if (argv[0] === "git" && argv.includes("get-url")) return { code: 1, stdout: "", stderr: "fatal: No such remote 'origin'\n" };
+			throw new Error(`nothing may run ${argv.join(" ")} once the remote is unresolvable`);
+		};
+		const result = run(["gh:example/repo#1", "--yes"], deps(noRemote));
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("could not be resolved");
+		expect(result.stderr).not.toContain("usage: nextup");
+	});
+
+	/**
+	 * The other accepted form, end to end. The URL's host is what says which tracker it belongs to, so resolving one
+	 * asks the two CLIs which hosts they are authenticated to — `glab` answering no is what disambiguates.
+	 *
+	 * Joined rather than spelled whole: the identifier guard reads a literal URL as an identifier, and `CLAUDE.md`
+	 * has the rule.
+	 */
+	test("starts a ticket named by a pasted issue URL", () => {
+		const number = recordedIssue(githubRecording("ticket-view"));
+		const pasted = ["https:/", GITHUB_HOST, GITHUB_TEST_TREE.repo, "issues", number].join("/");
+		const { runner, of } = starting("ticket-view", (argv) =>
+			argv[0] === "glab" ? { code: 1, stdout: "", stderr: "not authenticated" } : null,
+		);
+		const result = run([pasted, "--yes"], deps(runner));
+
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain(shapeTitle(GITHUB_TEST_TREE, "every-blocker-closed"));
+		expect(of("issue", "view")).toHaveLength(1);
+		expect(of("issue", "edit")).toHaveLength(1);
+	});
+
+	test("resolves a bare short form against the working directory's remote", () => {
+		const { runner, of } = starting("ticket-view");
+		const result = run([`gh:${recordedIssue(githubRecording("ticket-view"))}`, "--yes"], deps(runner));
+		expect(result.code).toBe(0);
+		// Consulted rather than counted: the remote answers twice here, once to resolve the bare form and once to
+		// check the ticket belongs to this checkout, and neither is a cost worth pinning a number to.
+		expect(of("get-url").length).toBeGreaterThan(0);
+		expect(of("issue", "view")).toHaveLength(1);
+	});
+
+	/**
+	 * The two writes would otherwise land in different repositories: the claim where the reference names, the
+	 * worktree and the session here. `CliDeps.cwd`'s own docstring names that outcome as the one to prevent, and a
+	 * pasted URL from another repository is the ordinary way to reach it.
+	 */
+	test("refuses a ticket from another repository, before anything is read", () => {
+		const { runner, of } = starting("ticket-view");
+		const result = run(["gh:example/repo#1", "--yes"], deps(runner));
+
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("example/repo");
+		expect(result.stderr).toContain(GITHUB_TEST_TREE.repo);
+		// The remedy is to run this elsewhere, not to spell the line differently, so the usage would bury it.
+		expect(result.stderr).not.toContain("usage: nextup");
+		expect(of("issue", "view")).toEqual([]);
+		expect(of("worktree", "add")).toEqual([]);
+		expect(of("issue", "edit")).toEqual([]);
+	});
+});
+
+/**
+ * What a failure after the worktree tells the operator, over every combination that changes the answer.
+ *
+ * The inputs that decide it: which step failed, whether the ticket carried a claim before this run, and whether the
+ * operator named it. Four rounds of review landed on this wording, each seeing one combination, so the cases are
+ * gathered here rather than left beside the test of whichever path introduced them.
+ *
+ * `--force` is deliberately not among the inputs, and the fourth round is why: the session branch used to predict
+ * what a re-run would do for a named ticket, which `--force` changes, so the prediction was removed rather than
+ * given another input to read. A message that guesses at the next invocation's flags cannot be made correct by
+ * enumerating more of them.
+ *
+ * One arm is deliberately absent: a `Claim` whose `by` is null. `readClaim` demands a login string from GitHub's
+ * assignees, so this tracker cannot produce one, and the wording handles it for an adapter that later can.
+ */
+describe("the recovery a failure after the worktree leaves open", () => {
+	const TREE = openIssues(GITHUB_TEST_TREE).length;
+	const LIMIT = ["--limit", String(TREE)];
+	const FAILED_CLAIM = (argv: string[]): CommandResult | null =>
+		argv[1] === "issue" && argv[2] === "edit" ? { code: 1, stdout: "", stderr: "HTTP 403: Resource not accessible" } : null;
+
+	function namedTicket(recording: string): string {
+		return `gh:${GITHUB_TEST_TREE.repo}#${recordedIssue(githubRecording(recording))}`;
+	}
+
+	// A named ticket that nobody held: the claim state is the ranked path's, so the wording has to be too — the
+	// override path is not a reason to report a claim that was never there.
+	test("a named unclaimed ticket whose claim failed reads as unclaimed, like a ranked one", () => {
+		const { runner } = startSequence(FAILED_CLAIM, "ticket-view");
+		const result = run([namedTicket("ticket-view"), "--yes"], deps(runner));
+
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("the ticket is still unclaimed");
+		expect(result.stderr).not.toContain("among its assignees");
+	});
+
+	/**
+	 * A failure of neither class, after the worktree exists. It is returned untouched so it keeps the stack that is
+	 * all it has — and must not pick up a recovery sentence, since nobody has classified what recovers.
+	 */
+	test("an unclassified failure keeps its stack and gains no recovery sentence", () => {
+		const { runner, of } = startSequence((argv) => {
+			if (argv[1] === "issue" && argv[2] === "edit") throw new TypeError("undefined is not a function");
+			return null;
+		}, "ticket-view");
+		const result = run([namedTicket("ticket-view"), "--yes"], deps(runner));
+
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("undefined is not a function");
+		expect(result.stderr).toContain("    at ");
+		expect(result.stderr).not.toContain("running this again");
+		expect(result.stderr).not.toContain("would pick a different ticket");
+		// Past the worktree, which is what makes this the pass-through path rather than an earlier refusal.
+		expect(of("worktree", "add")).toHaveLength(1);
+	});
+
+	// Both error branches name the worktree, because it is the leftover a failure is allowed to have and the only
+	// thing a re-run continues from. Asserted across the branches rather than inside one, so neither can lose it.
+	test("every classified failure names the worktree it left behind", () => {
+		const failures: readonly (readonly [string, (argv: string[]) => CommandResult | null])[] = [
+			["a claim that would not land", FAILED_CLAIM],
+			["a session that would not start", (argv) => (argv[1] === "new-workspace" ? { code: 1, stdout: "", stderr: "no window" } : null)],
+		];
+		for (const [, over] of failures) {
+			for (const argv of [[...LIMIT, "--yes"], [namedTicket("ticket-view"), "--yes"]]) {
+				const read = argv[0] === "--limit" ? "ticket-set" : "ticket-view";
+				const result = run(argv, deps(startSequence(over, read).runner));
+				expect(result.code).toBe(2);
+				expect(result.stderr).toContain(`${PRIMARY}/.worktrees/`);
+			}
+		}
 	});
 });

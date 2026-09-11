@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { githubIssueListCommand } from "./command-builders";
 import { deriveEffectiveBlockedness } from "./effective-blockedness";
-import { GitHubAdapterError, readGitHubTicketSet } from "./github-adapter";
+import { GitHubAdapterError, readGitHubTicket, readGitHubTicketSet } from "./github-adapter";
 import { readPriority } from "./priority";
 import type { Runner } from "./runner";
-import { answeringOrigin, githubRecording, replayRunner, respondingRunner } from "./test-support";
+import { answeringOrigin, githubRecording, recordedIssue, replayRunner, respondingRunner } from "./test-support";
 import { GITHUB_TEST_TREE, openIssues, shapeTitle } from "./test-tree";
 import { type Ticket, ticketId } from "./ticket";
-import { GITHUB_HOST } from "./ticket-ref";
-import type { TicketSetRead } from "./ticket-set-read";
+import { GITHUB_HOST, type TicketRef } from "./ticket-ref";
+import type { TicketRead, TicketSetRead } from "./ticket-set-read";
 
 const REPO = GITHUB_TEST_TREE.repo;
 
@@ -570,5 +570,151 @@ describe("the limit a read is given", () => {
 		};
 		readGitHubTicketSet({ repo: REPO, limit: 7, runner });
 		expect(asked[0]).toEqual([...githubIssueListCommand({ repo: REPO, rows: 8 })]);
+	});
+});
+
+describe("readGitHubTicket, over a single named ticket", () => {
+	function viewing(name: string, overrides: Partial<TicketRef> = {}): TicketRead {
+		const recording = githubRecording(name);
+		return readGitHubTicket({
+			runner: replayRunner([recording]),
+			ref: { tracker: "github", repo: REPO, host: null, key: recordedIssue(recording), ...overrides },
+		});
+	}
+
+	function refusing(ref: TicketRef): () => TicketRead {
+		return () => readGitHubTicket({ runner: unreachable, ref });
+	}
+
+	/** Fails the test if anything runs, for the refusals that have to land before a call goes out. */
+	const unreachable: Runner = (argv) => {
+		throw new Error(`the read issued ${argv.join(" ")} when it should have refused first`);
+	};
+
+	test("normalizes the named ticket and confirms its blockers closed from the edges' own state", () => {
+		const read = viewing("ticket-view");
+		expect(read.ticket.title).toBe(shapeTitle(GITHUB_TEST_TREE, "every-blocker-closed"));
+		expect(read.ticket.state).toBe("open");
+		expect(read.ticket.claim).toBeNull();
+		expect(read.ticket.blockers).not.toBe("unknown");
+		expect(deriveEffectiveBlockedness(ticketId(read.ticket.ref), read.graph)).toBe("unblocked");
+		expect(read.degraded).toEqual([]);
+	});
+
+	test("answers about a closed ticket, which the set read cannot return", () => {
+		const read = viewing("ticket-view-closed");
+		expect(read.ticket.title).toBe(shapeTitle(GITHUB_TEST_TREE, "closed-blocker"));
+		expect(read.ticket.state).toBe("closed");
+	});
+
+	test("carries the claim somebody else holds, rather than reporting the ticket unclaimed", () => {
+		const read = viewing("ticket-view-claimed");
+		expect(read.ticket.claim?.by).toBeTruthy();
+	});
+
+	test("reads a confirmed open blocker as blocked, from the edge the tracker returned", () => {
+		const read = viewing("ticket-view-blocked");
+		expect(deriveEffectiveBlockedness(ticketId(read.ticket.ref), read.graph)).toBe("blocked");
+	});
+
+	test("emits the same reference form the set read does, so one ticket cannot occupy two graph nodes", () => {
+		const read = viewing("ticket-view", { host: GITHUB_HOST });
+		expect(read.ticket.ref.host).toBeNull();
+		expect(read.ticket.ref.repo).toBe(REPO);
+	});
+
+	test("fails loud on a ticket the tracker does not have, rather than reporting it unreadable", () => {
+		const defect = githubRecording("ticket-view-defect");
+		const key = defect.argv[defect.argv.indexOf("--") + 1]!;
+		const refused = () =>
+			readGitHubTicket({ runner: replayRunner([defect]), ref: { tracker: "github", repo: REPO, host: null, key } });
+		expect(refused).toThrow(GitHubAdapterError);
+		expect(refused).toThrow(/retry will not fix/);
+	});
+
+	test("aborts on an outage, saying which failure it was rather than degrading to an answer it does not have", () => {
+		const refused = () =>
+			readGitHubTicket({
+				runner: respondingRunner(githubRecording("read-outage")),
+				ref: { tracker: "github", repo: REPO, host: null, key: "1" },
+			});
+		expect(refused).toThrow(GitHubAdapterError);
+		expect(refused).toThrow(/could not be reached/);
+	});
+
+	test("refuses a reference on a tracker this has no adapter for, before asking anything", () => {
+		expect(refusing({ tracker: "gitlab", repo: "group/project", host: null, key: "1" })).toThrow(/GitHub/);
+		expect(refusing({ tracker: "jira", repo: null, host: null, key: "ABC-7" })).toThrow(/GitHub/);
+	});
+
+	test("refuses a reference naming no owner and repository, and one on another host", () => {
+		expect(refusing({ tracker: "github", repo: null, host: null, key: "1" })).toThrow(/owner and repository/);
+		expect(refusing({ tracker: "github", repo: REPO, host: "example.test", key: "1" })).toThrow("example.test");
+	});
+
+	/**
+	 * The repository half of the same identity check. An issue transferred elsewhere keeps the number it landed on,
+	 * so the number alone cannot hold the answer to what was asked — and the claim is written from this reference.
+	 */
+	test("refuses a row answering about the same number in another repository", () => {
+		const runner: Runner = () => ({ code: 0, stdout: JSON.stringify(issueRow()), stderr: "" });
+		const refused = () => readGitHubTicket({ runner, ref: { tracker: "github", repo: REPO, host: null, key: "1" } });
+		expect(refused).toThrow(GitHubAdapterError);
+		expect(refused).toThrow(/answered about/);
+	});
+
+	test("accepts a row whose repository differs only in case, which is the same repository", () => {
+		const shouted = { ...issueRow(), url: `${INLINE_REPO.toUpperCase()}/issues/1` };
+		const read = readGitHubTicket({
+			runner: () => ({ code: 0, stdout: JSON.stringify(shouted), stderr: "" }),
+			ref: { tracker: "github", repo: INLINE_REPO, host: null, key: "1" },
+		});
+		expect(read.ticket.ref.key).toBe("1");
+	});
+
+	test("refuses a row answering about a different issue than the one named", () => {
+		const runner: Runner = () => ({ code: 0, stdout: JSON.stringify(issueRow({ number: 2, url: `${INLINE_REPO}/issues/2` })), stderr: "" });
+		const refused = () => readGitHubTicket({ runner, ref: { tracker: "github", repo: INLINE_REPO, host: null, key: "1" } });
+		expect(refused).toThrow(/answered about/);
+	});
+
+	test("refuses a response that is not one issue object", () => {
+		const named: TicketRef = { tracker: "github", repo: INLINE_REPO, host: null, key: "1" };
+		const answering = (stdout: string) => () => readGitHubTicket({ runner: () => ({ code: 0, stdout, stderr: "" }), ref: named });
+		expect(answering("not json")).toThrow(/returned no JSON/);
+		expect(answering(JSON.stringify([issueRow()]))).toThrow(/one issue/);
+	});
+
+	// ADR-0037, which also names what that costs.
+	test("reads a page of blockers as unknown, and says a page is what arrived", () => {
+		const runner: Runner = () => ({
+			code: 0,
+			stdout: JSON.stringify(issueRow({ blockedBy: { nodes: [blockerNode(2, "CLOSED")], totalCount: 2 } })),
+			stderr: "",
+		});
+		const read = readGitHubTicket({ runner, ref: { tracker: "github", repo: INLINE_REPO, host: null, key: "1" } });
+		expect(read.ticket.blockers).toBe("unknown");
+		expect(deriveEffectiveBlockedness(ticketId(read.ticket.ref), read.graph)).toBe("unknown");
+		expect(read.degraded).toEqual([{ kind: "partial-blocking", refs: [read.ticket.ref] }]);
+	});
+
+	test("reads a blocking field that did not answer as unknown, and says so", () => {
+		const row = issueRow();
+		delete row.blockedBy;
+		const read = readGitHubTicket({
+			runner: () => ({ code: 0, stdout: JSON.stringify(row), stderr: "" }),
+			ref: { tracker: "github", repo: INLINE_REPO, host: null, key: "1" },
+		});
+		expect(deriveEffectiveBlockedness(ticketId(read.ticket.ref), read.graph)).toBe("unknown");
+		expect(read.degraded).toEqual([{ kind: "unreadable-blocking", tickets: 1, of: 1 }]);
+	});
+
+	test("seeds a ticket that blocks itself without collapsing it onto two nodes", () => {
+		const row = issueRow({ blockedBy: { nodes: [blockerNode(1, "OPEN")], totalCount: 1 } });
+		const read = readGitHubTicket({
+			runner: () => ({ code: 0, stdout: JSON.stringify(row), stderr: "" }),
+			ref: { tracker: "github", repo: INLINE_REPO, host: null, key: "1" },
+		});
+		expect(deriveEffectiveBlockedness(ticketId(read.ticket.ref), read.graph)).toBe("blocked");
 	});
 });

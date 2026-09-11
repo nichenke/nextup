@@ -6,6 +6,9 @@ export class NotAReadError extends Error {}
 /** The commands a reconstruction may issue, as leading words. An allowlist because `gh` grows subcommands; ADR-0033. */
 const READS: readonly (readonly string[])[] = [
 	["gh", "issue", "list"],
+	// The single-ticket read the override path uses, which `readNamed` issues — a read like the list above, and
+	// named as its own prefix because `gh issue` also holds `edit`, `close` and `comment`.
+	["gh", "issue", "view"],
 	["gh", "api"],
 	// `reconstruct.ts` resolves the repository from the remote when `--repo` is absent.
 	["git", "remote", "get-url"],

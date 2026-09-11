@@ -1,13 +1,13 @@
 import { type GitHubClaimCommandInput, githubClaimCommand } from "./command-builders";
 import { classifyFailure, failureDetail } from "./failure-class";
 import type { CommandResult, Runner } from "./runner";
-import { GITHUB_HOST, type TicketRef, formatTicketRef, isGitHubHost, isValidRepoPath } from "./ticket-ref";
+import { type TicketRef, formatTicketRef, githubTicketTarget } from "./ticket-ref";
 
 export class GitHubClaimError extends Error {}
 
 export interface GitHubClaimInput {
 	readonly runner: Runner;
-	/** The ticket to claim, which already names its repository: the pick came from a read that resolved one. */
+	/** The ticket to claim, which already names its repository: a read resolved one, or `resolveTicketRef` did. */
 	readonly ref: TicketRef;
 }
 
@@ -35,22 +35,15 @@ export function claimGitHubTicket(input: GitHubClaimInput): void {
 }
 
 /**
- * The repository and issue to write to, or a refusal. ADR-0032 has why the host check is the one that matters,
- * and why this is the only place a reference's own host is compared against GitHub's.
+ * The repository and issue to write to, or a refusal. The checks are `githubTicketTarget`'s, shared with the
+ * override path's read so that a reference one refuses cannot be accepted by the other; ADR-0032 has why the
+ * host check is the one that matters. Raised as this class rather than passed through, because `cli.ts` reads
+ * the class to decide which recovery a failed claim leaves open.
  */
 function requireClaimable(ref: TicketRef): GitHubClaimCommandInput {
-	if (ref.tracker !== "github") {
-		throw new GitHubClaimError(`${formatTicketRef(ref)} is not a GitHub ticket, and this claims GitHub tickets only`);
-	}
-	if (ref.repo === null || !isValidRepoPath("github", ref.repo)) {
-		throw new GitHubClaimError(`${formatTicketRef(ref)} names no GitHub owner and repository to claim it in`);
-	}
-	if (ref.host !== null && !isGitHubHost(ref.host)) {
-		throw new GitHubClaimError(
-			`${formatTicketRef(ref)} is on ${ref.host}, and this claims on ${GITHUB_HOST} only — claiming it here would assign a different repository of the same name`,
-		);
-	}
-	return { repo: ref.repo, key: ref.key };
+	const target = githubTicketTarget(ref);
+	if (target.kind === "refused") throw new GitHubClaimError(target.reason);
+	return target;
 }
 
 function failedClaim(ref: TicketRef, result: CommandResult): GitHubClaimError {

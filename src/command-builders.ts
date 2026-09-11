@@ -304,10 +304,45 @@ export function withoutBlockingField(argv: readonly string[]): readonly string[]
 	return argv.map((word) => (word === projection ? kept : word));
 }
 
-export interface GitHubClaimCommandInput {
+export interface GitHubIssueCommandInput {
 	readonly repo: string;
 	readonly key: string;
 }
+
+/**
+ * One read of a single named GitHub ticket, for the override path — ADR-0037 has why a named ticket is read by
+ * its own call rather than looked up inside a set read.
+ *
+ * The projection is `GITHUB_TICKET_FIELDS`, so the row this answers with is the shape the set read's own row
+ * reader parses. No state filter, unlike the list read: a closed ticket has to come back as closed, because
+ * "closed" is the refusal an operator who named it needs to be told.
+ *
+ * @throws CommandBuilderError when `key` is not a canonical issue number, for the reason `requireCanonicalIssueKey` gives.
+ */
+export function githubIssueViewCommand(input: GitHubIssueCommandInput): readonly string[] {
+	return ["gh", "issue", "view", "--repo", input.repo, "--json", GITHUB_TICKET_FIELDS.join(","), "--", requireCanonicalIssueKey(input.key)];
+}
+
+/**
+ * The issue one `gh` subcommand acts on, refused unless it is a canonical issue number — leading zeros and a
+ * bare `0` as much as non-digits. Exported because the override path refuses a typed key where it reads nothing
+ * at all, and a caller reaching that guard by building an argv it discards had to explain itself in a comment.
+ *
+ * `gh` normalizes `037` to issue 37 while `compareTicketRefs` treats the two as different tickets, so a padded
+ * key would act on one issue under a reference naming another and exit 0. Measured on the read both times:
+ * ADR-0032 records `gh issue view --repo <repo> -- 022` answering issue 22, and the `--json` form answers
+ * `{"number":12}` for `-- 012` on gh 2.100.0. Not measured on `gh issue edit`, which shares the parser — and
+ * that inference is exactly why one guard covers both rather than each trusting its own subcommand. `--` does
+ * not help: it stops flag parsing, not number normalization.
+ */
+export function requireCanonicalIssueKey(key: string): string {
+	if (!/^[1-9][0-9]*$/.test(key)) {
+		throw new CommandBuilderError(`${key} is not a canonical issue number, so the issue acted on would not be the one it names`);
+	}
+	return key;
+}
+
+export type GitHubClaimCommandInput = GitHubIssueCommandInput;
 
 /**
  * The one write that claims a GitHub ticket.
@@ -318,18 +353,11 @@ export interface GitHubClaimCommandInput {
  *
  * The key goes last, after `--`, so that no spelling of it can be read as a flag rather than as the issue.
  *
- * @throws CommandBuilderError when `key` is not a canonical issue number — leading zeros and a bare `0` are
- * refused, not merely non-digits. `gh` normalizes `037` to issue 37 while `compareTicketRefs` treats the two as
- * different tickets, so a padded key would claim one issue for a reference naming another and exit 0. `--` does
- * not help: it stops flag parsing, not number normalization. ADR-0032 has both measurements.
+ * @throws CommandBuilderError when `key` is not a canonical issue number, for the reason `requireCanonicalIssueKey` gives.
+ * ADR-0032 has why a write refuses it here rather than sending it and reading the exit status.
  */
 export function githubClaimCommand(input: GitHubClaimCommandInput): readonly string[] {
-	if (!/^[1-9][0-9]*$/.test(input.key)) {
-		throw new CommandBuilderError(
-			`${input.key} is not a canonical issue number, so the issue it claims would not be the one it names`,
-		);
-	}
-	return ["gh", "issue", "edit", "--repo", input.repo, "--add-assignee", "@me", "--", input.key];
+	return ["gh", "issue", "edit", "--repo", input.repo, "--add-assignee", "@me", "--", requireCanonicalIssueKey(input.key)];
 }
 
 /**

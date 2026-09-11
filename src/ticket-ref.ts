@@ -11,13 +11,37 @@ export type Tracker = "github" | "gitlab" | "jira";
 export const GITHUB_HOST = "github.com";
 
 /**
- * Whether a git remote's host is GitHub's. The port is dropped before comparing, and GitHub's `ssh.` endpoint is
- * accepted beside the web host: an SSH remote naming port 22 explicitly, and GitHub's published port-443
- * workaround for a firewalled 22, are both ordinary remotes that comparing the authority whole refused.
+ * Every authority GitHub serves, as a git remote or a pasted URL may write it.
+ *
+ * A flat set rather than a host compared beside a port tested separately, because a port is not a thing this
+ * supports: GitHub at some other port is out of scope, so there is nothing to parse a port *for*. What is in
+ * scope is GitHub's own endpoints, and two of them spell a port — an explicit `:22`, and the `ssh.` host at
+ * `:443` that GitHub publishes as the workaround for a firewalled 22. Enumerating them says that in data, where
+ * splitting the authority and testing the halves said it in prose and invited the question of which other ports
+ * might be allowed.
+ *
+ * Lower-case throughout, which both producers guarantee: `parseRemote` folds a remote's authority and
+ * `normalizeHost` folds a URL's.
+ */
+const GITHUB_AUTHORITIES: ReadonlySet<string> = new Set([
+	GITHUB_HOST,
+	`${GITHUB_HOST}:22`,
+	`${GITHUB_HOST}:443`,
+	`ssh.${GITHUB_HOST}`,
+	`ssh.${GITHUB_HOST}:22`,
+	`ssh.${GITHUB_HOST}:443`,
+]);
+
+/**
+ * Whether a git remote's host, or a pasted URL's, is one GitHub answers on.
+ *
+ * Every caller reads a pass as "this checkout is the GitHub repository at that path" and writes the claim from it
+ * — ADR-0032 has why the host is the check that matters. Measured against an earlier version that dropped any
+ * port before comparing: a named run whose origin was an SSH remote at port 8443 exited 0, having claimed the
+ * path through GitHub's own API.
  */
 export function isGitHubHost(host: string): boolean {
-	const bare = host.replace(/:\d+$/, "");
-	return bare === GITHUB_HOST || bare === `ssh.${GITHUB_HOST}`;
+	return GITHUB_AUTHORITIES.has(host);
 }
 
 export interface TicketRef {
@@ -111,6 +135,44 @@ function compareNumerals(a: string, b: string): number {
 	const left = a.replace(/^0+(?=\d)/, "");
 	const right = b.replace(/^0+(?=\d)/, "");
 	return left.length - right.length || compareText(left, right);
+}
+
+/**
+ * The repository and issue a reference names on GitHub, or why it names none.
+ *
+ * A union rather than a nullable pair, so a caller cannot reach the repository without having dealt with the
+ * refusal — the three checks below are the ones that decide whether a command acts on the ticket it names.
+ */
+export type GitHubTicketTarget =
+	| { readonly kind: "ticket"; readonly repo: string; readonly key: string }
+	| { readonly kind: "refused"; readonly reason: string };
+
+/**
+ * Whether a reference names a GitHub ticket a command can act on, and what to act on.
+ *
+ * Shared by both commands that act on one — the claim's write and the override path's single-ticket read — so
+ * that a reference one of them refuses cannot be accepted by the other. The host check is the one that matters
+ * and ADR-0032 has why: neither command sends a hostname, so `owner/repo` from a reference on another host
+ * resolves to whatever sits at that path on GitHub, which is a different repository of the same name.
+ *
+ * The reason comes back rather than being thrown, because each caller raises its own class: `cli.ts` decides
+ * which recovery a failure leaves open from that class, and one shared error would collapse the two.
+ */
+export function githubTicketTarget(ref: TicketRef): GitHubTicketTarget {
+	const what = formatTicketRef(ref);
+	if (ref.tracker !== "github") {
+		return { kind: "refused", reason: `${what} is not a GitHub ticket, and GitHub is the only tracker this has an adapter for` };
+	}
+	if (ref.repo === null || !isValidRepoPath("github", ref.repo)) {
+		return { kind: "refused", reason: `${what} names no GitHub owner and repository` };
+	}
+	if (ref.host !== null && !isGitHubHost(ref.host)) {
+		return {
+			kind: "refused",
+			reason: `${what} is on ${ref.host}, and this works on ${GITHUB_HOST} only — the same path on another host is a different repository`,
+		};
+	}
+	return { kind: "ticket", repo: ref.repo, key: ref.key };
 }
 
 export interface ResolveDeps {

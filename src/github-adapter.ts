@@ -1,12 +1,12 @@
-import { GITHUB_TICKET_STATE, githubIssueListCommand } from "./command-builders";
+import { GITHUB_TICKET_STATE, githubIssueListCommand, githubIssueViewCommand } from "./command-builders";
 import type { DependencyGraph, IssueId } from "./effective-blockedness";
-import { classifyFailure, collapseFailure } from "./failure-class";
+import { classifyFailure, collapseFailure, failureDetail } from "./failure-class";
 import { resolveOriginRemote } from "./git-remote";
 import { type GraphSeed, seedGraph } from "./graph-store";
-import type { Runner } from "./runner";
+import type { CommandResult, Runner } from "./runner";
 import { type Claim, type Ticket, ticketId } from "./ticket";
-import type { ReadDegrade, TicketSetRead } from "./ticket-set-read";
-import { GITHUB_HOST, type TicketRef, formatTicketRef, isGitHubHost, isValidRepoPath } from "./ticket-ref";
+import { type ReadDegrade, type TicketRead, type TicketSetRead, ticketRead } from "./ticket-set-read";
+import { GITHUB_HOST, type TicketRef, formatTicketRef, githubTicketTarget, isGitHubHost, isValidRepoPath } from "./ticket-ref";
 
 export class GitHubAdapterError extends Error {}
 
@@ -85,6 +85,110 @@ export function readGitHubTicketSet(input: GitHubReadInput): TicketSetRead {
 	if (contradicted.length > 0) degraded.push({ kind: "contradicted-blocker", refs: contradicted });
 
 	return { tickets, graph, truncated, openOnly: OPEN_ONLY, degraded };
+}
+
+export interface GitHubTicketReadInput {
+	readonly runner: Runner;
+	/** The ticket to read, which names its own repository — the override path resolved it before getting here. */
+	readonly ref: TicketRef;
+}
+
+/**
+ * Reads one named GitHub ticket through the `gh` CLI, normalized the same way a set read's rows are.
+ *
+ * For the override path, and its own call rather than a lookup inside a set read: that read asks for open
+ * tickets only, within a limit, in the repository the origin resolves to, so a closed, older or elsewhere
+ * ticket would come back absent rather than as the refusal it is. ADR-0037 has the whole reasoning.
+ *
+ * Both failure classes throw, unlike the set read, which flags an outage and carries on with less known: the
+ * one ticket is the entire answer here, so there is nothing to continue with. `claimGitHubTicket` aborts on
+ * both for the same reason, and the message is what says which it was.
+ *
+ * @throws GitHubAdapterError on a reference no GitHub command can act on, a call that failed either way, a
+ * response that is not one issue object or whose shape cannot be read, and one answering about a different issue
+ * than was named.
+ * @throws CommandBuilderError when the reference's key is not a canonical issue number, unwrapped for the
+ * reason `github-claim.ts` leaves the claim's unwrapped: the stack names the builder, per ADR-0032.
+ */
+export function readGitHubTicket(input: GitHubTicketReadInput): TicketRead {
+	const target = githubTicketTarget(input.ref);
+	if (target.kind === "refused") throw new GitHubAdapterError(target.reason);
+
+	const named = formatTicketRef(input.ref);
+	const result = input.runner([...githubIssueViewCommand(target)]);
+	if (result.code !== 0) throw failedTicketRead(named, result);
+
+	const reading = readRow(readOneRow(result.stdout, named), named);
+	// The response's own identity against the one asked for — the repository as well as the number, because
+	// everything downstream acts on what came back. The claim is written with this reference while the worktree is
+	// made in the checkout the command ran in, so a response about an issue somewhere else splits the two: the
+	// claim lands there and the work happens here. An issue transferred to another repository is the reachable way
+	// that happens, since GitHub redirects the old number and the two numbers can coincide.
+	//
+	// Deliberately stricter than `requireOneRepository` on the set read, which tolerates a rename answering under
+	// the new name: that read asked about a repository, where this one asked about one issue and so has an exact
+	// expectation to hold the answer to. A rename with a stale local remote is refused here, and the message names
+	// both so the remote can be corrected.
+	//
+	// Repositories compared with case folded away, for the reason `requireTicketInThisCheckout` gives.
+	const answered = reading.ticket.ref;
+	if (answered.key !== target.key || answered.repo?.toLowerCase() !== target.repo.toLowerCase()) {
+		throw new GitHubAdapterError(`reading ${named} answered about ${formatTicketRef(answered)}`);
+	}
+
+	const { seeds, contradicted } = blockerSeeds([reading.edges], new Set([ticketId(reading.ticket.ref)]));
+	const degraded: ReadDegrade[] = [];
+	if (reading.edges === "unknown") degraded.push({ kind: "unreadable-blocking", tickets: 1, of: 1 });
+	if (reading.edges === "partial") degraded.push({ kind: "partial-blocking", refs: [reading.ticket.ref] });
+	if (contradicted.length > 0) degraded.push({ kind: "contradicted-blocker", refs: contradicted });
+
+	// Through `ticketRead` rather than seeding the graph here, so this adapter cannot state one blocking answer in
+	// the ticket and a different one in the graph — the reason that constructor exists.
+	return ticketRead({
+		ticket: reading.ticket,
+		blockers: seeds.map((seed) => ({ ref: refOf(seed.id, reading.edges), open: seed.open })),
+		degraded,
+	});
+}
+
+/**
+ * @throws GitHubAdapterError always — whichever class the failure was. Worded from the class so the two are
+ * told apart by what to do about them: a defect needs the request or the setup fixed, an outage a retry.
+ */
+function failedTicketRead(named: string, result: CommandResult): GitHubAdapterError {
+	const detail = failureDetail(result);
+	// Not "the request is wrong": a ticket that is not there lands here beside a missing or unauthenticated
+	// `gh`, and neither is fixed by retrying.
+	return classifyFailure(result.stderr) === "defect"
+		? new GitHubAdapterError(`reading ${named} failed with something a retry will not fix: ${detail}`)
+		: new GitHubAdapterError(`reading ${named} failed because the tracker could not be reached: ${detail}`);
+}
+
+/** @throws GitHubAdapterError when the response is not the single issue object the view asks for. */
+function readOneRow(stdout: string, named: string): Record<string, unknown> {
+	let raw: unknown;
+	try {
+		raw = JSON.parse(stdout);
+	} catch (cause) {
+		throw new GitHubAdapterError(`reading ${named} returned no JSON: ${cause instanceof Error ? cause.message : String(cause)}`);
+	}
+	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+		throw new GitHubAdapterError(`reading ${named} returned ${Array.isArray(raw) ? "a list" : typeof raw} where one issue was asked for`);
+	}
+	return raw as Record<string, unknown>;
+}
+
+/**
+ * The reference a seeded blocker id stands for, recovered from the edges that named it.
+ *
+ * `GraphSeed` carries the id rather than the reference, and `ticketRead` needs the reference to key the same id
+ * again — so this maps back rather than having `blockerSeeds` return both, which would make the set read carry a
+ * field only this caller reads. The lookup cannot miss: every id in `seeds` came from one of these edges.
+ */
+function refOf(id: IssueId, edges: EdgeReading): TicketRef {
+	const found = typeof edges === "string" ? undefined : edges.find((edge) => ticketId(edge.ref) === id);
+	if (found === undefined) throw new GitHubAdapterError(`the graph seeded ${id}, which no edge of the ticket named`);
+	return found.ref;
 }
 
 /**
@@ -225,22 +329,42 @@ function graphFor(readings: readonly RowReading[], considered: readonly RowReadi
 	// edges are one more dependent's copy of some third ticket's state. Let them vote and the row fetched only
 	// to detect truncation decides the answer — a probe whose edge disagreed with a considered ticket's edge
 	// seeded that blocker `"unknown"`, demoted the ticket off the confirmed partition, and changed the pick.
+	const outside = blockerSeeds(
+		considered.map((reading) => reading.edges),
+		own,
+	);
+	return { graph: seedGraph([...seeds, ...outside.seeds]), contradicted: outside.contradicted };
+}
+
+/**
+ * A seed per blocker named by an edge and not already seeded from its own row, on the openness that edge
+ * carried. Without these a blocker outside the read has no openness at all, so the traversal degrades its
+ * dependent to `"unknown"` — and the edge already carried the answer.
+ *
+ * Shared by both reads so that one rule decides what an edge is worth: a row answers for its own openness and
+ * an edge disagreeing with it is discarded rather than reconciled, since the row is the tracker's own
+ * per-ticket state where the edge is one dependent's copy of it. Two edges disagreeing is the tracker telling
+ * us two things, so neither is taken — ADR-0027 has why not the open one.
+ *
+ * Deduplicating is not only for that: `seedGraph` refuses a repeated id outright, so one blocker named twice
+ * would abort a read that is perfectly readable.
+ */
+function blockerSeeds(
+	readings: Iterable<EdgeReading>,
+	own: ReadonlySet<IssueId>,
+): { readonly seeds: readonly GraphSeed[]; readonly contradicted: readonly TicketRef[] } {
 	const outside = new Map<IssueId, { readonly ref: TicketRef; readonly open: boolean | "unknown" }>();
-	for (const { edges } of considered) {
+	for (const edges of readings) {
 		if (typeof edges === "string") continue;
 		for (const edge of edges) {
 			const id = ticketId(edge.ref);
-			// A blocker the read returned answers for its own openness, and an edge disagreeing with it is
-			// discarded rather than reconciled: the row is the tracker's own per-ticket state, where the edge is
-			// one dependent's copy of it.
 			if (own.has(id)) continue;
 			const seen = outside.get(id);
-			// Two edges disagreeing is the tracker telling us two things, so neither is taken: keeping either decides
-			// one dependent's blocking state from another dependent's edge. ADR-0027 has why not the open one.
 			outside.set(id, { ref: edge.ref, open: seen === undefined || seen.open === edge.open ? edge.open : "unknown" });
 		}
 	}
 
+	const seeds: GraphSeed[] = [];
 	const contradicted: TicketRef[] = [];
 	for (const [id, blocker] of outside) {
 		if (blocker.open === "unknown") contradicted.push(blocker.ref);
@@ -248,7 +372,7 @@ function graphFor(readings: readonly RowReading[], considered: readonly RowReadi
 		// consulted, and an open one blocks on its own.
 		seeds.push({ id, parent: null, blockers: "unknown", open: blocker.open });
 	}
-	return { graph: seedGraph(seeds), contradicted };
+	return { seeds, contradicted };
 }
 
 function readRows(stdout: string, repo: string): readonly Record<string, unknown>[] {

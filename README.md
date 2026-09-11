@@ -23,8 +23,35 @@ bun bin/nextup.ts --json                # the selection, and what the run did ab
 bun bin/nextup.ts --yes                 # start without asking, for an unattended run
 bun bin/nextup.ts --slash-command /triage   # start a triage session rather than an implementation
 bun bin/nextup.ts --print-command       # print the session command, starting nothing
+bun bin/nextup.ts gh:12                 # start this ticket instead, skipping the ranking
+bun bin/nextup.ts gh:12 --force         # start it past the blocked and claimed checks, loudly
 bun bin/nextup.ts --help                # every flag
 ```
+
+Naming a ticket — `gh:12`, `gh:<owner>/<name>#12`, or an issue URL pasted from a browser — starts that one. It
+skips the ranking ladder and the label filter, because both decide only what may be *recommended* and
+nothing is being recommended. What it does not skip is the checks about whether work can start: a closed,
+claimed or confirmed-blocked ticket is refused, with every failed check named and exit 2. Naming a ticket by
+hand is exactly the path where the frontier query is bypassed, so those are the checks that matter most here.
+
+`--force` starts past a claimed or blocked one, names what it cleared on a `forced: ` line, asks at the gate
+before writing anything, and claims the ticket anyway — skipping the block check is a judgment you are
+entitled to make, while skipping the claim would only make your work invisible to the next session. It does
+not reach a closed ticket: that is the tracker saying the work is done, so the repair is to reopen it.
+[ADR-0037](./docs/adr/0037-naming-a-ticket-skips-the-ranking-and-nothing-else.md) has all of it, including why
+the named ticket is read by its own single-issue call rather than looked up inside the set read, and why
+`--print-command` on a named ticket reads no tracker at all.
+
+A ticket whose blocking state the tracker could not report is not blocked and needs no flag. The line under the
+pick says which of the three it is, sharing its wording with the ranking path — which has only two of the three
+to say, since a confirmed-blocked ticket is never a candidate there.
+
+The ticket has to be in the repository you are standing in. One from anywhere else is refused rather than split
+across two: the claim would land in its repository while the worktree and the session were made in yours.
+
+A claim is a claim whether or not it is yours — nothing here compares identities, per
+[ADR-0018](./docs/adr/0018-concurrent-claim-arbitration-is-out-of-scope.md) — so picking a ticket you already
+claimed back up takes `--force`, and the refusal names who holds it rather than assuming it is somebody else.
 
 The session runs in a cmux workspace, and cmux is required rather than optional: a host that does not answer
 fails the run, with no fallback. Starting writes in three places — the worktree, the claim, then the session —
@@ -63,10 +90,18 @@ origin that is not GitHub, a request the tracker rejects, a response that cannot
 and no `--yes`, a workspace host that is not running, a worktree that cannot be made, a claim that will not
 land, and any failure nothing classified.
 
-`--json` carries the reasons as two lists, and a consumer has to read both: `selection.degraded` is what the
-selector concluded about the ticket set, and `readDegraded` is what the read itself could not do. An outage
-appears in the second while also setting the first to `truncated`, since nothing was read — so a wrapper
+A named ticket is never exit 1, because there was no recommendation to be absent: a check refusing it is 2,
+and so is a read that failed — the one ticket was the whole answer, including when the tracker could not be
+reached, so there is no degraded version of it to hand back.
+
+`--json` on a ranked run carries the reasons as two lists, and a consumer has to read both: `selection.degraded`
+is what the selector concluded about the ticket set, and `readDegraded` is what the read itself could not do. An
+outage appears in the second while also setting the first to `truncated`, since nothing was read — so a wrapper
 keyed only on `truncated` would answer a network outage by widening a window that was never opened.
+
+A named run's document has no `selection` at all, because nothing was ranked: it carries `override`, the same
+`readDegraded`, and `start`. A wrapper that handles both paths has to branch on which key is present rather than
+reach straight into `selection`.
 
 Nothing is started without an answer. The gate asks on the controlling terminal rather than through stdin and
 stdout, so it still works when either is redirected, and the question names the pick because the rendering it
