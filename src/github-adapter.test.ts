@@ -652,6 +652,26 @@ describe("readGitHubTicket, over a single named ticket", () => {
 		expect(refusing({ tracker: "github", repo: REPO, host: "example.test", key: "1" })).toThrow("example.test");
 	});
 
+	/**
+	 * The repository half of the same identity check. An issue transferred elsewhere keeps the number it landed on,
+	 * so the number alone cannot hold the answer to what was asked — and the claim is written from this reference.
+	 */
+	test("refuses a row answering about the same number in another repository", () => {
+		const runner: Runner = () => ({ code: 0, stdout: JSON.stringify(issueRow()), stderr: "" });
+		const refused = () => readGitHubTicket({ runner, ref: { tracker: "github", repo: REPO, host: null, key: "1" } });
+		expect(refused).toThrow(GitHubAdapterError);
+		expect(refused).toThrow(/answered about/);
+	});
+
+	test("accepts a row whose repository differs only in case, which is the same repository", () => {
+		const shouted = { ...issueRow(), url: `${INLINE_REPO.toUpperCase()}/issues/1` };
+		const read = readGitHubTicket({
+			runner: () => ({ code: 0, stdout: JSON.stringify(shouted), stderr: "" }),
+			ref: { tracker: "github", repo: INLINE_REPO, host: null, key: "1" },
+		});
+		expect(read.ticket.ref.key).toBe("1");
+	});
+
 	test("refuses a row answering about a different issue than the one named", () => {
 		const runner: Runner = () => ({ code: 0, stdout: JSON.stringify(issueRow({ number: 2, url: `${INLINE_REPO}/issues/2` })), stderr: "" });
 		const refused = () => readGitHubTicket({ runner, ref: { tracker: "github", repo: INLINE_REPO, host: null, key: "1" } });

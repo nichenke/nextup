@@ -119,11 +119,21 @@ export function readGitHubTicket(input: GitHubTicketReadInput): TicketRead {
 	if (result.code !== 0) throw failedTicketRead(named, result);
 
 	const reading = readRow(readOneRow(result.stdout, named), named);
-	// The row's own number rather than the one asked for, because everything downstream acts on what came back:
-	// a mismatch means `--` and the canonical-key guard did not make the question total after all, and claiming
-	// from this read would then claim an issue the reference does not name.
-	if (reading.ticket.ref.key !== target.key) {
-		throw new GitHubAdapterError(`reading ${named} answered about issue ${reading.ticket.ref.key}`);
+	// The response's own identity against the one asked for — the repository as well as the number, because
+	// everything downstream acts on what came back. The claim is written with this reference while the worktree is
+	// made in the checkout the command ran in, so a response about an issue somewhere else splits the two: the
+	// claim lands there and the work happens here. An issue transferred to another repository is the reachable way
+	// that happens, since GitHub redirects the old number and the two numbers can coincide.
+	//
+	// Deliberately stricter than `requireOneRepository` on the set read, which tolerates a rename answering under
+	// the new name: that read asked about a repository, where this one asked about one issue and so has an exact
+	// expectation to hold the answer to. A rename with a stale local remote is refused here, and the message names
+	// both so the remote can be corrected.
+	//
+	// Repositories compared with case folded away, for the reason `requireTicketInThisCheckout` gives.
+	const answered = reading.ticket.ref;
+	if (answered.key !== target.key || answered.repo?.toLowerCase() !== target.repo.toLowerCase()) {
+		throw new GitHubAdapterError(`reading ${named} answered about ${formatTicketRef(answered)}`);
 	}
 
 	const { seeds, contradicted } = blockerSeeds([reading.edges], new Set([ticketId(reading.ticket.ref)]));

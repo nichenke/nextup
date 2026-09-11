@@ -839,6 +839,35 @@ describe("starting a ticket named on the command line", () => {
 	});
 
 	/**
+	 * The checkout boundary is checked before the read, against the reference as typed — but the claim is written
+	 * with the reference the *response* carried, which `readRow` builds from the issue's own address. An issue
+	 * transferred to another repository that lands on the same number therefore passes the number check, and the
+	 * claim goes there while the worktree is made here.
+	 */
+	test("refuses a response naming another repository, even at the number asked for", () => {
+		const elsewhere = (argv: string[]): CommandResult | null => {
+			if (argv[0] !== "gh" || argv[2] !== "view") return null;
+			const row = {
+				number: 1,
+				title: "an issue that moved",
+				state: "OPEN",
+				assignees: [],
+				labels: [],
+				url: "example/repo/issues/1",
+				blockedBy: { nodes: [], totalCount: 0 },
+			};
+			return { code: 0, stdout: JSON.stringify(row), stderr: "" };
+		};
+		const { runner, of } = starting("ticket-view", elsewhere);
+		const result = run([`gh:${GITHUB_TEST_TREE.repo}#1`, "--yes"], deps(runner));
+
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("example/repo");
+		expect(of("worktree", "add")).toEqual([]);
+		expect(of("issue", "edit")).toEqual([]);
+	});
+
+	/**
 	 * The arm that decides what happens when the comparison itself cannot be made. Refused rather than allowed
 	 * through: a reference that may or may not belong to this checkout is not one to start work on, and the
 	 * alternative fails in the direction that splits the two writes across repositories.
