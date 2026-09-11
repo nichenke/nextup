@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "bun";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 const root = join(import.meta.dir, "..");
 const read = (...parts: string[]): string => readFileSync(join(root, ...parts), "utf8");
-const command = (): string => read("commands", "nextup.md");
+const skill = (): string => read("skills", "nextup", "SKILL.md");
 
 /**
  * The three manifest fields this suite asserts on. A manifest carrying more is still valid, and these
@@ -59,8 +59,8 @@ describe("the repository ships an invokable plugin", () => {
 		expect(typeof description()).toBe("string");
 	});
 
-	test("the command file is where Claude Code discovers commands", () => {
-		expect(existsSync(join(root, "commands", "nextup.md"))).toBe(true);
+	test("the skill file is where Claude Code discovers plugin skills", () => {
+		expect(existsSync(join(root, "skills", "nextup", "SKILL.md"))).toBe(true);
 	});
 
 	// `:?` rather than a bare expansion. Unset, `bun /bin/nextup.ts` resolves against the working
@@ -69,7 +69,7 @@ describe("the repository ships an invokable plugin", () => {
 	// measured again with no package.json anywhere, which is what rules out package-root resolution.
 	// `:?` refuses instead, and the quotes carry a path with a space in it.
 	test("the command reaches the entry point through the plugin root, and refuses an unset one", () => {
-		expect(command()).toContain('"${CLAUDE_PLUGIN_ROOT:?}/bin/nextup.ts"');
+		expect(skill()).toContain('"${CLAUDE_PLUGIN_ROOT:?}/bin/nextup.ts"');
 	});
 
 	// Run rather than stat: a file that exists but does not parse is the same broken install as a
@@ -84,17 +84,18 @@ describe("the repository ships an invokable plugin", () => {
 	// Asserted as the whole list rather than a flag at a time, so --force on either of these, or a
 	// third invocation anywhere in the file, fails here. ADR-0038 has why neither may ship.
 	test("the command ships two invocations: a preview that writes nothing and a start that names a ticket", () => {
-		expect(entryPointLines(command())).toEqual([
+		expect(entryPointLines(skill())).toEqual([
 			'bun "${CLAUDE_PLUGIN_ROOT:?}/bin/nextup.ts" --print-command',
 			'bun "${CLAUDE_PLUGIN_ROOT:?}/bin/nextup.ts" <ticket> --yes',
 		]);
 	});
 
 	// Read out of the frontmatter rather than looked for in the file, because deleting the opening `---`
-	// leaves both keys as body prose that a substring test still finds -- and takes the description with
-	// it. ADR-0038 defers the skill rather than shipping it, which is the decision this line holds.
-	test("the command is declared, and is not model-invocable", () => {
-		const block = frontmatter(command());
+	// leaves every key as body prose that a substring test still finds -- and takes the description with
+	// it. `disable-model-invocation` is the whole of what keeps a session from reaching this on its own
+	// judgment, which is the decision ADR-0038 leaves open.
+	test("the skill is declared, and is not model-invocable", () => {
+		const block = frontmatter(skill());
 		expect(block).not.toBeNull();
 		expect(block).toMatch(/^disable-model-invocation: true$/m);
 		expect(block).toMatch(/^description: \S/m);
@@ -106,9 +107,13 @@ describe("what the plugin claims about itself", () => {
 		expect(existsSync(join(root, ".claude-plugin", "marketplace.json"))).toBe(false);
 	});
 
-	test("a command is the only component that ships", () => {
-		expect(existsSync(join(root, "skills"))).toBe(false);
+	// The `commands/` layout this started in answers only to `/nextup:nextup`; a plugin skill answers to
+	// the bare `/nextup` too, and it is the layout the docs carry. Asserted so a move back would have to
+	// be deliberate, and so an agent does not appear beside it unnoticed.
+	test("one skill ships, and nothing else", () => {
+		expect(existsSync(join(root, "commands"))).toBe(false);
 		expect(existsSync(join(root, "agents"))).toBe(false);
+		expect(readdirSync(join(root, "skills"))).toEqual(["nextup"]);
 	});
 
 	test("the description promises no tracker without an adapter", () => {

@@ -19,7 +19,7 @@ ticket, and asks cmux to run a session in that worktree.
 
 ## Installing it
 
-`nextup` is a Claude Code plugin shipping one command, `/nextup`, and no marketplace of its own. The
+`nextup` is a Claude Code plugin shipping one skill, `/nextup`, and no marketplace of its own. The
 way to run it today is to point Claude Code at a checkout:
 
 ```sh

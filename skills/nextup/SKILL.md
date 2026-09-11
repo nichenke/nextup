@@ -1,4 +1,5 @@
 ---
+name: nextup
 description: Show the next ticket to work on — the pick, why it won, and the counts — then ask before starting it
 disable-model-invocation: true
 ---
@@ -66,6 +67,12 @@ confirmation is the one you already took from the user.
 
 On success the tool says it *asked* the workspace host to run a session. Say the same. Nothing it can
 see reports that the session came up.
+
+Read the success output before relaying it. It carries its own blocking phrase and its own `degraded: `
+lines, and a start reads the ticket again rather than reusing the preview's read — so both can differ
+from what the user agreed to. When either does, say so plainly and say what it cost: the worktree
+exists and the ticket is claimed, neither unwinds, and the state nothing could confirm is the state it
+was started under.
 
 ### When a start does not go through
 

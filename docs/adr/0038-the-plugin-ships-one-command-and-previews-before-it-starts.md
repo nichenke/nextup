@@ -36,15 +36,28 @@ Anyone who registered this repository as a marketplace while it was one has to d
 and reinstall from `dispatch`: deleting `.claude-plugin/marketplace.json` is what breaks their
 refresh.
 
-## A command, not a skill
+## Typed by a person, never reached for by a session
 
-A skill would let a session reach for this on its own. This tool claims tickets and spawns worktrees
-— it writes to somebody else's tracker and to the filesystem — and a session deciding by itself that
-now is the moment is a different behaviour from a person typing six characters.
+This tool claims tickets and spawns worktrees — it writes to somebody else's tracker and to the
+filesystem — and a session deciding by itself that now is the moment is a different behaviour from a
+person typing seven characters. That behaviour may be worth having later. What it must not be is
+inherited by accident from the packaging.
 
-That behaviour may be worth having, and nothing here forecloses it: a skill is additive later. What
-it should not be is inherited by accident from the packaging, so the command carries
-`disable-model-invocation: true` and the decision stays open rather than being made by the default.
+The first draft expressed that as "a command, not a skill", shipping a plugin `commands/` file. That
+reading of the words no longer holds: Claude Code has merged custom commands into skills, so both
+layouts produce a skill and **`disable-model-invocation: true` is the whole of what decides whether a
+session may reach for one.** The directory decides only the name. Keeping `commands/` would have
+bought none of the safety the phrase implied while costing the shorter name, which is the kind of
+thing a design term with two readings does.
+
+So the plugin ships `skills/nextup/SKILL.md` carrying `disable-model-invocation: true`. Measured on
+both layouts: a plugin `commands/` file answers only to `/nextup:nextup`, while a plugin skill answers
+to that *and* the bare `/nextup`, with the model still unable to invoke it either way. The docs'
+command-naming table has no row for a plugin `commands/` directory at all.
+
+What stays open is the original decision, now stated in the terms that actually control it: nothing
+here makes this model-invocable, and turning that flag off is a separate choice with its own
+reasoning.
 
 ## The command previews, because it cannot ask
 
