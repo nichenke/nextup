@@ -22,10 +22,11 @@ them can get them wrong in a way no fixture would catch.
 
 ## The worked example
 
-Against a real pick, taken from this repository on 2026-09-11. The tracker has moved on since —
-issues 39 and 50 are claimed now, which drops both out of the ranking — so the counts below are one
-run's snapshot rather than what a run today prints. Everything the example argues from is a property
-of that snapshot, and dating it is what lets a later reader tell drift from error. Repository
+Against a real pick, taken from this repository on 2026-09-11. The tracker has moved on since — the
+tickets below have been claimed and closed in the ordinary way — so this is one run's snapshot rather
+than what a run today prints. Everything the example argues from is a property of that snapshot, and
+the date is what lets a later reader tell drift from error. The caveat deliberately names no ticket's
+current state, because that is the half of a dated example that rots twice. Repository
 coordinates are elided in the blocks; the identifier guard's allowlist is not widened for an example
 ([0006](./0006-provenance-prevents-leaks-the-guard-is-a-backstop.md)).
 
