@@ -27,17 +27,14 @@ claude --plugin-dir <path to this checkout>
 ```
 
 Installing it by name will be through the `dispatch` marketplace, which is where it is published.
-That entry is not in place yet, and it tracks this repository's default branch — so it lands after
-the branch carries the command, not before.
+That entry is not in place yet.
 
 `/nextup` takes no arguments. It previews, then asks, then starts what you agreed to. The flags in
 the next section belong to the binary and are reachable from a checkout rather than through the
 command.
 
-`bun`, `gh`, `cmux` and `claude` are expected on `PATH`. Two of those are probed before anything is
-written and come back as the tool's own refusal; `bun` and `gh` surface as the runner's error.
-`/implement` has to come from somewhere else — this plugin declares that dependency rather than
-satisfying it.
+`bun`, `gh`, `cmux` and `claude` are expected on `PATH`. `/implement` has to come from somewhere else
+— this plugin declares that dependency rather than satisfying it.
 
 ## From a checkout
 

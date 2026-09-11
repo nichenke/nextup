@@ -33,7 +33,8 @@ Local work needs no marketplace at all: `claude --plugin-dir <checkout>` loads t
 working tree, which is why nothing here depends on the entry existing yet.
 
 Anyone who registered this repository as a marketplace while it was one has to drop that registration
-and reinstall from `dispatch`; the deletion below is what breaks their refresh.
+and reinstall from `dispatch`: deleting `.claude-plugin/marketplace.json` is what breaks their
+refresh.
 
 ## A command, not a skill
 
@@ -86,8 +87,10 @@ A quiet day, an entirely blocked set and a deadlock are three outcomes the tool 
 them is a failure to route around. The command relays the explanation, names the deadlock chain, and
 stops. It does not widen the read, re-run with different flags, or propose unblocking anything, and
 `--force` is not among the invocations it ships, and a test holds the shipped command to exactly the
-two above — over every shell fence CommonMark allows, since an indented one under a bullet is how a
-third invocation would actually get written.
+two above. It reads every line naming the entry point rather than parsing the markdown around them:
+four attempts at a fence grammar each left a shape — an indented fence under a bullet, a tilde fence,
+a `shell` info string, an indented block with no fence — where a third invocation still rendered as
+something a session would run.
 
 ## Consequences
 
@@ -102,14 +105,15 @@ shipping a second command this repository has no opinion about.
 
 There is no `bun` wrapper script, and nothing new checks for a prerequisite. Two checks already
 existed and are worth knowing about when reading the command file: `requireWorkspaceHost` and
-`requireSessionBinary` probe `cmux` and `claude` before any write, so those two come back as the
-tool's own refusal at exit 2 — [ADR-0035](./0035-a-workspace-host-that-is-not-running-is-refused-before-anything-is-written.md)
-and [ADR-0036](./0036-the-launcher-reports-a-request-not-a-running-session.md). Only `bun` and `gh`
-surface as the runner's own error. Adding a third probe would name the same things later and less
-precisely.
+`requireSessionBinary` probe `cmux` and `claude` before any write —
+[ADR-0035](./0035-a-workspace-host-that-is-not-running-is-refused-before-anything-is-written.md) and
+[ADR-0036](./0036-the-launcher-reports-a-request-not-a-running-session.md). `gh` is not probed, but a
+missing one is caught at the read, so it too comes back as the tool's own refusal at exit 2. `bun` is
+the only one the shell reports, because it is the interpreter. Adding a probe for it would name the
+same thing later and less precisely.
 
 The environment-scrub notice — [ADR-0029](./0029-a-git-command-is-given-an-environment-with-no-git-variable-in-it.md)
-— prints ahead of the answer whenever a reportable `GIT_` name is in the environment, which under this
-sandbox is every run. The command is told to skip it on a run that produced an answer and to relay it
+— prints ahead of the answer on the first git command of any run whose environment carries a
+reportable `GIT_` name, which under this sandbox is every run that reaches git. The command is told to skip it on a run that produced an answer and to relay it
 on one that failed, because a removed variable may be why the run failed. That is a workaround at the
 reading end for something better fixed at the writing end; issue 68 tracks it.

@@ -19,8 +19,9 @@ Run it exactly once. It writes nothing: no claim, no worktree, no session.
 Relay what came back, in the tool's own words:
 
 - the pick — its reference, title and URL
-- the line saying what it won on, and which ticket it beat. With a single candidate there is no
-  runner-up and the line says so instead
+- the line saying what it won on, and which ticket it beat. With nothing to beat, that line names it
+  as the only candidate instead — sometimes as the only one the ladder ranked, when others were held
+  back
 - the line carrying its priority, its `unblocks` count and its blocking phrase
 - the counts line — how many tickets were read, filtered out, and left as candidates
 - every line beginning `degraded: ` or `deadlock: `
@@ -39,7 +40,9 @@ Branch on the status, not on what the text looks like.
 
 - **0** — the tool did what was asked. The answer is on stdout.
 - **1** — nothing to recommend. An answer, not a failure, and the `degraded: ` lines are what say
-  whether it is the honest kind.
+  whether it is the honest kind. Only the preview can produce it: a run naming a ticket recommends
+  nothing, so it is never 1. A 1 from the start invocation, or any 1 with no counts line, came from
+  the shell rather than the tool — most likely the plugin root was unset.
 - **2** — something needs a person. Never relay this as an answer. If stdout is empty, nothing was
   selected at all and the whole message is on stderr.
 
@@ -70,14 +73,17 @@ Two kinds, and they want different things said.
 
 - **A check refused it** — closed, claimed or confirmed-blocked. The message says the ticket was not
   started and that nothing was claimed or created. Relay it and stop.
-- **It failed partway** — the workspace host did not answer, the worktree could not be made, the claim
-  would not land, the session was refused. These are not verdicts on the ticket, and they do not
-  unwind: a failure after the claim leaves the ticket claimed and the worktree on disk. Relay the
-  message in full, including whatever it says is already in place, and follow the recovery it gives
-  rather than one of your own.
+- **It failed before writing anything** — the workspace host did not answer, the session binary would
+  not run, the worktree could not be made. Not verdicts on the ticket. Each message says for itself
+  that nothing was started; relay it, and say the ticket is still there to start once the cause is
+  fixed.
+- **It failed after writing something** — the claim would not land, or the session was refused. These
+  do not unwind: the worktree is on disk, and past the claim the ticket is claimed too. Relay the
+  message in full, including whatever it says is already in place, so the user knows what to clean up.
 
-Add no flag the user did not ask for. A refusal may advise `--force`; that is advice for the person,
-to run themselves from a checkout, and not a third invocation for you to build.
+Every recovery a message offers is for the person, not for you to run. That includes the `--force` a
+refusal may advise, and the "run this again" a claim failure may suggest. Relay it and ask. Add no
+flag the user did not ask for, and build no third invocation.
 
 ## When there is nothing to start
 
@@ -86,9 +92,14 @@ Four cases, and the last one is not like the others.
 - **A quiet day** — nothing ready.
 - **Everything blocked.**
 - **A deadlock** — relay every `deadlock: ` line and the chain each names.
-- **The tracker could not be read** — a `degraded: ` line says so, and the exit status is still 1. This
-  is not a quiet day and must not be relayed as one. Say the read failed, and that retrying is the
-  answer.
+- **The tracker could not be read** — the line that says so is `degraded: the ticket set could not be
+  read`. Only that one. This is not a quiet day and must not be relayed as one: say the read failed,
+  and that retrying is the answer.
+
+Read the `degraded: ` lines, do not pattern-match the prefix. Every other one is a caveat on a real
+answer rather than a failed read — `the ticket set was truncated` in particular means the read
+succeeded and the window was too small, so retrying changes nothing and raising `--limit` is a choice
+for the person to make from a checkout.
 
 For the first three: relay the explanation and stop. Do not widen the read, re-run with different
 flags, suggest unblocking a ticket, or start something the tool did not put forward. A set with
@@ -101,9 +112,10 @@ answer — skip it when the run produced one on stdout. When the run failed, rel
 may have carried the only configuration that made git work there, so the notice can be the reason.
 Issue 68 tracks the notice itself.
 
-`bun` and `gh` are not checked for; a missing one surfaces as the runner's own error. `cmux` and
-`claude` are probed before any write, and a missing one comes back as the tool's own refusal at exit
-2. Report whichever arrives as it stands rather than working around it or substituting another tool.
+A missing `bun` never reaches the tool — the shell reports it. Every other missing binary comes back
+as the tool's own refusal at exit 2, `gh` when the read runs and `cmux` and `claude` from the probes a
+start makes before it writes. Report whichever arrives as it stands rather than working around it or
+substituting another tool.
 
 An entry point that cannot be found is not an answer either. A run that reports `Module not found`, or
 exits without a counts line, has read nothing — say that rather than that there is no work.
