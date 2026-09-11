@@ -124,11 +124,15 @@ Ten, in this order. "Present" means the tool can already produce the input today
 
 Slot 1 has two forms, the way slot 6 does, and `Selection.pick` decides which. With a pick it is the
 reference, the title and the URL. With none it is what the rendering already says — `no candidate to
-recommend` — and *why*: a quiet day, a wholly blocked set, a deadlock, or a read that failed. Those
-are today's four ([0038](./0038-the-plugin-ships-one-command-and-previews-before-it-starts.md) names
-them and `skills/nextup/SKILL.md` acts on them), and the reason is an open class rather than an enum
-fixed here — a scope that resolves to nothing is another member, and the slot takes it without a
-shape change.
+recommend` — and *why*. Today that is five reasons, not four: a quiet day, a wholly blocked set, a
+deadlock, a read that failed, and a read that came back incomplete. The last two are one class in
+[0038](./0038-the-plugin-ships-one-command-and-previews-before-it-starts.md) and two in
+`skills/nextup/SKILL.md`, which splits them because they want different things said — a failed read
+is retried, while an incomplete one held tickets back that were really there, and reporting it as a
+quiet day presents withheld work as an empty queue. Slot 1 follows the skill and keeps them apart.
+
+The reason is an open class rather than an enum fixed here: a scope that resolves to nothing is a
+further member, and the slot takes it without a shape change.
 
 **Slot 1 is the one slot that is never omitted.** Every other slot disappears when its input is
 absent; this one has no absent case, because "there is no pick" is itself the answer. A no-pick brief
@@ -176,10 +180,19 @@ does — the prefixes are the contract and 0038 says so — but the difference b
 is exactly this, and stating only the stronger one would have promised a rendering the brief does
 not emit.
 
-References are qualified once, on the headline, and bare thereafter. A run reads one
-repository's tickets — checkout identity is resolved once and a foreign ticket is refused
+References are qualified once, on the headline, and bare thereafter **in the prose slots only**. A
+run reads one repository's tickets — checkout identity is resolved once and a foreign ticket is
+refused
 ([0040](./0040-checkout-identity-is-resolved-once-and-a-write-cannot-happen-without-one.md)) — so
 repeating the coordinates a dozen times restates something already fixed for the whole answer.
+
+Slots 9 and 10 are exempt, and the exemption is not a concession — each has a reason the prose slots
+do not. Slot 9's lines are byte-identical by the promise above, and `deadlockLine` and both
+reference-carrying degrade reasons qualify every reference through `formatTicketRef`; shortening them
+would be the edit that promise forbids. Slot 10 is a command someone pastes, and a bare reference in
+it resolves against whatever checkout they are standing in rather than the one that produced the
+answer. Without the exemption an implementation has to break one rule or the other, and the worked
+example above already prints both lines qualified.
 
 ## The length budget
 
