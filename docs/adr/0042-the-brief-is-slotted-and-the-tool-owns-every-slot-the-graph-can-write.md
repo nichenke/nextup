@@ -214,8 +214,24 @@ distinguishes nothing, and returns the moment one candidate carries it. Everythi
 counts, the signals, the runner-up, the deciding rung, the deadlock chains — reaches the reader.
 
 **The lines a caller greps for are byte-identical.** `degraded: ` and `deadlock: ` stay at
-line-start, never wrapped in prose, never summarised, never budgeted away. A composing session that
-cannot reach them still emits them, because they are slot 9 and slot 9 is the tool's.
+line-start, never wrapped in prose, never summarised, never budgeted away.
+
+Saying they are slot 9's and that slot 9 is the tool's does not make that true — ownership is an
+assertion, and a session that types the finished brief can drop a `degraded: ` line and still
+produce something plausible. 0038 made the prefixes a contract because a person greps for them; a
+composed answer is exactly where that contract quietly dies. So ownership needs a mechanism, and
+this is the requirement:
+
+**A tool-owned slot reaches the reader without being retyped by the session.** Whatever composes
+the brief, the session must not be the thing reproducing a contract line. Two shapes satisfy it and
+the implementation picks: the tool assembles the brief from paragraphs the session supplies as
+inputs, or the tool's own output passes through as a block the session may only write around. What
+does not satisfy it is a session reading the rendering and writing the whole answer out again, which
+is what `/nextup` does today and why this cannot ship as an instruction to compose more carefully.
+
+Verify it the way the trust boundary demands rather than by inspection: a brief built from a
+selection carrying a degrade and a deadlock contains those lines byte-for-byte, and still does when
+the session's own slots are empty.
 
 Everything else is re-expressed rather than reproduced, and the worked example above shows it: slot
 2 folds the pick's signals into the counts line, and slot 6 says what the pick buys rather than
