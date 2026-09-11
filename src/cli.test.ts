@@ -741,6 +741,26 @@ describe("starting a ticket named on the command line", () => {
 		const result = run([`gh:${GITHUB_TEST_TREE.repo}#999999`, "--yes"], deps(runner));
 		expect(result.code).toBe(2);
 		expect(result.stderr).toContain("retry will not fix");
+		// A failure of the read itself is not a bad invocation, so it keeps its own report rather than the usage
+		// the mistyped-key branch above prints.
+		expect(result.stderr).not.toContain("usage: nextup");
+	});
+
+	/**
+	 * A padded key is a reference naming one issue and addressing another — nichenke/nextup issue 56 — and on
+	 * this path it is a typo, so what a person needs is the accepted forms rather than the builder's stack.
+	 *
+	 * The short form only, though both URL patterns capture a padded number just as readily. Every form reaches
+	 * the same refusal, in `githubIssueViewCommand`, because the reference is resolved before the read and the
+	 * read builds one argv — so a second case here would assert the resolver's captures rather than this
+	 * classification, and those belong to issue 56 and `ticket-ref.test.ts`.
+	 */
+	test("refuses a zero-padded key as a bad invocation, before any call goes out", () => {
+		const result = run([`gh:${GITHUB_TEST_TREE.repo}#012`], deps(refuseToRun));
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("canonical");
+		expect(result.stderr).toContain("usage: nextup");
+		expect(result.stderr).not.toContain("    at ");
 	});
 
 	test("resolves a bare short form against the working directory's remote", () => {

@@ -1,4 +1,4 @@
-import { type Argv, DEFAULT_SLASH_COMMAND, WORKSPACE_HOST, formatCommand, isSlashCommand } from "./command-builders";
+import { type Argv, CommandBuilderError, DEFAULT_SLASH_COMMAND, WORKSPACE_HOST, formatCommand, isSlashCommand } from "./command-builders";
 import type { BlockedState } from "./effective-blockedness";
 import { GitHubAdapterError, isReadableLimit, readGitHubTicket, readGitHubTicketSet } from "./github-adapter";
 import { GitHubClaimError, claimGitHubTicket } from "./github-claim";
@@ -240,6 +240,11 @@ function runNamed(ref: TicketRef, options: Options, deps: CliDeps): CliResult {
 		const read = readGitHubTicket({ runner: deps.runner, ref });
 		answer = { override: decideOverride({ read, force: options.force }), readDegraded: read.degraded };
 	} catch (cause) {
+		// A key the read's own argv will not take is a mistyped reference here, where on the ranking path it is an
+		// internal inconsistency: this one was typed rather than read off a tracker. So the usage goes beside it
+		// instead of the stack ADR-0032 keeps for the claim, which is reached only by the other route.
+		// nichenke/nextup issue 56 owns the refusal itself, at the resolver that mints such a key.
+		if (cause instanceof CommandBuilderError) return usageError(new CliError(cause.message));
 		return failedAnswer(cause);
 	}
 
