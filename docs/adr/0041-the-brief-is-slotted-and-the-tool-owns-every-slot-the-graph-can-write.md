@@ -118,7 +118,7 @@ Ten, in this order. "Present" means the tool can already produce the input today
 | 5 | Constraints no edge carries | session | the same body, checked against the graph | **no** |
 | 6 | Why this one | tool | `decision.rung`; a *path* to a downstream ticket | rung only |
 | 7 | Alternatives | tool | `ranked` with labels; the unranked partition's count | yes |
-| 8 | In flight | tool | the viewer's tracker identity, against claims already read | **no** |
+| 8 | In flight | tool | the viewer's identity; the claimed tickets' references; every assignee | **no** |
 | 9 | Contract lines | tool | `degraded: `, `deadlock: ` | yes |
 | 10 | Action | tool | the session command | yes |
 
@@ -136,9 +136,10 @@ further member, and the slot takes it without a shape change.
 
 **Slot 1 is the one slot that is never omitted.** Every other slot disappears when its input is
 absent; this one has no absent case, because "there is no pick" is itself the answer. A no-pick brief
-is therefore slot 1, slot 2's counts, slot 8, and slot 9 — four slots, no action line, and the tool
-already suppresses that last one on its own (`renderStart` returns the empty string for
-`nothing-to-start`).
+is therefore slots 1 and 2, and at most slots 8 and 9 — those two keep obeying the omission rule, so
+a quiet day with nothing in flight and no degrade prints two slots, not four. There is no action
+line, and that needs no rule: the tool already suppresses it on its own (`renderStart` returns the
+empty string for `nothing-to-start`).
 
 The reason comes before the alternatives, which inverts the motivating example's order. "Also on the
 frontier" is not readable until you know whether the ranking decided anything: on a tie it is the
@@ -146,12 +147,23 @@ whole argument, and after a decisive rung it is an aside. Ordering it second let
 both.
 
 Three inputs are missing, and that is the whole of what issue 72 has to supply: **the pick's raw
-body**, **the viewer's tracker identity**, and **a path from the pick to a downstream ticket**
+body**, **enough to say what the viewer is holding**, and **a path from the pick to a downstream
+ticket**
 rather than the count `unblocks` already is. Every other slot reads something the selector holds.
 Slot 7 in particular needs nothing new — `ranked` already carries each candidate's labels.
 
-Slot 8 costs no extra ticket read. The adapter already parses `assignees` into a claim on every row,
-which is where `counts.claimed` comes from; what is missing is only who the viewer is.
+Slot 8 costs no extra ticket read, but it needs more than an identity, and the earlier draft of this
+ADR said otherwise. Three things are missing and all three are plumbing over rows already fetched:
+who the viewer is; the claimed tickets' references, which `select` reduces to the bare number
+`counts.claimed` so that not one of them reaches `Answer`; and every assignee rather than the first,
+because `readClaim` keeps only `assignees[0]` and a ticket the viewer shares is still in flight for
+them.
+
+That last one is a repurposing rather than an addition, and worth naming as such. `readClaim`'s own
+comment says which assignee it reports "is display, and every reading that decides anything asks only
+whether a claim exists" — true of every reader it has today. Slot 8 is the first that needs the
+claimant's identity to decide something, so the field acquires a second meaning unless the read
+widens. Widen the read.
 
 Slot 6's path is the one missing input another ticket may derive first, for its own reasons — a rung
 ranking on distance to a named entry point needs the same walk over the same edges. Whichever lands
@@ -197,8 +209,8 @@ example above already prints both lines qualified.
 ## The length budget
 
 Twenty-five content lines is the ceiling and today's six is the floor on a run that picked something
-— the seven 0038 counts, less its blank. A run that picked nothing floors lower, at the four slots
-above, and is not padded up to meet this. Blank lines between slots are not counted anywhere here, and the slots below sum to
+— the seven 0038 counts, less its blank. A run that picked nothing floors lower still, at the two
+slots that always print, and is not padded up to meet this. Blank lines between slots are not counted anywhere here, and the slots below sum to
 twenty-three. The budget is allocated per slot
 rather than to the brief as a whole, because slots 3 to 5 are the only ones a model writes and an
 unbudgeted brief is one where they absorb everything:
