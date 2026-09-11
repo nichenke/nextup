@@ -142,10 +142,10 @@ empty" and "git is broken" are not the same report:
 Before any of that, the scan starts at the repository root rather than wherever it was invoked. `git ls-files`
 lists what is under the current directory, so a run from a subdirectory scanned that subtree and reported a
 pass — 43 of this repository's 209 tracked files, measured from `docs/` at the time of writing. CI and the
-package script both happen to run
-at the root, so what this closes is a direct invocation by a person or an agent. It is a correction rather
-than a refusal because `rev-parse --show-toplevel` either answers or there is no worktree to scan, and the
-latter fails the listing into the first cause above.
+package script both happen to run at the root, so what this closes is a direct invocation by a person or an
+agent. It is a correction rather than a refusal because `rev-parse --show-toplevel` either answers or there is
+no worktree to scan: in a bare repository it exits 128, no `cd` happens, and `git ls-files` then exits 0 with
+nothing, which lands on the nothing-tracked refusal above. Measured.
 
 The property is that the scan read every tracked file it could have, and it took three attempts to state it
 without a hole, which is worth recording as its own lesson. `xargs -0 ls` answered "is the path there", not
@@ -166,11 +166,16 @@ too, and both it and an unreadable path exit 0, so the guard prints git's own te
 without naming a cause. Measured. That is a departure from the one-message-per-cause rule above, and the
 honest one: the two causes are indistinguishable at this point, and both are reasons to refuse.
 
-A dangling symlink is refused by the `[ -r ]` test rather than tolerated the way an unstaged deletion is, and
-that is deliberate rather than incidental. git tracks the link's target path as the file's content, while the
-scan follows the link and reads whatever it points at, so a tracked symlink carries text no scan here covers.
-Nothing in this repository tracks one, so the refusal is latent; it is named because it looks at first like
-the everyday state the deleted branch exists to tolerate.
+A tracked symlink is neither refused nor followed: its target is read with `readlink` and scanned alongside
+the file contents. git commits the target path as the blob, and `grep` follows the link and reads whatever it
+points at instead, so the target text is tracked content the scan never saw. Measured — a link to `<host>/x`
+whose target existed committed that host as a blob and the guard printed `ok`, exit 0.
+
+An earlier draft refused only the *dangling* case, because `[ -r ]` is false for one, and called that
+deliberate. It was not: the property belongs to every symlink, and the subset that happens to fail a
+readability test is not the subset that carries unscanned text. Refusing the dangling one and passing the
+resolving one closed the shape that was noticed and left the shape that mattered — the same fault the three
+attempts above record. Reading the target covers both, and removes a refusal rather than adding one.
 
 Separately, the scan now passes `--` to `grep`. A tracked filename may begin with a hyphen, and `git ls-files`
 happily reports one: with a file named `-d`, BSD `grep` rejected its own argument list, `2>/dev/null` ate the
@@ -180,6 +185,13 @@ older than the work here, but a change claiming whole-tree coverage owns it.
 `--` does not rescue every such name, and the one it leaves is refused rather than scanned. `grep` reads a
 file named exactly `-` as standard input even after `--`, so its contents never reached the scan and the guard
 printed `ok` over the identifier in it. Measured, with the fixed `--` in place.
+
+Last of the same class, and the one that made the others' coverage claim false: `git ls-files -z` piped
+straight into a reader discards its exit status, so a listing that failed part way through arrived as fewer
+paths and read as nothing found — `ok` over a tracked identifier, measured with a git that fails only that
+call. The listing is now written once to a temporary file whose status is checked, and both the per-path loop
+and the scan read it. A command substitution cannot hold it instead: bash strips NUL from one, which is the
+separation `xargs -0` depends on.
 
 It is refused on cost, not because scanning it is impossible — the distinction is worth stating, because a
 reader who tries the alternative will find it works. Prefixing every path with `./` scans it, and the

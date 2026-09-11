@@ -20,6 +20,7 @@ afterEach(() => {
 // host is also split before its final label, leaving no fragment that carries two dotted labels
 // ahead of a separator. A comment here cannot spell such a fragment out either -- doing so is what
 // made the guard fail on this file while the tests all passed.
+const unknownHost = "internal.corp" + ".test";
 const unknownHttpsUrl = "https:" + "//internal.corp" + ".test/x";
 const unknownSshUrl = "ssh:" + "//internal.corp" + ".test/group/repo.git";
 const unknownGitUrl = "git:" + "//internal.corp" + ".test/group/repo.git";
@@ -157,18 +158,53 @@ describe("check-identifiers under a redirected git environment", () => {
 		expect(result.stderr.toString()).toContain("internal.corp.test");
 	});
 
-	// A dangling symlink reads as unreadable while git still lists it, so it refuses rather than being
-	// tolerated the way an unstaged deletion is. Deliberate: git tracks the link's target as its content, and
-	// the scan follows the link instead of reading that, so there is tracked text no scan here covers.
-	test("refuses a tracked symlink whose target is missing", () => {
+	/** Commits `target` as a tracked symlink named `name` in `root`, alongside one clean file. */
+	function repositoryWithSymlink(name: string, target: string): string {
 		const root = repositoryWith({ "a.md": "clean\n" });
-		symlinkSync("/nonexistent/target", join(root, "dangling"));
-		expect(defaultRunner(["git", "-C", root, "add", "-A"]).code).toBe(0);
+		symlinkSync(target, join(root, name));
 		const identity = ["-c", "user.email=n@invalid", "-c", "user.name=n"];
+		expect(defaultRunner(["git", "-C", root, "add", "-A"]).code).toBe(0);
 		expect(defaultRunner(["git", "-C", root, ...identity, "commit", "--quiet", "-m", "link"]).code).toBe(0);
+		return root;
+	}
+
+	// git commits the link target as the blob, and the scan follows the link instead of reading it, so the
+	// target text is tracked content no `grep` here ever sees.
+	test("scans the target of a tracked symlink that resolves, not the file it points at", () => {
+		const root = repositoryWithSymlink("link", `${unknownHost}/x`);
+		mkdirSync(join(root, unknownHost), { recursive: true });
+		writeFileSync(join(root, unknownHost, "x"), "harmless payload\n");
 		const result = guardIn(root);
 		expect(result.exitCode).toBe(1);
-		expect(result.stderr.toString()).toContain("dangling");
+		expect(result.stderr.toString()).toContain("internal.corp.test");
+	});
+
+	// The same target text with nothing on the other end: readable through `readlink` though `[ -r ]` is
+	// false, so it is scanned rather than refused the way an unreadable regular file is.
+	test("scans the target of a tracked symlink whose target is missing", () => {
+		const result = guardIn(repositoryWithSymlink("dangling", `${unknownHost}/gone`));
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr.toString()).toContain("internal.corp.test");
+	});
+
+	// A listing that fails after the tree has been checked reaches the scan as fewer paths, and an empty scan
+	// reads as nothing found. The shim fails only `ls-files -z`, so every check before it still passes.
+	test("refuses when the listing the scan reads fails part way through", () => {
+		const root = repositoryWith({ "a.md": `leak at ${unknownHttpsUrl}\n` });
+		const shim = mkdtempSync(join(tmpdir(), "nextup-shim-"));
+		decoys.push(shim);
+		writeFileSync(
+			join(shim, "git"),
+			'#!/bin/sh\nfor a in "$@"; do [ "$a" = "-z" ] && { echo "fatal: simulated" >&2; exit 1; }; done\nexec /usr/bin/git "$@"\n',
+		);
+		chmodSync(join(shim, "git"), 0o755);
+		const result = spawnSync({
+			cmd: ["bash", join(import.meta.dir, "check-identifiers.sh")],
+			cwd: root,
+			env: { ...process.env, PATH: `${shim}:${process.env.PATH ?? ""}` },
+		});
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr.toString()).toContain("failed while listing the tree");
 	});
 
 	test("refuses a tracked file named as a lone hyphen, which grep would read as standard input", () => {

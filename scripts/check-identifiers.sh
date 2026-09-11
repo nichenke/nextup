@@ -72,26 +72,40 @@ if [ -n "$listing_diagnostic" ]; then
 	exit 1
 fi
 
+# One listing, written where its exit status can be checked: piping `git ls-files -z` straight into a reader
+# discards that status, and a listing that failed part way through then reads as nothing found. A command
+# substitution cannot hold it instead, because bash strips the NUL that `xargs -0` separates on. ADR-0029.
+listing=$(mktemp "${TMPDIR:-/tmp}/check-identifiers.XXXXXX")
+trap 'rm -f "$listing"' EXIT
+if ! git ls-files -z >"$listing"; then
+	printf 'check-identifiers: git ls-files failed while listing the tree, so no file was scanned\n' >&2
+	exit 1
+fi
+
 # Then the paths git could examine: a mode-000 file can be stat'ed and not read, so it reaches neither the
 # error above nor the deleted list.
 deleted=$(git ls-files --deleted)
+symlink_targets=''
 while IFS= read -r -d '' path; do
-	# The `--` the scan passes stops grep reading a leading hyphen as an option, but not this one name: grep
-	# reads `-` as standard input even after `--`, so the file's contents never reached the scan and the guard
-	# printed `ok` over an identifier in it. Measured, with the `--` in place.
-	#
-	# Refused rather than scanned, on cost. Prefixing every path with `./` would scan it, but not cheaply: the
-	# one-line forms do not survive NUL separation -- macOS awk truncates at the first NUL and BSD sed has no
-	# `-z`, both measured -- so it takes a second reader in the scan's hot path for a filename nothing needs.
+	# grep reads a file named `-` as standard input even after the `--` the scan passes, so its contents never
+	# reached the scan. ADR-0029 has why this is refused rather than scanned.
 	if [ "$path" = '-' ]; then
 		printf 'check-identifiers: a tracked file named - is read as standard input, so a scan would cover part of the tree\n' >&2
 		exit 1
+	fi
+	# A symlink's tracked content is its target path, and the scan never sees it: grep follows the link and
+	# reads whatever it points at instead. Read rather than refused, which covers a dangling link too, where
+	# `[ -r ]` is false but there is still a target to scan. ADR-0029.
+	if [ -L "$path" ]; then
+		symlink_targets="$symlink_targets$(readlink -- "$path")
+"
+		continue
 	fi
 	if [ ! -r "$path" ] && ! printf '%s\n' "$deleted" | grep -qxF -- "$path"; then
 		printf 'check-identifiers: %s is tracked but cannot be read, so a scan would cover part of the tree\n' "$path" >&2
 		exit 1
 	fi
-done < <(git ls-files -z)
+done <"$listing"
 
 ALLOWED='
 https://github.com/nichenke/nextup
@@ -178,8 +192,13 @@ PATTERN='([a-z][a-z0-9+.-]*://[^[:space:]]+)|([A-Za-z0-9._%+/-]+@[A-Za-z0-9.-]*\
 # `--` because a tracked filename may begin with a hyphen, which grep would otherwise read as an option: a
 # file named `-d` made BSD grep reject its own argument list, the error went to /dev/null, and the guard
 # printed `ok` over the identifier inside it. Measured.
-normalized=$(git ls-files -z | xargs -0 grep -Ih '' -- 2>/dev/null |
-	awk '{ gsub(/\\\//, "/"); gsub(/\\[nrt]/, "\n"); print }' || true)
+#
+# The symlink targets collected above join the file contents here: they are tracked content grep never
+# reaches, so they need the same normalization and the same allowlist comparison.
+normalized=$({
+	xargs -0 grep -Ih '' -- <"$listing" 2>/dev/null || true
+	printf '%s' "$symlink_targets"
+} | awk '{ gsub(/\\\//, "/"); gsub(/\\[nrt]/, "\n"); print }' || true)
 
 # Surrounding markup travels with a token: a markdown link wraps it in parentheses, prose ends it
 # with a full stop, and a source-code string literal closes with a quote, sometimes escaped. None
