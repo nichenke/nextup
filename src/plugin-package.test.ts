@@ -32,11 +32,8 @@ const description = (): string => {
  * Every line of the command file that names the entry point, trimmed of indentation and of a block
  * quote's `> `.
  *
- * Keyed on the entry point rather than on the markdown around it. Parsing fences was tried and had a
- * hole in every direction: a fence indented under a bullet, a tilde fence, `shell`/`zsh`/`console`
- * info strings, an indented code block with no fence at all, and a fence inside a block quote --
- * each a place a third invocation renders as something a session would run. The grammar is the wrong
- * thing to key on, because a session reads the raw file rather than the rendering.
+ * Keyed on the entry point rather than on the markdown around it: a session reads the raw file, not
+ * the rendering, so every fence grammar leaves somewhere an invocation still reads as runnable.
  *
  * The cost is that this file cannot mention `nextup.ts` in prose without failing the list below, which
  * is the direction to fail in. A fenced sample of the tool's own output is unaffected -- the output
@@ -66,10 +63,11 @@ describe("the repository ships an invokable plugin", () => {
 		expect(existsSync(join(root, "commands", "nextup.md"))).toBe(true);
 	});
 
-	// `:?` rather than a bare expansion. Unset, `bun /bin/nextup.ts` resolves against the nearest
-	// package.json rather than the filesystem root, so standing in any checkout it runs that copy at
-	// exit 0 and reports a pick from the wrong branch -- measured. `:?` refuses instead, and the quotes
-	// carry a path with a space in it.
+	// `:?` rather than a bare expansion. Unset, `bun /bin/nextup.ts` resolves against the working
+	// directory rather than the filesystem root, so standing at the root of any checkout of this
+	// repository it runs that copy at exit 0 and reports a pick from the wrong branch -- measured, and
+	// measured again with no package.json anywhere, which is what rules out package-root resolution.
+	// `:?` refuses instead, and the quotes carry a path with a space in it.
 	test("the command reaches the entry point through the plugin root, and refuses an unset one", () => {
 		expect(command()).toContain('"${CLAUDE_PLUGIN_ROOT:?}/bin/nextup.ts"');
 	});

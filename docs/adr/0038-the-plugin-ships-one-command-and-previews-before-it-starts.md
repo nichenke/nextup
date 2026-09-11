@@ -75,22 +75,29 @@ override path exists.
 `--json` is the larger document, and the instinct is that the plain form is its lossy summary. It is
 not. The plain form carries the degrade and deadlock signals under the same stable `degraded: ` and
 `deadlock: ` prefixes, names the runner-up the pick beat, and does it in an order of magnitude fewer
-lines — seven against a hundred, the larger of which grows with the repository's open-issue count. A session's job here is to hand a person something they can read, so it relays those lines as
-they stand.
+lines — seven against a hundred, the larger of which grows with the repository's open-issue count.
+A session's job here is to hand a person something they can read, so it relays those lines as they
+stand.
 
 The prefixes are a contract for exactly this reason, so the command is told to pass them through
 rather than fold them into a summary of its own.
 
 ## Nothing startable is an answer
 
-A quiet day, an entirely blocked set and a deadlock are three outcomes the tool reports and none of
-them is a failure to route around. The command relays the explanation, names the deadlock chain, and
-stops. It does not widen the read, re-run with different flags, or propose unblocking anything, and
-`--force` is not among the invocations it ships, and a test holds the shipped command to exactly the
-two above. It reads every line naming the entry point rather than parsing the markdown around them:
-four attempts at a fence grammar each left a shape — an indented fence under a bullet, a tilde fence,
-a `shell` info string, an indented block with no fence — where a third invocation still rendered as
-something a session would run.
+A quiet day, an entirely blocked set and a deadlock are outcomes the tool reports, and none of them is
+a failure to route around. The command relays the explanation, names the deadlock chain, and stops. It
+does not widen the read, re-run with different flags, or propose unblocking anything.
+
+A failed or incomplete read is the case that has to be told apart from these rather than joined to
+them. Both come back at exit 1 with no pick, looking like a quiet day in every respect except the
+`degraded: ` line that says otherwise — so the command is told to read those lines rather than match
+the prefix, and `cli.ts` is where each one's remedy is written down.
+
+`--force` is not among the invocations the command ships, and a test holds it to exactly the two
+above. The test reads every line naming the entry point rather than parsing the markdown around them:
+successive fence grammars each left somewhere an invocation still read as runnable, and the helper's
+own comment carries that list. A session reads the raw file rather than the rendering, so the
+rendering is the wrong thing to key on.
 
 ## Consequences
 

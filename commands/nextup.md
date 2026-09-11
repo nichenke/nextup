@@ -69,37 +69,42 @@ see reports that the session came up.
 
 ### When a start does not go through
 
-Two kinds, and they want different things said.
+Three kinds, and they want different things said.
 
 - **A check refused it** — closed, claimed or confirmed-blocked. The message says the ticket was not
   started and that nothing was claimed or created. Relay it and stop.
 - **It failed before writing anything** — the workspace host did not answer, the session binary would
-  not run, the worktree could not be made. Not verdicts on the ticket. Each message says for itself
-  that nothing was started; relay it, and say the ticket is still there to start once the cause is
-  fixed.
+  not run, the worktree could not be made. Not verdicts on the ticket. The two probes say for
+  themselves that nothing was started; a worktree failure is a bare git error that does not, so say it
+  yourself: nothing was claimed and no session was requested, and the ticket is still there to start
+  once the cause is fixed.
 - **It failed after writing something** — the claim would not land, or the session was refused. These
   do not unwind: the worktree is on disk, and past the claim the ticket is claimed too. Relay the
   message in full, including whatever it says is already in place, so the user knows what to clean up.
 
 Every recovery a message offers is for the person, not for you to run. That includes the `--force` a
-refusal may advise, and the "run this again" a claim failure may suggest. Relay it and ask. Add no
-flag the user did not ask for, and build no third invocation.
+refusal may advise, the "run this again" a claim failure may suggest, and the `cd <worktree> && ...`
+line a failed launch prints ready to paste — that one performs the very launch that just failed, and
+it is still not yours to run. Relay it and ask. Add no flag the user did not ask for, and build no
+third invocation.
 
 ## When there is nothing to start
 
-Four cases, and the last one is not like the others.
+Five cases, and the last two are not like the others.
 
 - **A quiet day** — nothing ready.
 - **Everything blocked.**
 - **A deadlock** — relay every `deadlock: ` line and the chain each names.
-- **The tracker could not be read** — the line that says so is `degraded: the ticket set could not be
-  read`. Only that one. This is not a quiet day and must not be relayed as one: say the read failed,
-  and that retrying is the answer.
+- **The tracker could not be read** — a line beginning `degraded: the ticket set could not be read`,
+  whose tail is what the tracker itself said. This is not a quiet day and must not be relayed as one:
+  say the read failed, relay the tracker's own words, and say that retrying is the answer.
+- **The read came back incomplete** — a `degraded: ` line ending `so they were held out of the answer`,
+  with no pick. Tickets were read and then withheld because nothing could confirm them unblocked.
+  Also not a quiet day: say the read was incomplete and name the tickets the line names.
 
-Read the `degraded: ` lines, do not pattern-match the prefix. Every other one is a caveat on a real
-answer rather than a failed read — `the ticket set was truncated` in particular means the read
-succeeded and the window was too small, so retrying changes nothing and raising `--limit` is a choice
-for the person to make from a checkout.
+Read the `degraded: ` lines, do not pattern-match the prefix. The rest are caveats on a real answer —
+`the ticket set was truncated` in particular means the read succeeded and the window was too small, so
+retrying changes nothing and raising `--limit` is a choice for the person to make from a checkout.
 
 For the first three: relay the explanation and stop. Do not widen the read, re-run with different
 flags, suggest unblocking a ticket, or start something the tool did not put forward. A set with
