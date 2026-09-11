@@ -12,20 +12,29 @@ treated as unblocked.
 
 ## Status
 
-The command reads and recommends: run it inside a GitHub checkout and it reads the repository the origin
-remote points at, ranks the candidates, and reports the pick. Nothing writes yet, so there is nothing to
-claim or start a session on — `--yes` and `--print-command` are accepted and change nothing until the claim
-and launch steps land, and the worktree step has no live caller for the same reason. What follows describes
-the whole command surface, including the flags those steps will drive.
+End to end on GitHub. Run it inside a GitHub checkout and it reads the repository the origin remote points
+at, ranks the candidates, shows you the pick, and — once you agree — makes the ticket's worktree, claims the
+ticket, and asks cmux to run a session in that worktree.
 
 ```sh
-bun bin/nextup.ts                   # show the pick — today it stops there
-bun bin/nextup.ts --limit 50        # consider 50 open tickets rather than the default 199
-bun bin/nextup.ts --json            # the selection, and what the read could not answer, as JSON
-bun bin/nextup.ts --yes             # claim without asking, for an unattended run
-bun bin/nextup.ts --print-command   # the same answer, claiming nothing and asking nothing
-bun bin/nextup.ts --help            # every flag
+bun bin/nextup.ts                       # show the pick, then ask before starting it
+bun bin/nextup.ts --limit 50            # consider 50 open tickets rather than the default 199
+bun bin/nextup.ts --json                # the selection, and what the run did about it, as JSON
+bun bin/nextup.ts --yes                 # start without asking, for an unattended run
+bun bin/nextup.ts --slash-command /triage   # start a triage session rather than an implementation
+bun bin/nextup.ts --print-command       # print the session command, starting nothing
+bun bin/nextup.ts --help                # every flag
 ```
+
+The session runs in a cmux workspace, and cmux is required rather than optional: a host that does not answer
+fails the run, with no fallback. Starting writes in three places — the worktree, the claim, then the session —
+and nothing unwinds.
+
+What a run reports is what it can prove. cmux accepts a command without saying whether it ran, so the tool
+checks the session binary up front and then reports the request rather than a running session — `--json` says
+`requested`, never `started`.
+[ADR-0036](./docs/adr/0036-the-launcher-reports-a-request-not-a-running-session.md) has why it does not go
+looking afterwards. "Design in one screen" below has the rest, and the decisions behind them.
 
 Only open tickets are read, and the counts line says `closed not asked` rather than reporting a zero as a
 count. The window is the most recently created open tickets, so a backlog larger than `--limit` never
@@ -50,18 +59,24 @@ whatever the tracker's own message did, so the prefix is a reliable filter.
 
 A tracker that could not be reached is a degraded answer with nothing to recommend rather than a failure:
 the request was fine, so a retry is the response. Exit 2 is for what needs a person — a bad invocation, an
-origin that is not GitHub, a request the tracker rejects, a response that cannot be read, and any failure
-nothing classified.
+origin that is not GitHub, a request the tracker rejects, a response that cannot be read, no way to confirm
+and no `--yes`, a workspace host that is not running, a worktree that cannot be made, a claim that will not
+land, and any failure nothing classified.
 
 `--json` carries the reasons as two lists, and a consumer has to read both: `selection.degraded` is what the
 selector concluded about the ticket set, and `readDegraded` is what the read itself could not do. An outage
 appears in the second while also setting the first to `truncated`, since nothing was read — so a wrapper
 keyed only on `truncated` would answer a network outage by widening a window that was never opened.
 
-Nothing is claimed without an answer. The gate asks on the controlling terminal rather than through
-stdin and stdout, so it still works when either is redirected. `--print-command` neither claims nor asks: it prints the
-command on stdout and the reasoning on stderr, and `--json --print-command` is the whole answer with
-nothing claimed.
+Nothing is started without an answer. The gate asks on the controlling terminal rather than through stdin and
+stdout, so it still works when either is redirected, and the question names the pick because the rendering it
+is about has not been printed yet. `--yes` answers in advance; with neither a terminal nor `--yes` the run is
+refused rather than answered on your behalf. Declining exits 0 — the gate did its job — so a script that
+needs to know whether a session started passes `--yes` and reads the `start` object under `--json`.
+
+`--print-command` starts nothing, creates nothing, claims nothing, and never asks. It prints the session
+command after the answer, and `--json --print-command` carries it as `start.command`. It is the sandbox-safe
+bridge — [ADR-0002](./docs/adr/0002-pure-selector-separate-launcher.md) has why the tool is split that way.
 
 - [The spec](https://github.com/nichenke/nextup/issues/2) — problem, solution, user stories, and the
   phased delivery
@@ -80,14 +95,28 @@ Two layers, deliberately separate:
   with reasons out, as JSON. No side effects and no model in the decision path, so its output can be
   asserted exactly against a fixture.
 - **The launcher is a thin shell over it.** It ensures a worktree, claims the ticket, and starts a
-  session. It is the only part that writes anything, and the only part that cannot be sandboxed.
+  session. It is the only part that writes anything, and the only part that cannot be sandboxed:
+  creating a workspace with an arbitrary working directory and an arbitrary command *is* arbitrary code
+  execution, so a sandbox that can reach the workspace host is not a sandbox. `--print-command` is the
+  bridge, and the selector's pure reads are the part that can be confined.
 
-The worktree comes first, and the claim second, so that no failure needs undoing — see
+The worktree comes first, the claim second, and the session third, so that no failure needs undoing — see
 [ADR-0016](./docs/adr/0016-the-worktree-is-created-before-the-claim.md). A failed claim aborts loudly
 and leaves the worktree in place; re-running attaches to it and retries, because `ensure()` is
 idempotent. There is no release path and no rollback. The leftover on failure is a worktree, which
 `git worktree list` reports and the next attempt reuses, rather than a claim advertising work nobody is
 doing.
+
+That ordering covers a failed claim, and not a session that cannot start: a dead workspace host would strand
+both a worktree and a claim behind it. So the host is asked before either write, and a host that does not
+answer fails the run —
+[ADR-0035](./docs/adr/0035-a-workspace-host-that-is-not-running-is-refused-before-anything-is-written.md)
+has why there is no fallback.
+
+Where the session fails anyway, re-running is *not* the recovery. The claim has landed by then, and a claimed
+ticket is not a candidate, so the next run would pick a different ticket and leave this one claimed with
+nobody working it. That abort hands over the session command to run in the worktree instead. The claim is
+still never released — ADR-0016 forbids a release path, and the release is itself a call that can fail.
 
 Ensuring the worktree is one of three things, and the outcome says which: the branch and the worktree
 both created, a worktree made for a branch that already existed, or an attach to the worktree already

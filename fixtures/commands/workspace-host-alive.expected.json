@@ -1,0 +1,8 @@
+{
+	"description": "Whether the workspace host is running.",
+	"input": {},
+	"argv": [
+		"cmux",
+		"ping"
+	]
+}

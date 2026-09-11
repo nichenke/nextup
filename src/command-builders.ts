@@ -17,9 +17,31 @@ export const DEFAULT_SLASH_COMMAND = "/implement";
  */
 const SESSION_BINARY = "claude";
 
+/**
+ * Whether the binary a session is started with is there and will run.
+ *
+ * Asked because a binary that is missing or broken is the likeliest reason a session never starts, and the one
+ * that can be settled before anything is written — ADR-0036, which also has why nothing checks afterwards.
+ *
+ * `--version` rather than a `command -v`, because the runner spawns argv with no shell, and because running the
+ * binary is a stronger answer than finding a file with the right name.
+ */
+export function sessionBinaryAliveCommand(): Argv {
+	return [SESSION_BINARY, "--version"];
+}
+
 export interface SessionCommandInput {
 	readonly ref: TicketRef;
 	readonly slashCommand: string;
+}
+
+/**
+ * Whether a word is a slash command: `/` and one word. Exported because the command line has to refuse a bad
+ * `--slash-command` value as a usage error, and this is the shape that decides it — two copies of the pattern
+ * would let a value pass the flag's own check and then throw from `sessionCommand` with a stack instead.
+ */
+export function isSlashCommand(word: string): boolean {
+	return /^\/\S+$/.test(word);
 }
 
 /**
@@ -32,11 +54,57 @@ export interface SessionCommandInput {
  *
  * @throws CommandBuilderError when `slashCommand` is not a single `/`-prefixed word.
  */
-export function sessionCommand(input: SessionCommandInput): readonly string[] {
-	if (!/^\/\S+$/.test(input.slashCommand)) {
+export function sessionCommand(input: SessionCommandInput): Argv {
+	if (!isSlashCommand(input.slashCommand)) {
 		throw new CommandBuilderError(`${input.slashCommand} is not a slash command: it must be "/" and one word`);
 	}
 	return [SESSION_BINARY, `${input.slashCommand} ${formatTicketRef(input.ref)}`];
+}
+
+/**
+ * The workspace host a session is started in.
+ *
+ * Not a parameter, for the reason `SESSION_BINARY` is not.
+ */
+export const WORKSPACE_HOST = "cmux";
+
+/** Whether the workspace host is there to be asked for a workspace at all. */
+export function workspaceHostAliveCommand(): Argv {
+	return [WORKSPACE_HOST, "ping"];
+}
+
+export interface WorkspaceCommandInput {
+	/** What the workspace is called in the host's own listing. */
+	readonly name: string;
+	/** The worktree the session runs in. */
+	readonly cwd: string;
+	readonly command: Argv;
+}
+
+/**
+ * The workspace that runs one session in one worktree.
+ *
+ * The host types `--command` into the workspace's shell rather than executing it as argv, and offers no
+ * argv form — `--layout` spells its surfaces' commands as text too — so the session argv is rendered by
+ * `formatCommand` and a shell parses it back. That is the one caller for which a formatted line is
+ * executed rather than read, which `formatCommand` says what it costs.
+ *
+ * `--focus true` because the host defaults it to false: a run asked to start work would otherwise report
+ * having started it with nothing on screen.
+ */
+export function workspaceCommand(input: WorkspaceCommandInput): Argv {
+	return [
+		WORKSPACE_HOST,
+		"new-workspace",
+		"--name",
+		input.name,
+		"--cwd",
+		input.cwd,
+		"--command",
+		formatCommand(input.command),
+		"--focus",
+		"true",
+	];
 }
 
 /** The tracker CLIs this tool asks about a host, and the flag each spells the host with. */
@@ -265,9 +333,12 @@ export function githubClaimCommand(input: GitHubClaimCommandInput): readonly str
 }
 
 /**
- * Argv as one line a POSIX shell parses back into the same words, for a human to read or paste. It is
- * never what the tool executes — the runner takes argv — so this cannot become the path by which a
- * quoting bug reaches a shell.
+ * Argv as one line a POSIX shell parses back into the same words, for a human to read or paste, and for
+ * `workspaceCommand`, whose host accepts no argv.
+ *
+ * That second caller is why the quoting below is load-bearing rather than cosmetic: a line this builds is
+ * executed, not only read, so a word it fails to quote reaches a shell as syntax. The runner still takes
+ * argv everywhere else, so this is the only such path and it is one call wide.
  */
 export function formatCommand(argv: readonly string[]): string {
 	return argv.map((word, index) => quote(word, index === 0)).join(" ");

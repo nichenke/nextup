@@ -1,0 +1,8 @@
+{
+	"description": "Whether the binary a session is started with will run, asked before anything is written.",
+	"input": {},
+	"argv": [
+		"claude",
+		"--version"
+	]
+}

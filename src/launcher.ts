@@ -1,5 +1,18 @@
-import { sessionCommand } from "./command-builders";
-import type { TicketRef } from "./ticket-ref";
+import { basename } from "node:path";
+import {
+	type Argv,
+	formatCommand,
+	sessionBinaryAliveCommand,
+	sessionCommand,
+	workspaceCommand,
+	workspaceHostAliveCommand,
+} from "./command-builders";
+import { failureDetail } from "./failure-class";
+import type { Runner } from "./runner";
+import { type TicketRef, formatTicketRef } from "./ticket-ref";
+
+/** Why no session was started. One class rather than an outage-and-defect pair — ADR-0035. */
+export class LaunchError extends Error {}
 
 export interface LaunchPlanInput {
 	readonly ref: TicketRef;
@@ -8,7 +21,7 @@ export interface LaunchPlanInput {
 
 /** Everything the launcher would do, worked out without doing any of it. */
 export interface LaunchPlan {
-	readonly command: readonly string[];
+	readonly command: Argv;
 }
 
 /**
@@ -17,4 +30,73 @@ export interface LaunchPlan {
  */
 export function planLaunch(input: LaunchPlanInput): LaunchPlan {
 	return { command: sessionCommand(input) };
+}
+
+/**
+ * Refuses the run unless the workspace host answers.
+ *
+ * Asked before the worktree and the claim, which is the whole reason it is a separate call rather than part of
+ * `launch` — a host that will not serve should not leave those two behind. ADR-0035 has why there is no
+ * fallback.
+ *
+ * @throws LaunchError when the host does not answer.
+ */
+export function requireWorkspaceHost(runner: Runner): void {
+	requireAlive(runner, workspaceHostAliveCommand());
+}
+
+/**
+ * Shared so that rewording this refusal cannot leave its two callers disagreeing — what differs between them is
+ * the name and the reason, not the sentence.
+ *
+ * @throws LaunchError when the probe does not exit 0.
+ */
+function requireAlive(runner: Runner, argv: Argv): void {
+	const result = runner([...argv]);
+	if (result.code === 0) return;
+	throw new LaunchError(`${formatCommand(argv)} failed, so nothing was started: ${failureDetail(result)}`);
+}
+
+/**
+ * Refuses the run unless the session binary will run.
+ *
+ * Asked before the worktree and the claim, for the same reason as the host. Why it exists at all is a different
+ * reason, and ADR-0036 has it.
+ *
+ * @throws LaunchError when the binary does not run.
+ */
+export function requireSessionBinary(runner: Runner): void {
+	requireAlive(runner, sessionBinaryAliveCommand());
+}
+
+export interface LaunchInput {
+	readonly runner: Runner;
+	readonly ref: TicketRef;
+	/** The session argv to run, built by `planLaunch` before any of this was written. */
+	readonly command: Argv;
+	/** The worktree the session runs in, whose own directory name is what the workspace is called. */
+	readonly worktree: string;
+}
+
+/**
+ * Asks the workspace host to run one session, in the worktree already made for it.
+ *
+ * Asks rather than starts, and callers must not report more than that — ADR-0036, which `requireSessionBinary`
+ * is the other half of.
+ *
+ * One call, whose exit status is the whole verdict, so there is nothing to return. Nothing here unwinds —
+ * ADR-0016.
+ *
+ * The failure names the ticket and what the host said, and stops there. What to do about it depends on how
+ * much had already been written, which only the caller knows; `startedNothing` in `cli.ts` is where that is
+ * decided, and saying it here too produced two overlapping recovery sentences.
+ *
+ * @throws LaunchError when the workspace could not be created.
+ */
+export function launch(input: LaunchInput): void {
+	const workspace = workspaceCommand({ name: basename(input.worktree), cwd: input.worktree, command: input.command });
+	const result = input.runner([...workspace]);
+	if (result.code !== 0) {
+		throw new LaunchError(`the workspace for ${formatTicketRef(input.ref)} could not be created: ${failureDetail(result)}`);
+	}
 }

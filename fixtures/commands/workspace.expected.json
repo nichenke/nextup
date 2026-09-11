@@ -1,0 +1,23 @@
+{
+	"description": "The workspace that runs one session in one worktree, its session argv rendered as a shell line.",
+	"input": {
+		"name": "reader-8",
+		"cwd": "/repo/.worktrees/reader-8",
+		"command": [
+			"claude",
+			"/implement gh:example/repo#1"
+		]
+	},
+	"argv": [
+		"cmux",
+		"new-workspace",
+		"--name",
+		"reader-8",
+		"--cwd",
+		"/repo/.worktrees/reader-8",
+		"--command",
+		"claude '/implement gh:example/repo#1'",
+		"--focus",
+		"true"
+	]
+}

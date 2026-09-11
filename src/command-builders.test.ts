@@ -14,7 +14,10 @@ import {
 	jiraIdentityCommand,
 	originRemoteCommand,
 	remoteBranchesCommand,
+	sessionBinaryAliveCommand,
 	sessionCommand,
+	workspaceCommand,
+	workspaceHostAliveCommand,
 	worktreeAddCommand,
 	worktreeIdentityCommand,
 	worktreeListCommand,
@@ -40,6 +43,7 @@ const jira: TicketRef = { tracker: "jira", repo: null, host: null, key: "ABC-7" 
 
 const BRANCH = "feature/reader-8";
 const WORKTREE_PATH = "/repo/.worktrees/reader-8";
+const SESSION = sessionCommand({ ref: github, slashCommand: DEFAULT_SLASH_COMMAND });
 
 const CASES: readonly Case[] = [
 	{
@@ -143,6 +147,24 @@ const CASES: readonly Case[] = [
 		description: "The one write that claims a GitHub ticket, assigning whoever the CLI is authenticated as.",
 		input: { repo: "example/repo", key: "1" },
 		build: () => githubClaimCommand({ repo: "example/repo", key: "1" }),
+	},
+	{
+		name: "session-binary-alive",
+		description: "Whether the binary a session is started with will run, asked before anything is written.",
+		input: {},
+		build: () => sessionBinaryAliveCommand(),
+	},
+	{
+		name: "workspace-host-alive",
+		description: "Whether the workspace host is running.",
+		input: {},
+		build: () => workspaceHostAliveCommand(),
+	},
+	{
+		name: "workspace",
+		description: "The workspace that runs one session in one worktree, its session argv rendered as a shell line.",
+		input: { name: "reader-8", cwd: WORKTREE_PATH, command: SESSION },
+		build: () => workspaceCommand({ name: "reader-8", cwd: WORKTREE_PATH, command: SESSION }),
 	},
 ];
 
@@ -249,6 +271,24 @@ describe("githubClaimCommand", () => {
 	});
 });
 
+describe("workspaceCommand", () => {
+	test("runs the session in the worktree, as a line the workspace's own shell parses back", () => {
+		const argv = workspaceCommand({ name: "reader-8", cwd: WORKTREE_PATH, command: SESSION });
+		expect(argv[argv.indexOf("--cwd") + 1]).toBe(WORKTREE_PATH);
+		expect(argv[argv.indexOf("--command") + 1]).toBe(formatCommand(SESSION));
+	});
+
+	test("asks for the workspace to be focused, which the host does not do by default", () => {
+		const argv = workspaceCommand({ name: "reader-8", cwd: WORKTREE_PATH, command: SESSION });
+		expect(argv[argv.indexOf("--focus") + 1]).toBe("true");
+	});
+
+	test("asks the same program the liveness probe does, so one host answers both", () => {
+		const argv = workspaceCommand({ name: "reader-8", cwd: WORKTREE_PATH, command: SESSION });
+		expect(argv[0]).toBe(workspaceHostAliveCommand()[0]);
+	});
+});
+
 describe("formatCommand", () => {
 	test("renders argv as a line a shell would parse back into the same words", () => {
 		expect(formatCommand(["claude", "/implement gh:example/repo#1"])).toBe("claude '/implement gh:example/repo#1'");
@@ -264,5 +304,23 @@ describe("formatCommand", () => {
 
 	test("quotes a leading word a shell would read as an assignment rather than a command", () => {
 		expect(formatCommand(["a=b", "--flag=value"])).toBe("'a=b' --flag=value");
+	});
+
+	/**
+	 * Against a real shell, because `workspaceCommand` hands its output to a host that types it into one — so the
+	 * quoting is executed rather than only read, and an assertion on the rendered string cannot tell a correct
+	 * escape from a plausible one. This is the guard against the tempting edit: every other caller renders for a
+	 * human, and prettifying their output by quoting less would weaken this path with nothing else failing.
+	 *
+	 * `printf '%s\n'` repeats its format once per argument, so each word the shell parsed comes back on its own
+	 * line and the comparison is against what the shell actually produced.
+	 */
+	test("renders words a real shell parses back to exactly those words", () => {
+		const words = ["plain", "with space", "it's", "$(id)", "`id`", "a;b", "*", "back\\slash", "", "--flag=v"];
+		const line = formatCommand(["printf", "%s\n", ...words]);
+		const shell = Bun.spawnSync({ cmd: ["sh", "-c", line], stdout: "pipe", stderr: "pipe" });
+
+		expect(shell.exitCode).toBe(0);
+		expect(shell.stdout.toString().split("\n").slice(0, -1)).toEqual(words);
 	});
 });

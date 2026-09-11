@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { type CliDeps, DEFAULT_LIMIT, run } from "./cli";
+import { DEFAULT_SLASH_COMMAND } from "./command-builders";
 import { DEFAULT_LABEL_FILTER, compileLabelFilter } from "./label-filter";
-import type { Runner } from "./runner";
+import type { CommandResult, Runner } from "./runner";
 import { DEADLOCK_PREFIX } from "./selection-output";
 import { answeringOrigin, deadlockLines, githubRecording, replayRunner, respondingRunner, sentinelLines } from "./test-support";
 import { GITHUB_TEST_TREE, type TestTreeSpec, openIssues, shapeTitle } from "./test-tree";
@@ -23,8 +24,16 @@ function terminal(answer = true): { confirm: CliDeps["confirm"]; questions: stri
 	};
 }
 
+/**
+ * A primary checkout that is deliberately not there. `ensure` asks the filesystem whether the worktree path
+ * is occupied and whether the root is reached through a symlink, so the path has to be one where both
+ * answers are settled — absent settles them, and a real temp directory would not: on macOS every path under
+ * one is reached through a symlinked `/var`, which `ensure` refuses.
+ */
+const PRIMARY = "/nextup-not-a-real-checkout";
+
 function deps(runner: Runner = refuseToRun, confirm: CliDeps["confirm"] = terminal().confirm): CliDeps {
-	return { runner, confirm };
+	return { runner, confirm, cwd: PRIMARY };
 }
 
 /**
@@ -49,6 +58,14 @@ describe("run, over a ticket set read from GitHub", () => {
 	const TREE = openIssues(GITHUB_TEST_TREE).length;
 
 	/**
+	 * Stops a run once the pick is reported, for the tests here that reach a pick at all — the rest are
+	 * refused or find nothing to recommend, and never get that far. Without it a run that picked something
+	 * goes on to ask a workspace host, make a worktree and claim a ticket, so a test asserting a rendering
+	 * would have to fake all three.
+	 */
+	const REPORT_ONLY = "--print-command";
+
+	/**
 	 * Reads through `replayRunner`, so the argv the CLI builds has to be the captured one: this asserts what
 	 * the command asks the tracker for — the state filter and the over-fetched row — and not only what it
 	 * does with the answer.
@@ -62,7 +79,7 @@ describe("run, over a ticket set read from GitHub", () => {
 	}
 
 	test("recommends the ticket the ladder chose, and accounts for the set it came from", () => {
-		const result = run(["--limit", String(TREE)], readingTree("ticket-set"));
+		const result = run(["--limit", String(TREE), REPORT_ONLY], readingTree("ticket-set"));
 		expect(result.code).toBe(0);
 		expect(result.stdout).toContain(shapeTitle(GITHUB_TEST_TREE, "several-priorities"));
 		expect(result.stdout).toContain(`${TREE} tickets:`);
@@ -77,7 +94,7 @@ describe("run, over a ticket set read from GitHub", () => {
 	// returned rather than against a hand-built graph. The numbers are not asserted: the tree is keyed by
 	// shape and ADR-0023 says why a test may not claim an issue number.
 	test("names the tree's blocking cycle, from the edges the tracker returned", () => {
-		const result = run(["--limit", String(TREE)], readingTree("ticket-set"));
+		const result = run(["--limit", String(TREE), REPORT_ONLY], readingTree("ticket-set"));
 		const lines = deadlockLines(result.stdout);
 		expect(lines).toHaveLength(1);
 
@@ -105,12 +122,12 @@ describe("run, over a ticket set read from GitHub", () => {
 	});
 
 	test("carries a truncated read to the user, since a capped answer is a different answer", () => {
-		const result = run(["--limit", "3"], readingTree("ticket-set-truncated"));
+		const result = run(["--limit", "3", REPORT_ONLY], readingTree("ticket-set-truncated"));
 		expect(sentinelLines(result.stdout).some((line) => line.includes("truncated"))).toBe(true);
 	});
 
 	test("renders what the read itself could not answer, under the same sentinel as the selector's own", () => {
-		const result = run(["--limit", String(TREE)], answering("ticket-set-without-blockers"));
+		const result = run(["--limit", String(TREE), REPORT_ONLY], answering("ticket-set-without-blockers"));
 		const lines = sentinelLines(result.stdout);
 		expect(lines.some((line) => line.includes("did not report their blockers"))).toBe(true);
 		expect(lines.some((line) => line.includes("blockers could be confirmed closed"))).toBe(true);
@@ -160,13 +177,323 @@ describe("run, over a ticket set read from GitHub", () => {
 	});
 
 	test("emits the selection and the read's own degrades as JSON", () => {
-		const clean = JSON.parse(run(["--limit", String(TREE), "--json"], readingTree("ticket-set")).stdout);
+		const clean = JSON.parse(run(["--limit", String(TREE), "--json", REPORT_ONLY], readingTree("ticket-set")).stdout);
 		expect(clean.selection.counts.closed).toBe("not-asked");
 		expect(clean.selection.pick.title).toBe(shapeTitle(GITHUB_TEST_TREE, "several-priorities"));
 		expect(clean.readDegraded).toEqual([]);
 
-		const degraded = JSON.parse(run(["--limit", String(TREE), "--json"], answering("ticket-set-without-blockers")).stdout);
+		const degraded = JSON.parse(run(["--limit", String(TREE), "--json", REPORT_ONLY], answering("ticket-set-without-blockers")).stdout);
 		expect(degraded.readDegraded).toEqual([{ kind: "unreadable-blocking", tickets: TREE, of: TREE }]);
+	});
+});
+
+/**
+ * Every call the start sequence makes, answered by shape rather than by exact argv.
+ *
+ * By shape because the branch, and so most of these argv, are derived from the pick's own title and issue
+ * number, which ADR-0023 says why a test may not claim. `replayRunner` is still what asserts the *read*'s argv;
+ * what these tests assert is the sequence of writes, per the spec's one-injected-seam testing decision.
+ */
+function startSequence(
+	over: (argv: string[]) => CommandResult | null = () => null,
+	read = "ticket-set",
+	primary = PRIMARY,
+) {
+	const calls: string[][] = [];
+	const runner: Runner = (argv) => {
+		calls.push(argv);
+		const overridden = over(argv);
+		if (overridden !== null) return overridden;
+		if (argv[0] === "cmux") return { code: 0, stdout: argv[1] === "ping" ? "PONG\n" : "", stderr: "" };
+		if (argv[0] === "claude") return { code: 0, stdout: "0.0.0 (test)\n", stderr: "" };
+		if (argv[0] === "gh" && argv[1] === "issue" && argv[2] === "edit") return { code: 0, stdout: "", stderr: "" };
+		if (argv[0] === "gh") return respondingRunner(githubRecording(read))(argv);
+		if (argv[0] !== "git") throw new Error(`nothing answers ${argv.join(" ")}`);
+		if (argv.includes("get-url")) return { code: 0, stdout: `git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo}.git\n`, stderr: "" };
+		if (argv.includes("list")) return { code: 0, stdout: `worktree ${primary}\0branch refs/heads/main\0\0`, stderr: "" };
+		if (argv.includes("--git-common-dir")) return { code: 0, stdout: `${primary}/.git\n`, stderr: "" };
+		if (argv.includes("symbolic-ref")) return { code: 0, stdout: "refs/remotes/origin/main\n", stderr: "" };
+		// Present for origin/HEAD's target, absent for the ticket's own branch, which is what makes the run cut
+		// a new one rather than adopt something.
+		if (argv.includes("show-ref")) return { code: argv.includes("refs/remotes/origin/main") ? 0 : 1, stdout: "", stderr: "" };
+		if (argv.includes("for-each-ref")) return { code: 0, stdout: "", stderr: "" };
+		if (argv.includes("add")) return { code: 0, stdout: "", stderr: "" };
+		throw new Error(`nothing answers ${argv.join(" ")}`);
+	};
+	const of = (...words: string[]) => calls.filter((argv) => words.every((word) => argv.includes(word)));
+	const indexOf = (...words: string[]) => calls.findIndex((argv) => words.every((word) => argv.includes(word)));
+	return { calls, runner, of, indexOf };
+}
+
+describe("starting work on the pick", () => {
+	const TREE = openIssues(GITHUB_TEST_TREE).length;
+	const LIMIT = ["--limit", String(TREE)];
+
+	// ADR-0016, which is the reason this ordering has a test of its own rather than being implied by a
+	// successful run: the worktree is the leftover a failure is allowed to have, so it goes first.
+	test("makes the worktree, then claims, then starts the session — in that order", () => {
+		const { runner, indexOf, of } = startSequence();
+		const result = run([...LIMIT, "--yes"], deps(runner));
+
+		expect(result.stderr).toBe("");
+		expect(result.code).toBe(0);
+		const worktree = indexOf("worktree", "add");
+		const claim = indexOf("issue", "edit");
+		const session = indexOf("new-workspace");
+		expect(worktree).toBeGreaterThan(-1);
+		expect(worktree).toBeLessThan(claim);
+		expect(claim).toBeLessThan(session);
+		expect(of("new-workspace")).toHaveLength(1);
+	});
+
+	test("asks the workspace host before it writes anything at all", () => {
+		const { runner, indexOf } = startSequence();
+		run([...LIMIT, "--yes"], deps(runner));
+		expect(indexOf("ping")).toBeLessThan(indexOf("worktree", "add"));
+	});
+
+	test("runs the session in the worktree it just made, under the default verb", () => {
+		const { runner, of } = startSequence();
+		run([...LIMIT, "--yes"], deps(runner));
+		const [created] = of("worktree", "add");
+		const [workspace] = of("new-workspace");
+		const path = created![created!.indexOf("add") + 1];
+		expect(workspace![workspace!.indexOf("--cwd") + 1]).toBe(path);
+		expect(workspace![workspace!.indexOf("--command") + 1]).toContain(DEFAULT_SLASH_COMMAND);
+	});
+
+	test("runs the verb it was given instead", () => {
+		const { runner, of } = startSequence();
+		run([...LIMIT, "--yes", "--slash-command", "/triage"], deps(runner));
+		const [workspace] = of("new-workspace");
+		expect(workspace![workspace!.indexOf("--command") + 1]).toContain("/triage");
+	});
+
+	test("reports the worktree, the claim and the session it started", () => {
+		const { runner } = startSequence();
+		const result = run([...LIMIT, "--yes"], deps(runner));
+		expect(result.stdout).toContain("claimed ");
+		expect(result.stdout).toContain("asked cmux to run claude ");
+	});
+
+	/**
+	 * The `start` object is what README and --help tell a script to read, so it is a contract rather than a
+	 * convenience — and every reference in it has to be the short form, since a raw `{tracker, repo, host, key}`
+	 * reaching a consumer is the shape `CandidateJson` exists to prevent.
+	 */
+	test("carries what it started under --json, with references in their short form", () => {
+		const { runner } = startSequence();
+		const document = JSON.parse(run([...LIMIT, "--yes", "--json"], deps(runner)).stdout);
+
+		expect(document.start.kind).toBe("requested");
+		expect(typeof document.start.ref).toBe("string");
+		expect(document.start.ref).toBe(document.selection.pick.ref);
+		expect(document.start.command[0]).toBe("claude");
+		expect(document.start.worktree.path).toContain(`${PRIMARY}/.worktrees/`);
+		expect(document.start.worktree.kind).toBe("created");
+	});
+
+	test("names the other outcomes under --json too, so a script can tell them apart", () => {
+		const printed = JSON.parse(run([...LIMIT, "--print-command", "--json"], deps(startSequence().runner)).stdout);
+		expect(printed.start).toEqual({ kind: "printed", command: ["claude", printed.start.command[1]] });
+
+		const declined = JSON.parse(
+			run([...LIMIT, "--json"], { runner: startSequence().runner, confirm: terminal(false).confirm, cwd: PRIMARY }).stdout,
+		);
+		expect(declined.start.kind).toBe("declined");
+		expect(typeof declined.start.ref).toBe("string");
+
+		const nothing = JSON.parse(run(["--json"], deps(inTestTree(() => ({ code: 0, stdout: "[]", stderr: "" })))).stdout);
+		expect(nothing.start).toEqual({ kind: "nothing-to-start" });
+	});
+});
+
+describe("the confirmation gate", () => {
+	const TREE = openIssues(GITHUB_TEST_TREE).length;
+	const LIMIT = ["--limit", String(TREE)];
+
+	test("names the pick in the question, since the rendering it is about has not been printed yet", () => {
+		const { runner } = startSequence();
+		const asked = terminal();
+		const result = run(LIMIT, { runner, confirm: asked.confirm, cwd: PRIMARY });
+		expect(asked.questions).toHaveLength(1);
+		expect(asked.questions[0]).toContain(shapeTitle(GITHUB_TEST_TREE, "several-priorities"));
+		expect(asked.questions[0]).toContain("[y/N]");
+		expect(result.code).toBe(0);
+	});
+
+	/**
+	 * Asserted on both states rather than only on unknown: a phrase present for one alone would make its
+	 * absence the signal, which is the same collapse spelled the other way. `blockingPhrase` has why the gate
+	 * is where this matters.
+	 */
+	test("names the pick's blocking state in the question, whichever state it is", () => {
+		const confirmed = terminal();
+		run(LIMIT, { runner: startSequence().runner, confirm: confirmed.confirm, cwd: PRIMARY });
+		expect(confirmed.questions[0]).toContain("blockers confirmed closed");
+
+		const blind = terminal();
+		const { runner } = startSequence(() => null, "ticket-set-without-blockers");
+		run(LIMIT, { runner, confirm: blind.confirm, cwd: PRIMARY });
+		expect(blind.questions).toHaveLength(1);
+		expect(blind.questions[0]).toContain("blockers unknown");
+		expect(blind.questions[0]).not.toContain("blockers confirmed closed");
+	});
+
+	// The same property one caveat over: a pick from a capped read may be beaten by a ticket nobody looked at,
+	// and the operator would learn that from a line printed after they had already claimed it.
+	test("carries the answer's other caveats too, not only the blocking state", () => {
+		const asked = terminal();
+		const { runner } = startSequence(() => null, "ticket-set-truncated");
+		run(["--limit", "3"], { runner, confirm: asked.confirm, cwd: PRIMARY });
+		expect(asked.questions).toHaveLength(1);
+		expect(asked.questions[0]).toContain("truncated");
+	});
+
+	test("writes nothing when the answer is no, and says so", () => {
+		const { runner, of } = startSequence();
+		const result = run(LIMIT, { runner, confirm: terminal(false).confirm, cwd: PRIMARY });
+		expect(of("worktree", "add")).toEqual([]);
+		expect(of("issue", "edit")).toEqual([]);
+		expect(of("new-workspace")).toEqual([]);
+		expect(result.stdout).toContain("was not started");
+		expect(result.code).toBe(0);
+	});
+
+	test("does not ask when --yes answered in advance", () => {
+		const { runner } = startSequence();
+		const asked = terminal();
+		run([...LIMIT, "--yes"], { runner, confirm: asked.confirm, cwd: PRIMARY });
+		expect(asked.questions).toEqual([]);
+	});
+
+	test("refuses a run with nobody to ask and no --yes", () => {
+		const { runner, of } = startSequence();
+		const result = run(LIMIT, { runner, confirm: null, cwd: PRIMARY });
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("--yes");
+		expect(of("worktree", "add")).toEqual([]);
+	});
+
+	/**
+	 * Having nobody to ask is decidable from the invocation, so it is settled before the host is contacted. Asked
+	 * in the other order, an unattended run against a stopped host would blame the host and say to run it again —
+	 * which refuses identically, for a reason that message never names.
+	 */
+	test("blames the missing terminal rather than the host, and does not contact the host at all", () => {
+		const { runner, of } = startSequence((argv) =>
+			argv[1] === "ping" ? { code: 1, stdout: "", stderr: "connect: no such file or directory" } : null,
+		);
+		const result = run(LIMIT, { runner, confirm: null, cwd: PRIMARY });
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("--yes");
+		expect(result.stderr).not.toContain("workspace host");
+		expect(of("ping")).toEqual([]);
+	});
+});
+
+describe("--print-command", () => {
+	const LIMIT = ["--limit", String(openIssues(GITHUB_TEST_TREE).length)];
+
+	test("prints the session command and creates, claims and starts nothing", () => {
+		const { runner, calls } = startSequence();
+		const result = run([...LIMIT, "--print-command"], deps(runner));
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain(`claude '${DEFAULT_SLASH_COMMAND} `);
+		expect(calls.filter((argv) => argv[0] !== "git")).toHaveLength(1);
+	});
+
+	// The sandbox-safe path per ADR-0002, which it would not be if it needed the host it cannot reach.
+	test("never asks the workspace host, and never asks a person", () => {
+		const { runner, of } = startSequence();
+		const asked = terminal();
+		run([...LIMIT, "--print-command"], { runner, confirm: asked.confirm, cwd: PRIMARY });
+		expect(of("ping")).toEqual([]);
+		expect(asked.questions).toEqual([]);
+	});
+});
+
+describe("a start that could not finish", () => {
+	const LIMIT = ["--limit", String(openIssues(GITHUB_TEST_TREE).length)];
+
+	test("refuses a dead workspace host before the worktree and the claim", () => {
+		const { runner, of } = startSequence((argv) =>
+			argv[1] === "ping" ? { code: 1, stdout: "", stderr: "connect: no such file or directory" } : null,
+		);
+		const result = run([...LIMIT, "--yes"], deps(runner));
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("no such file or directory");
+		expect(of("worktree", "add")).toEqual([]);
+		expect(of("issue", "edit")).toEqual([]);
+	});
+
+	test("names the worktree it left behind when the claim will not land", () => {
+		const { runner, of } = startSequence((argv) =>
+			argv[2] === "edit" ? { code: 1, stdout: "", stderr: "HTTP 403: Resource not accessible" } : null,
+		);
+		const result = run([...LIMIT, "--yes"], deps(runner));
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("running this again");
+		expect(result.stderr).toContain(`${PRIMARY}/.worktrees/`);
+		expect(of("new-workspace")).toEqual([]);
+	});
+
+	// The re-run wording is asserted absent, not merely the new wording present: ADR-0035 has why saying it here
+	// would send an operator to start the wrong ticket.
+	test("hands over the session command when the workspace fails after the claim landed", () => {
+		const { runner, of } = startSequence((argv) =>
+			argv[1] === "new-workspace" ? { code: 1, stdout: "", stderr: "no window" } : null,
+		);
+		const result = run([...LIMIT, "--yes"], deps(runner));
+		expect(result.code).toBe(2);
+		expect(of("issue", "edit")).toHaveLength(1);
+		expect(result.stderr).not.toContain("running this again");
+		expect(result.stderr).toContain("would pick a different ticket");
+		expect(result.stderr).toContain(`cd ${PRIMARY}/.worktrees/`);
+		expect(result.stderr).toContain("claude '/implement ");
+	});
+
+	/**
+	 * ADR-0036: the host accepts a command without reporting whether it ran, so a binary that will not run would
+	 * otherwise reach a claimed ticket and a run reporting that it asked for a session.
+	 */
+	test("refuses a session binary that will not run, before the worktree and the claim", () => {
+		const { runner, of } = startSequence((argv) =>
+			argv[0] === "claude" ? { code: 127, stdout: "", stderr: "command not found: claude" } : null,
+		);
+		const result = run([...LIMIT, "--yes"], deps(runner));
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("command not found");
+		expect(of("worktree", "add")).toEqual([]);
+		expect(of("issue", "edit")).toEqual([]);
+		expect(of("new-workspace")).toEqual([]);
+	});
+
+	/**
+	 * The handover is the only recovery offered once the claim has landed, so it has to survive a checkout path
+	 * holding a space — which is ordinary on macOS, not exotic. Unquoted, `cd` took the first word and the
+	 * operator was sent somewhere else entirely.
+	 */
+	test("quotes the worktree path in that handover, so a path with a space still works", () => {
+		const spaced = "/nextup not a real checkout";
+		const { runner } = startSequence(
+			(argv) => (argv[1] === "new-workspace" ? { code: 1, stdout: "", stderr: "no window" } : null),
+			"ticket-set",
+			spaced,
+		);
+		const result = run([...LIMIT, "--yes"], { runner, confirm: terminal().confirm, cwd: spaced });
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain(`cd '${spaced}/.worktrees/`);
+	});
+
+	test("reports a worktree that could not be made, and claims nothing", () => {
+		const { runner, of } = startSequence((argv) =>
+			argv.includes("add") ? { code: 128, stdout: "", stderr: "fatal: invalid reference" } : null,
+		);
+		const result = run([...LIMIT, "--yes"], deps(runner));
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("could not be created");
+		expect(of("issue", "edit")).toEqual([]);
 	});
 });
 
