@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, sep } from "node:path";
+import { worktreeListCommand } from "./command-builders";
 import { type Runner, defaultRunner } from "./runner";
 import type { Ticket } from "./ticket";
 import type { TicketRef } from "./ticket-ref";
@@ -658,6 +659,67 @@ describe("ensure", () => {
 		expect(ensure({ runner: git.runner, repo, ticket: READER, root: "src" }).path).toBe(join(repo, "src", READER_LEAF));
 	});
 
+	test("takes a root outside the checkout as given too, which is the same promise pointed the other way", () => {
+		const { repo, state } = primaryOn();
+		const git = stubGit(state);
+
+		expect(ensure({ runner: git.runner, repo, ticket: READER, root: ".." }).path).toBe(join(dirname(repo), READER_LEAF));
+	});
+
+	test("refuses a root reaching the primary checkout through a symlink, which its spelling hides", () => {
+		const { repo, state } = primaryOn();
+		const outer = tempDir("nextup-linked-primary-");
+		symlinkSync(repo, join(outer, "link"));
+		const git = stubGit(state);
+
+		// Asserted by message rather than by kind: the resolution is what makes the comparison reach the
+		// primary at all, and a refusal for merely being a link would read the same at the kind.
+		expect(() => ensure({ runner: git.runner, repo, ticket: READER, root: join(outer, "link") })).toThrow(
+			`${repo} is the primary checkout`,
+		);
+	});
+
+	test("refuses a root reaching the git directory through a symlink, which its spelling hides too", () => {
+		const { repo, state } = primaryOn();
+		const outer = tempDir("nextup-linked-git-dir-");
+		symlinkSync(repo, join(outer, "link"));
+		const git = stubGit(state);
+
+		expect(() =>
+			ensure({ runner: git.runner, repo, ticket: READER, root: join(outer, "link", ".git", "worktrees") }),
+		).toThrow(`${join(repo, ".git", "worktrees")} is inside ${join(repo, ".git")}`);
+	});
+
+	test("refuses a root whose segments loop, rather than resolving forever or reading the loop as absent", () => {
+		const { repo, state } = primaryOn();
+		const outer = tempDir("nextup-looping-root-");
+		symlinkSync(join(outer, "b"), join(outer, "a"));
+		symlinkSync(join(outer, "a"), join(outer, "b"));
+		const git = stubGit(state);
+
+		// Not absence: the loop answers `ELOOP`, and read as absence it would be taken as a root to create.
+		expect(() => ensure({ runner: git.runner, repo, ticket: READER, root: join(outer, "a", "trees") })).toThrow(
+			/could not be resolved/,
+		);
+	});
+
+	test("refuses a root reaching past a file, which is a segment that exists and cannot be walked through", () => {
+		const { repo, state } = primaryOn();
+		writeFileSync(join(repo, "not-a-directory"), "a file where a root's segment should be\n");
+		const git = stubGit(state);
+
+		expect(() => ensure({ runner: git.runner, repo, ticket: READER, root: join(repo, "not-a-directory", "trees") })).toThrow(
+			/could not be resolved/,
+		);
+	});
+
+	test("stops climbing at the filesystem root rather than running off the top of the path", () => {
+		const { repo, state } = primaryOn();
+		const git = stubGit(state);
+
+		expect(ensure({ runner: git.runner, repo, ticket: READER, root: "../".repeat(64) }).path).toBe(`${sep}${READER_LEAF}`);
+	});
+
 	test("refuses a root reached through a dangling symlink, which resolves to nothing to compare", () => {
 		const { repo, state } = primaryOn();
 		symlinkSync(join(repo, "never-created"), join(repo, "dangling"));
@@ -784,6 +846,11 @@ function realRepo(): string {
 	git("update-ref", "refs/remotes/origin/main", "HEAD");
 	git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
 	return realpathSync(root);
+}
+
+/** Where git says this repository's worktrees are, which is the spelling `ensure` has to compute. */
+function registeredPaths(repo: string): readonly string[] {
+	return parseWorktreeList(defaultRunner([...worktreeListCommand(repo)]).stdout).map((one) => one.path);
 }
 
 /**
@@ -923,27 +990,61 @@ describe("ensure against real git", () => {
 		expect(untracked).toContain("?? index");
 	});
 
-	test("refuses a worktree root reached through a symlink rather than resolving it", () => {
+	test("resolves a root that is itself a symlink to the path git registers, and attaches on the next run", () => {
 		const repo = realRepo();
 		const real = join(tempDir("nextup-linked-root-"), "trees");
 		mkdirSync(real, { recursive: true });
 		const linked = join(repo, "trees-by-link");
 		symlinkSync(real, linked);
+		const first = ensure({ runner: defaultRunner, repo, ticket: READER, root: linked });
 
-		expect(kindOf(() => ensure({ runner: defaultRunner, repo, ticket: READER, root: linked }))).toBe("stale-directory");
+		expect(first.path).toBe(join(real, READER_LEAF));
+		expect(registeredPaths(repo)).toContain(first.path);
+		expect(ensure({ runner: defaultRunner, repo, ticket: READER, root: linked }).kind).toBe("attached");
 	});
 
-	test("refuses an absolute root whose ancestor is a symlink, not only one that is a symlink itself", () => {
+	test("resolves an absolute root whose ancestor is a symlink, which is every root under a macOS temp directory", () => {
 		const repo = realRepo();
 		const outer = tempDir("nextup-linked-ancestor-");
 		mkdirSync(join(outer, "real"), { recursive: true });
 		symlinkSync(join(outer, "real"), join(outer, "link"));
+		const root = join(outer, "link", "trees");
+		const first = ensure({ runner: defaultRunner, repo, ticket: READER, root });
 
-		// The shape that makes every absolute root under a macOS `/tmp`, `/var` or `$TMPDIR` unusable: the
-		// container is not itself a link and need not exist, but an ancestor is. Pins what the walk does
-		// today, which nichenke/nextup issue 39 is deciding — a narrower guard would let this through.
-		expect(kindOf(() => ensure({ runner: defaultRunner, repo, ticket: READER, root: join(outer, "link", "trees") }))).toBe(
-			"stale-directory",
+		// The shape that made every absolute root under a macOS `/tmp`, `/var` or `$TMPDIR` unusable: the
+		// container is not itself a link and does not exist yet, but an ancestor is one.
+		expect(first.path).toBe(join(outer, "real", "trees", READER_LEAF));
+		expect(registeredPaths(repo)).toContain(first.path);
+		expect(ensure({ runner: defaultRunner, repo, ticket: READER, root }).kind).toBe("attached");
+	});
+
+	test("resolves a root's symlinks before its parent segments, the way git does rather than the way string maths does", () => {
+		const repo = realRepo();
+		const outer = tempDir("nextup-physical-parent-");
+		mkdirSync(join(outer, "away", "inner"), { recursive: true });
+		symlinkSync(join(outer, "away", "inner"), join(outer, "link"));
+		// Concatenated, not joined: `join` collapses the `..` itself, which is the very step under test.
+		const root = `${join(outer, "link")}${sep}..`;
+		const first = ensure({ runner: defaultRunner, repo, ticket: READER, root });
+
+		// Collapsing `..` lexically would name `outer`; git resolves the link first and registers under
+		// `away`, and a root whose spelling disagrees with git's is the whole failure this guards.
+		expect(first.path).toBe(join(outer, "away", READER_LEAF));
+		expect(registeredPaths(repo)).toContain(first.path);
+	});
+
+	test("still refuses a symlink where the worktree itself goes, under a root it resolved", () => {
+		const repo = realRepo();
+		const outer = tempDir("nextup-linked-leaf-");
+		mkdirSync(join(outer, "real"), { recursive: true });
+		symlinkSync(join(outer, "real"), join(outer, "link"));
+		const elsewhere = join(outer, "elsewhere");
+		mkdirSync(elsewhere, { recursive: true });
+		symlinkSync(elsewhere, join(outer, "real", READER_LEAF));
+
+		// ADR-0013 declined a symlinked worktree and that stands; only the container is resolved.
+		expect(() => ensure({ runner: defaultRunner, repo, ticket: READER, root: join(outer, "link") })).toThrow(
+			/is a symlink/,
 		);
 	});
 

@@ -1,5 +1,12 @@
 # Worktrees go under the primary checkout, at a root the caller can move
 
+> Amended by [0041](./0041-a-worktree-root-is-resolved-and-only-the-worktree-refuses-a-link.md) on the
+> symlink sentence below. Read "refused rather than resolved, at the root and at the worktree itself" as
+> refused at the worktree itself, with the root resolved instead. Taken literally the sentence walks every
+> ancestor to `/`, and on macOS `/tmp`, `/var` and `$TMPDIR` are reached through links — so it refused every
+> absolute root, contradicting the third bullet's promise in the same body. The rest stands, the hazard it
+> records included.
+
 Ticket 08 had to pick a default worktree root. The spec (nichenke/nextup issue 2) instructs one:
 "Root is parametric, defaulting to the harness's worktree directory so that native session-exit
 cleanup applies." Ticket 03 reproduced that justification and found it false — ADR-0005 records the
