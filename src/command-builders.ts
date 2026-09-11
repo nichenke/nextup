@@ -20,10 +20,8 @@ const SESSION_BINARY = "claude";
 /**
  * Whether the binary a session is started with is there and will run.
  *
- * Asked because the host reports only that it accepted the request: `--command` is text typed into a shell, so
- * nothing downstream tells this tool whether the session came up. A binary that is missing or broken is the
- * likeliest reason it would not, and it is the one that can be settled before anything is written — ADR-0036
- * has why that is preferred to checking afterwards.
+ * Asked because a binary that is missing or broken is the likeliest reason a session never starts, and the one
+ * that can be settled before anything is written — ADR-0036, which also has why nothing checks afterwards.
  *
  * `--version` rather than a `command -v`, because the runner spawns argv with no shell, and because running the
  * binary is a stronger answer than finding a file with the right name.

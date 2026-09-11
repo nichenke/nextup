@@ -42,7 +42,16 @@ export function planLaunch(input: LaunchPlanInput): LaunchPlan {
  * @throws LaunchError when the host does not answer.
  */
 export function requireWorkspaceHost(runner: Runner): void {
-	const argv = workspaceHostAliveCommand();
+	requireAlive(runner, workspaceHostAliveCommand());
+}
+
+/**
+ * Shared so that rewording this refusal cannot leave its two callers disagreeing — what differs between them is
+ * the name and the reason, not the sentence.
+ *
+ * @throws LaunchError when the probe does not exit 0.
+ */
+function requireAlive(runner: Runner, argv: Argv): void {
 	const result = runner([...argv]);
 	if (result.code === 0) return;
 	throw new LaunchError(`${formatCommand(argv)} failed, so nothing was started: ${failureDetail(result)}`);
@@ -51,17 +60,13 @@ export function requireWorkspaceHost(runner: Runner): void {
 /**
  * Refuses the run unless the session binary will run.
  *
- * Asked before the worktree and the claim, for the same reason as the host — but the reason it exists at all is
- * different, and ADR-0036 has it: the host confirms only that it accepted a request, never that the session came
- * up, so this is the one cause of a session that never starts which can be settled while nothing is written.
+ * Asked before the worktree and the claim, for the same reason as the host. Why it exists at all is a different
+ * reason, and ADR-0036 has it.
  *
  * @throws LaunchError when the binary does not run.
  */
 export function requireSessionBinary(runner: Runner): void {
-	const argv = sessionBinaryAliveCommand();
-	const result = runner([...argv]);
-	if (result.code === 0) return;
-	throw new LaunchError(`${formatCommand(argv)} failed, so nothing was started: ${failureDetail(result)}`);
+	requireAlive(runner, sessionBinaryAliveCommand());
 }
 
 export interface LaunchInput {
@@ -76,9 +81,8 @@ export interface LaunchInput {
 /**
  * Asks the workspace host to run one session, in the worktree already made for it.
  *
- * Asks rather than starts, and callers must not report more than that: the host's exit status covers creating
- * the workspace and accepting the command, and nothing it returns says the session came up. ADR-0036 has why
- * this tool does not go looking afterwards, and `requireSessionBinary` is what it does instead.
+ * Asks rather than starts, and callers must not report more than that — ADR-0036, which `requireSessionBinary`
+ * is the other half of.
  *
  * One call, whose exit status is the whole verdict, so there is nothing to return. Nothing here unwinds —
  * ADR-0016.
