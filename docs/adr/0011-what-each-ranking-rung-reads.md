@@ -1,7 +1,7 @@
 # What each ranking rung reads
 
 > One sentence below will be contradicted once
-> [0042](./0042-the-brief-is-slotted-and-the-tool-owns-every-slot-the-graph-can-write.md)'s
+> [0043](./0043-the-brief-is-slotted-and-the-tool-owns-every-slot-the-graph-can-write.md)'s
 > alternatives slot ships: a losing candidate's labels stop being a `--json` question and appear on
 > the human surface. Nothing has shipped yet, so the sentence still describes what the tool does
 > today. Nothing here about what a rung *reads* changes either way, and the labels were always in

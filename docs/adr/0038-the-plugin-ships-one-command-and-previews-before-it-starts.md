@@ -1,11 +1,11 @@
 # The plugin ships one command, and it previews before it starts
 
 > Extended, **not** superseded, by
-> [0042](./0042-the-brief-is-slotted-and-the-tool-owns-every-slot-the-graph-can-write.md), which turns
+> [0043](./0043-the-brief-is-slotted-and-the-tool-owns-every-slot-the-graph-can-write.md), which turns
 > what a session relays into a composed brief and restates the relay contract as two promises rather
-> than one. 0042's "What stays a contract" is where those are written; do not re-derive them from the
+> than one. 0043's "What stays a contract" is where those are written; do not re-derive them from the
 > section below, which describes the rendering a brief is built from rather than the brief. Everything
-> below stands until the inputs 0042 names exist.
+> below stands until the inputs 0043 names exist.
 
 Two manifests made this repository look like a plugin and a store. Neither shipped anything a person
 could invoke: the tree held no `commands/`, `skills/` or `agents/` directory that Claude Code would
