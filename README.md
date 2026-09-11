@@ -2,8 +2,9 @@
 
 **Unblocked Opportunist** — picks the best unclaimed, unblocked ticket and starts work on it.
 
-`nextup` reads a ticket set from GitHub, GitLab, or Jira; filters to open and unclaimed;
-ranks the survivors deterministically; and launches a session on the winner in its own git worktree.
+`nextup` reads a ticket set from a tracker; filters to open and unclaimed; ranks the survivors
+deterministically; and launches a session on the winner in its own git worktree. GitHub is the tracker
+it has an adapter for; GitLab and Jira are planned and not built.
 
 Blocking is tri-state, so "unblocked" is not a simple filter. Tickets whose blockers are *confirmed*
 closed are ranked first. Tickets whose blocking state the tracker could not report are ranked by the same
@@ -18,22 +19,25 @@ ticket, and asks cmux to run a session in that worktree.
 
 ## Installing it
 
-`nextup` is a Claude Code plugin. It ships one command, `/nextup`, and no marketplace of its own —
-the `dispatch` marketplace is where it is published, so installing it is installing that marketplace
-and then this plugin from it.
-
-To work on the plugin itself, point Claude Code at a checkout instead, which needs no marketplace:
+`nextup` is a Claude Code plugin shipping one command, `/nextup`, and no marketplace of its own. The
+way to run it today is to point Claude Code at a checkout:
 
 ```sh
 claude --plugin-dir <path to this checkout>
 ```
 
-`/nextup` takes no arguments. The flags below belong to the binary; the command surfaces only the
-two that decide whether anything is written, and `--slash-command` is how you start something other
-than the `/implement` session it defaults to.
+Installing it by name will be through the `dispatch` marketplace, which is where it is published.
+That entry is not in place yet, and it tracks this repository's default branch — so it lands after
+the branch carries the command, not before.
 
-`bun`, `gh` and `cmux` are expected on `PATH`, and `/implement` has to come from somewhere else —
-this plugin declares that dependency rather than satisfying it.
+`/nextup` takes no arguments. It previews, then asks, then starts what you agreed to. The flags in
+the next section belong to the binary and are reachable from a checkout rather than through the
+command.
+
+`bun`, `gh`, `cmux` and `claude` are expected on `PATH`. Two of those are probed before anything is
+written and come back as the tool's own refusal; `bun` and `gh` surface as the runner's error.
+`/implement` has to come from somewhere else — this plugin declares that dependency rather than
+satisfying it.
 
 ## From a checkout
 

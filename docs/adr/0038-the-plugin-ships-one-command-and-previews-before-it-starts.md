@@ -1,8 +1,8 @@
 # The plugin ships one command, and it previews before it starts
 
 Two manifests made this repository look like a plugin and a store. Neither shipped anything a person
-could invoke: there was no `commands/`, `skills/` or `agents/` directory anywhere in the tree, so
-installing it added a manifest and no way to run the tool. The only documented invocation was
+could invoke: the tree held no `commands/`, `skills/` or `agents/` directory that Claude Code would
+load, so installing it added a manifest and no way to run the tool. The only documented invocation was
 `bun bin/nextup.ts`, a relative path that resolves from inside this checkout and nowhere else.
 
 That mattered because two slash-invocable skills elsewhere are being retired in favour of this tool.
@@ -31,6 +31,9 @@ command.
 
 Local work needs no marketplace at all: `claude --plugin-dir <checkout>` loads the plugin from a
 working tree, which is why nothing here depends on the entry existing yet.
+
+Anyone who registered this repository as a marketplace while it was one has to drop that registration
+and reinstall from `dispatch`; the deletion below is what breaks their refresh.
 
 ## A command, not a skill
 
@@ -70,8 +73,8 @@ override path exists.
 
 `--json` is the larger document, and the instinct is that the plain form is its lossy summary. It is
 not. The plain form carries the degrade and deadlock signals under the same stable `degraded: ` and
-`deadlock: ` prefixes, names the runner-up the pick beat, and does it in roughly seven lines against
-ninety. A session's job here is to hand a person something they can read, so it relays those lines as
+`deadlock: ` prefixes, names the runner-up the pick beat, and does it in an order of magnitude fewer
+lines — seven against a hundred, the larger of which grows with the repository's open-issue count. A session's job here is to hand a person something they can read, so it relays those lines as
 they stand.
 
 The prefixes are a contract for exactly this reason, so the command is told to pass them through
@@ -83,24 +86,30 @@ A quiet day, an entirely blocked set and a deadlock are three outcomes the tool 
 them is a failure to route around. The command relays the explanation, names the deadlock chain, and
 stops. It does not widen the read, re-run with different flags, or propose unblocking anything, and
 `--force` is not among the invocations it ships, and a test holds the shipped command to exactly the
-two above.
+two above — over every shell fence CommonMark allows, since an indented one under a bullet is how a
+third invocation would actually get written.
 
 ## Consequences
 
 The description in `plugin.json` is the first sentence a person reads when deciding whether to
 install, and it promised GitLab and Jira while claiming no adapter was wired at all — both false
-since the GitHub adapter landed. It now names GitHub only, names `bun`, `gh` and `cmux` as
-prerequisites, and names `/implement` as what the launched session runs. GitLab and Jira come back
-when their adapters do.
+since the GitHub adapter landed. It now names GitHub only, names the prerequisites, and names
+`/implement` as what the launched session runs. GitLab and Jira come back when their adapters do.
 
 `/implement` is declared and not satisfied. The plugin does not ship it, and a consumer without one
 gets a session that opens on a command it does not have — visible immediately, and cheaper than
 shipping a second command this repository has no opinion about.
 
-There is no `bun` wrapper script and no prerequisite check. A missing binary surfaces as the shell's
-own error, which names the thing that is missing more precisely than a check would.
+There is no `bun` wrapper script, and nothing new checks for a prerequisite. Two checks already
+existed and are worth knowing about when reading the command file: `requireWorkspaceHost` and
+`requireSessionBinary` probe `cmux` and `claude` before any write, so those two come back as the
+tool's own refusal at exit 2 — [ADR-0035](./0035-a-workspace-host-that-is-not-running-is-refused-before-anything-is-written.md)
+and [ADR-0036](./0036-the-launcher-reports-a-request-not-a-running-session.md). Only `bun` and `gh`
+surface as the runner's own error. Adding a third probe would name the same things later and less
+precisely.
 
 The environment-scrub notice — [ADR-0029](./0029-a-git-command-is-given-an-environment-with-no-git-variable-in-it.md)
-— prints ahead of the answer on every run under a sandbox, and the command is told to skip it when
-relaying. That is a workaround at the reading end for something better fixed at the writing end; it
-is tracked separately.
+— prints ahead of the answer whenever a reportable `GIT_` name is in the environment, which under this
+sandbox is every run. The command is told to skip it on a run that produced an answer and to relay it
+on one that failed, because a removed variable may be why the run failed. That is a workaround at the
+reading end for something better fixed at the writing end; issue 68 tracks it.
