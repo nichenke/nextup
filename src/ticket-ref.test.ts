@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { originRemoteCommand } from "./command-builders";
 import type { CommandResult, Runner } from "./runner";
-import { routedRunner } from "./test-support";
+import { originRoute, routedRunner } from "./test-support";
 import { GITHUB_HOST } from "./repo-address";
 import {
 	type ResolveDeps,
@@ -15,15 +15,14 @@ import {
 	resolveTicketRef,
 } from "./ticket-ref";
 
-/** The checkout every bare short form below is resolved against, which `resolveTicketRef` is told rather than infers. */
+/** The checkout every bare short form below is resolved against. */
 const HERE = "/checkout";
 
 const here = (routes: Record<string, CommandResult>): ResolveDeps => ({ runner: routedRunner(routes), directory: HERE });
 
 // GitHub's own host is spelled through the constant, in git's scp form, so no spelling of it appears in this
-// file for the identifier guard to read. The route key comes from the builder, so a change to what the origin
-// read asks cannot leave this answering an argv nothing issues.
-const remote = (address: string) => ({ [originRemoteCommand(HERE).join(" ")]: { code: 0, stdout: `${address}\n`, stderr: "" } });
+// file for the identifier guard to read.
+const remote = (address: string) => originRoute(HERE, address);
 const GIT_REMOTE = remote(`git@${GITHUB_HOST}:example/repo.git`);
 const GIT_REMOTE_NO_OWNER = remote(`git@${GITHUB_HOST}:justrepo.git`);
 const GIT_REMOTE_ELSEWHERE = remote("https://example.com/example/repo.git");

@@ -269,9 +269,11 @@ export function githubTicketTarget(ref: TicketRef): GitHubTicketTarget {
 export interface ResolveDeps {
 	runner?: Runner;
 	/**
-	 * The checkout a bare short form takes its repository from. Defaults to the process's own working directory,
-	 * which is what a caller supplying neither this nor `checkout` means — ADR-0041 has why the origin read is
-	 * given a directory rather than resolving from wherever git is standing.
+	 * The checkout a bare short form takes its repository from — ADR-0041 has why the origin read is given a
+	 * directory rather than resolving from wherever git is standing. Defaults to the process's own.
+	 *
+	 * Supplying `checkout` does not replace it: only the GitHub arm consults that, while a bare `glab:<number>`
+	 * reads the remote itself and so resolves against this.
 	 */
 	directory?: string;
 	/**

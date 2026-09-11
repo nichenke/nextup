@@ -287,9 +287,10 @@ pointing at one holding `git/config`. Both made `git -C <intended> remote get-ur
 by a different door, and naming only the variables measured so far would repeat 0026's mistake at the level
 of vectors rather than variables.
 
-Both were closed afterwards, by the second option below —
-[0041](./0041-the-origin-read-names-its-directory-and-reads-the-repositorys-own-config.md), which also answers
-the question this leaves open at the end. What follows is the reasoning as it stood here:
+Both were closed afterwards, by a corrected form of the second option below — it takes `--get-all` rather than
+the `--get` spelled there, which answers with the wrong value where a remote carries several.
+[0041](./0041-the-origin-read-names-its-directory-and-reads-the-repositorys-own-config.md) has that and the
+question this leaves open at the end. What follows is the reasoning as it stood here:
 
 - **`GIT_CONFIG_GLOBAL=/dev/null` in the environment this builds.** A positive assertion rather than another
   removal, and it closed both vectors in test. It also discards a legitimate global `safe.directory`, which

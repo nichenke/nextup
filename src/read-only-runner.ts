@@ -38,8 +38,9 @@ export function readOnlyRunner(runner: Runner): Runner {
 	return (argv) => {
 		const program = argv[0]?.split("/").at(-1);
 		// `git -C <directory>` is skipped before the prefix is matched, so a directory nobody can enumerate does
-		// not sit between the program and the subcommand that decides whether this is a read. Skipping it admits
-		// nothing: what follows is matched exactly as it would be without one.
+		// not sit between the program and the subcommand that decides whether this is a read. What follows is then
+		// matched exactly as the same command without a `-C` would be — which is the whole claim: the skip admits
+		// every `-C` form of an allowed read, and no command a `-C`-less form would not have admitted.
 		const rest = program === "git" && argv[1] === "-C" ? argv.slice(3) : argv.slice(1);
 		const words = [program, ...rest];
 		const read = READS.find((prefix) => prefix.every((word, index) => words[index] === word));

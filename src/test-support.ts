@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { originRemoteCommand } from "./command-builders";
 import { type Recording, RecordingError, loadRecording, recordingsDir } from "./recording";
 import type { CommandResult, Runner } from "./runner";
 import { DEADLOCK_PREFIX, DEGRADED_PREFIX } from "./selection-output";
@@ -20,12 +21,17 @@ export function answeringOrigin(remote: string, answer: Runner): Runner {
 	return (argv) => (isOriginRead(argv) ? { code: 0, stdout: `${remote}\n`, stderr: "" } : answer(argv));
 }
 
-/** Whether an argv is the origin read, for a test faking or counting it. The key is the word only it carries. */
+/** Whether an argv is the origin read, for a test faking or counting it. */
 export function isOriginRead(argv: readonly string[]): boolean {
 	return argv[0] === "git" && argv.includes(ORIGIN_URL_KEY);
 }
 
 const ORIGIN_URL_KEY = "remote.origin.url";
+
+/** The one `routedRunner` route that answers the origin read for `directory`, keyed off the builder. */
+export function originRoute(directory: string, url: string): Record<string, CommandResult> {
+	return { [originRemoteCommand(directory).join(" ")]: { code: 0, stdout: `${url}\n`, stderr: "" } };
+}
 
 /** The sentinel lines of a rendering, which is the contract `DEGRADED_PREFIX` exists to be tested through. */
 export function sentinelLines(text: string): string[] {

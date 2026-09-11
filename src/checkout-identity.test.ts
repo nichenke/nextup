@@ -1,19 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { resolveCheckoutIdentity, resolveCheckoutRepoPath } from "./checkout-identity";
-import { originRemoteCommand } from "./command-builders";
-import type { CommandResult, Runner } from "./runner";
-import { routedRunner } from "./test-support";
+import type { Runner } from "./runner";
+import { originRoute, routedRunner } from "./test-support";
 import { GITHUB_HOST } from "./repo-address";
 
 const HERE = "/checkout";
 
 // Every remote below is built rather than spelled: GitHub's own host comes from the constant, and the other
 // hosts are joined, so no scheme-and-authority literal appears in this file for the identifier guard to read.
-// The route key comes from the builder so a change to what the read asks cannot leave this answering the old
-// argv while still passing.
-const remote = (address: string): Record<string, CommandResult> => ({
-	[originRemoteCommand(HERE).join(" ")]: { code: 0, stdout: `${address}\n`, stderr: "" },
-});
+const remote = (address: string) => originRoute(HERE, address);
 
 class Refused extends Error {}
 const refuse = (reason: string) => new Refused(reason);
@@ -39,9 +34,6 @@ describe("resolveCheckoutIdentity", () => {
 		expect(() => resolveCheckoutIdentity(routedRunner({}), HERE, refuse)).toThrow(new RegExp(HERE));
 	});
 
-	// The one shape this read answers differently from `git remote get-url`: an alias that only a global
-	// `url.<base>.insteadOf` rule expands. The refusal is correct but its host reads as nonsense, so it says
-	// where the URL came from. ADR-0041.
 	test("says why a host that is not one appeared, rather than reporting it as another tracker", () => {
 		const runner = routedRunner(remote("shorthand:example/repo"));
 		expect(() => resolveCheckoutIdentity(runner, HERE, refuse)).toThrow(/insteadOf/);
@@ -89,5 +81,15 @@ describe("resolveCheckoutRepoPath", () => {
 
 	test("raises the caller's own class when the remote cannot be resolved", () => {
 		expect(() => resolveCheckoutRepoPath(routedRunner({}), HERE, refuse)).toThrow(Refused);
+	});
+
+	// The pair this cannot tell apart, pinned together because keeping the first is the reason it cannot refuse
+	// the second. ADR-0041 has what the second can cost and why it is bounded.
+	test("keeps a short hostname, which a refusal on a dotless host would have taken with the aliases", () => {
+		expect(resolveCheckoutRepoPath(routedRunner(remote("git@gitlab:group/project.git")), HERE, refuse)).toBe("group/project");
+	});
+
+	test("answers with an alias's own path, which is the expanded one only where the alias spells no namespace", () => {
+		expect(resolveCheckoutRepoPath(routedRunner(remote("work:group/project")), HERE, refuse)).toBe("group/project");
 	});
 });

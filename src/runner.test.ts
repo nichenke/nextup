@@ -146,9 +146,8 @@ function printing(argv: readonly string[]): string {
 	return `process.stdout.write(defaultRunner(${JSON.stringify(argv)}).stdout);`;
 }
 
-/** A config file declaring `repo` as origin, written under the shared root and named so two cannot collide. */
-function globalConfigNaming(repo: string, name: string): string {
-	const path = join(shared().root, name);
+/** A config file declaring `repo` as origin, written at `path`. */
+function originConfig(path: string, repo: string): string {
 	writeFileSync(path, `[remote "origin"]\n\turl = ${repo}\n`);
 	return path;
 }
@@ -176,7 +175,7 @@ describe("a git variable exported before the tool started", () => {
 
 	test("does not redirect the origin read through a global config file", () => {
 		const { stdout } = inChildProcess(printing([...originRemoteCommand(shared().intended)]), {
-			GIT_CONFIG_GLOBAL: globalConfigNaming(shared().other, "git-config-global"),
+			GIT_CONFIG_GLOBAL: originConfig(join(shared().root, "git-config-global"), shared().other),
 		});
 		expect(stdout.trim()).toBe(shared().intended);
 	});
@@ -284,14 +283,13 @@ describe("refuseRedirectedGitHub", () => {
  * reach git as a place to look for a global config. What refuses them is the origin read asking `config
  * --local`, which reads the repository's own file and no other — ADR-0041.
  *
- * Real git in a child process for the reason the block above gives: the claim is about where git looks, and a
- * stub would assert only what this file believes about that.
+ * Real git in a child process, for the reason the block above gives.
  */
 describe("a config location redirected by a variable the scrub cannot name", () => {
 	test("does not decide the origin read through HOME", () => {
 		const home = mkdtempSync(join(tmpdir(), "nextup-home-"));
 		perTestRoots.push(home);
-		writeFileSync(join(home, ".gitconfig"), `[remote "origin"]\n\turl = ${shared().other}\n`);
+		originConfig(join(home, ".gitconfig"), shared().other);
 		const { stdout } = inChildProcess(printing([...originRemoteCommand(shared().intended)]), { HOME: home });
 		expect(stdout.trim()).toBe(shared().intended);
 	});
@@ -300,8 +298,9 @@ describe("a config location redirected by a variable the scrub cannot name", () 
 		const xdg = mkdtempSync(join(tmpdir(), "nextup-xdg-"));
 		perTestRoots.push(xdg);
 		mkdirSync(join(xdg, "git"));
-		writeFileSync(join(xdg, "git", "config"), `[remote "origin"]\n\turl = ${shared().other}\n`);
-		// git reads the XDG file only where `~/.gitconfig` is absent, and the developer running this has one.
+		originConfig(join(xdg, "git", "config"), shared().other);
+		// An empty HOME beside it isolates the run from the developer's own `~/.gitconfig`, which git reads as
+		// well as the XDG file rather than instead of it.
 		const empty = mkdtempSync(join(tmpdir(), "nextup-nohome-"));
 		perTestRoots.push(empty);
 		const { stdout } = inChildProcess(printing([...originRemoteCommand(shared().intended)]), {

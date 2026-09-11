@@ -66,11 +66,15 @@ describe("resolveOriginRemote", () => {
 		expect(resolveOriginRemote(runner, "/repo")?.repo ?? null).toBeNull();
 	});
 
-	// `--get-all` lists every value; git fetches from the first, which is also the one `remote get-url` answered
-	// with. Taking the last — what a bare `--get` would have given — would resolve a run against a URL git never
-	// dials. ADR-0041.
 	test("takes the first of several urls, which is the one git fetches from", () => {
 		const runner = fakeRunner({ code: 0, stdout: `${HTTPS_REMOTE}\n${NESTED_REMOTE}\n`, stderr: "" });
+		expect(resolveOriginRemote(runner, "/repo")?.repo ?? null).toBe("example/repo");
+	});
+
+	// Measured on git 2.55: `remote get-url` skips an empty value and answers with the next, so a remote whose
+	// first url is empty resolved before this change and has to keep resolving.
+	test("skips an empty first url rather than refusing a remote git would still fetch from", () => {
+		const runner = fakeRunner({ code: 0, stdout: `\n${HTTPS_REMOTE}\n`, stderr: "" });
 		expect(resolveOriginRemote(runner, "/repo")?.repo ?? null).toBe("example/repo");
 	});
 

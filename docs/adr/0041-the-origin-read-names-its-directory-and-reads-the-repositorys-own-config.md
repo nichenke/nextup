@@ -1,9 +1,13 @@
 # The origin read names its directory and reads the repository's own config
 
 `git remote get-url origin` is replaced by `git -C <directory> config --local --get-all remote.origin.url`.
-Both halves of that were left open by
-[0029](./0029-a-git-command-is-given-an-environment-with-no-git-variable-in-it.md), whose "What the prefix
-does not cover" put the choice with whoever wired the adapter.
+
+The two halves reach 0029 differently.
+[0029](./0029-a-git-command-is-given-an-environment-with-no-git-variable-in-it.md)'s "What the prefix does not
+cover" left the config source open, putting the choice with whoever wired the adapter, and named
+`config --local --get` as one of two candidates. The ambient directory it did not leave open: its Consequences
+defended the absence of a `-C` — "asking 'which repository am I in' is its purpose" — so that half is a
+decision reversed rather than one deferred. The `--get` spelling is corrected here too.
 
 ## The decision
 
@@ -59,15 +63,30 @@ shapes, measured:
   host is the bare word. This is the case the decision is wrong about, and it is a regression: a checkout
   configured that way worked before and is refused now.
 
-It is accepted rather than closed, and the asymmetry is why. `--local` fails loud — the alias cannot pass the
-GitHub-host test, so the run stops and says what it read. `get-url` fails silently in the mirror case and in
+A third regression, narrower and measured: a repository that declares a local `[remote "origin"]` section
+carrying no `url` — a bare fetch refspec, say — while the URL itself sits in global config. `get-url` answered
+at exit 0; `--local` finds nothing and the run refuses. An origin living *only* in global config is not part of
+this: `get-url` already refused that, because it requires the remote to be configured in the repository.
+
+It is accepted rather than closed, and the asymmetry is why. On the GitHub path `--local` fails loud — the
+alias cannot pass the host test, so the run stops and says what it read. `get-url` fails silently in the mirror case and in
 both config-location rows above, which is the wrong-ticket-set failure
 [0026](./0026-a-redirected-git-environment-is-refused-at-the-runner.md) exists for. A loud refusal on a
 configuration a minority uses is a smaller cost than a silent answer about the wrong repository.
 
 The refusal says so rather than leaving a host nobody configured unexplained: where the host carries no dot,
-the message names `url.<base>.insteadOf` and says this reads the URL the repository's own config spells.
-A dot is the test because these aliases are bare words, and the sentence stays true of a dotless real host.
+the message names `url.<base>.insteadOf` and says this reads the URL the repository's own config spells. The
+dot catches the bare-word idiom and nothing more — git accepts a dotted `insteadOf` base too, measured, and
+that one arrives unexplained. It costs nothing to be wrong about, because it appends a sentence to a refusal
+rather than deciding one.
+
+`resolveCheckoutRepoPath`, the bare `glab:<number>` reading, has no host test to fail loud at, and cannot
+gain one: `git@gitlab:group/project` is a legitimate short hostname and `work:group/project` an alias, and
+nothing in the URL tells them apart. Measured, what survives there is narrow — an alias whose base absorbs a
+namespace segment leaves a one-segment path, which `gitlabTicketRef` refuses, so a wrong answer needs an alias
+that absorbs a namespace *and* a local path still carrying two segments. Both shapes are pinned in
+`checkout-identity.test.ts`. It is bounded further by GitLab having no adapter: such a path can reach a
+refusal message, not a ticket set.
 
 Reading both and comparing was considered and not taken. It doubles the read, and the disagreement it would
 have to arbitrate is exactly the alias case — where refusing is what this already does, one command sooner.

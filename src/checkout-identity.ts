@@ -44,8 +44,7 @@ export type RefuseCheckout = (reason: string) => Error;
  * `--repo`, so `owner/repo` read off a GitHub Enterprise or GitLab checkout addresses whatever sits at that
  * path on GitHub instead.
  *
- * `directory` is named rather than left to the process's own: ADR-0041 has why the read stopped resolving from
- * wherever git happened to be standing.
+ * `directory` rather than the ambient one — ADR-0041.
  *
  * @throws whatever `refuse` builds, always as an Error.
  */
@@ -67,13 +66,15 @@ function checkoutIdentityOf(repo: string): CheckoutIdentity {
 }
 
 /**
- * What a host refusal adds when the host cannot be a real one.
+ * What a host refusal adds when the host carries no dot.
  *
- * The one shape this read answers differently from `git remote get-url`: a remote URL that is an alias only a
- * global `url.<base>.insteadOf` rule expands, whose left-hand side is a bare word. The refusal is right either
- * way — an alias is not evidence of a GitHub checkout — but without this it reports a tracker at a host nobody
- * configured. A dot is the test because the aliases this meets are bare words; a dotless real host loses
- * nothing, since the sentence is true of it too. ADR-0041.
+ * The one shape whose answer is a host nobody configured: a remote URL only a global `url.<base>.insteadOf`
+ * rule expands. The refusal is right either way — an alias is not evidence of a GitHub checkout — but without
+ * this it reports a tracker at that host. ADR-0041 has the other shapes the two commands differ over.
+ *
+ * A dot is the test because it costs nothing to be wrong about: this appends a sentence to a refusal rather
+ * than deciding one, so a miss leaves the refusal as it would have been. It catches the bare-word idiom only —
+ * git accepts a dotted `insteadOf` base too, measured, and that one arrives here unexplained.
  */
 function aliasNote(host: string): string {
 	return host.includes(".")
@@ -88,6 +89,10 @@ function aliasNote(host: string): string {
  * short form. A GitLab instance can be any host, so there is no host test to pass and nothing to fold — ADR-0039
  * has why leaving GitLab's case semantics undecided is safe, and ADR-0040 why this is not an identity.
  *
+ * Having no host test also means this is the one path where a `url.<base>.insteadOf` alias is not refused:
+ * `git@gitlab:group/project` is a legitimate short hostname and `work:group/project` an alias, and nothing here
+ * tells them apart. ADR-0041 bounds what that can cost.
+ *
  * @throws whatever `refuse` builds, when the remote cannot be resolved.
  */
 export function resolveCheckoutRepoPath(runner: Runner, directory: string, refuse: RefuseCheckout): string {
@@ -97,9 +102,6 @@ export function resolveCheckoutRepoPath(runner: Runner, directory: string, refus
 function checkoutRemote(runner: Runner, directory: string, refuse: RefuseCheckout): RemoteAddress {
 	const origin = resolveOriginRemote(runner, directory);
 	if (origin === null) {
-		// Names the directory, which used to be whichever one the process was standing in and is now a value a
-		// caller chose. "that checkout's own config" is the other half: an origin declared in a global file is
-		// deliberately not read, so a run that works elsewhere can fail here. ADR-0041.
 		throw refuse(
 			`the origin remote of ${directory} could not be resolved from that checkout's own git config — set an origin remote there, or run this somewhere that has one`,
 		);
