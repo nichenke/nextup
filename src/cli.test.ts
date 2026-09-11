@@ -791,7 +791,11 @@ describe("starting a ticket named on the command line", () => {
 
 		expect(result.code).toBe(2);
 		expect(result.stderr).not.toContain("still unclaimed");
-		expect(result.stderr).toContain("still the only one on it");
+		expect(result.stderr).toContain("still claimed");
+		// Named as one assignee among any others, never as the only one: `readClaim` keeps the first of them and
+		// says that which one it reports is display, so a count is not a thing a `Claim` can support.
+		expect(result.stderr).toContain("among its assignees");
+		expect(result.stderr).not.toContain("only one");
 		// The worktree is the leftover a failed claim is allowed to have, and the message has to name it.
 		expect(result.stderr).toContain(".worktrees");
 		expect(of("worktree", "add")).toHaveLength(1);

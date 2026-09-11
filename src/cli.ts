@@ -509,11 +509,15 @@ class StartError extends Error {}
 function startedNothing(cause: unknown, pick: StartPick, worktree: WorktreeOutcome, command: Argv): unknown {
 	if (cause instanceof GitHubClaimError) {
 		// What the tracker holds, not what a ranked pick would have held: a forced start overruled a claim that is
-		// still the only one on the ticket, and telling the operator it is unclaimed would be plainly false.
+		// still there, and telling the operator the ticket is unclaimed would be plainly false.
+		//
+		// That it is claimed, and no count of by how many: `readClaim` keeps the first assignee and says that which
+		// one it reports is display, so a `Claim` cannot establish that there was only one. The claimant is named as
+		// one of them rather than as the holder, which is what that field can support.
 		const standing =
 			pick.claim === null
 				? "the ticket is still unclaimed"
-				: `the claim it already carried is still the only one on it${pick.claim.by === null ? "" : `, held by ${pick.claim.by}`}`;
+				: `the ticket is still claimed${pick.claim.by === null ? "" : `, with ${pick.claim.by} among its assignees`}`;
 		return new StartError(
 			`${cause.message}\n${worktree.path} is in place on ${worktree.branch} and ${standing}, so running this again continues from there.`,
 		);
