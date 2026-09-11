@@ -184,8 +184,21 @@ merely blocked or deadlocked. A wrapper deciding whether to retry has to read th
 type Checkout = (refuse: RefuseCheckout) => CheckoutIdentity;
 
 function checkoutResolver(deps: CliDeps): Checkout {
-	let resolved: CheckoutIdentity | null = null;
-	return (refuse) => (resolved ??= resolveCheckoutIdentity(deps.runner, refuse));
+	let settled: { readonly identity: CheckoutIdentity } | { readonly failed: Error } | null = null;
+	return (refuse) => {
+		if (settled === null) {
+			try {
+				settled = { identity: resolveCheckoutIdentity(deps.runner, refuse) };
+			} catch (cause) {
+				// The failure is remembered too, so "once per run" holds on both paths rather than only where the
+				// remote answered. Every caller today aborts the run on the first throw, so this is the claim being
+				// made structural rather than a case anyone can reach.
+				settled = { failed: cause instanceof Error ? cause : new Error(String(cause)) };
+			}
+		}
+		if ("failed" in settled) throw settled.failed;
+		return settled.identity;
+	};
 }
 
 export function run(argv: readonly string[], deps: CliDeps): CliResult {
@@ -398,10 +411,10 @@ export type StartOutcome =
  * carrying the worktree, and saying which recovery the failure actually leaves open.
  * @throws WorktreeError from the worktree step, and LaunchError from the host check. Not from the session
  * itself: `startedNothing` has why that one arrives as a `StartError` instead.
- * @throws CommandBuilderError unwrapped, from either of its two raise sites: `--slash-command` naming
- * something `sessionCommand` will not build, which parsing already refused and this backstops, before anything
- * is written; and a claim whose key is not a canonical issue number, which is after the worktree exists.
- * `startedNothing` has why it stays unwrapped there rather than gaining the worktree path.
+ * @throws CommandBuilderError unwrapped, from `--slash-command` naming something `sessionCommand` will not
+ * build — which parsing already refused and this backstops, before anything is written. The claim's own
+ * canonical-key assertion raises `TicketRefError` and is unreachable: `githubTicketRef` refuses a padded key at
+ * construction, so no reference reaching here can carry one (ADR-0038).
  */
 function startWork(answer: Answer, options: Options, deps: CliDeps, checkout: Checkout): StartOutcome {
 	const pick = answer.selection.pick;
@@ -520,10 +533,9 @@ class StartError extends Error {}
  * claimable and so re-running works, while a failed session does not and must not say it does. ADR-0035's
  * Consequences have why, and why releasing the claim is not the alternative.
  *
- * `CommandBuilderError` is deliberately not wrapped, though the claim can raise one for a key that is not a
- * canonical issue number. `github-claim.ts` leaves it unwrapped so a stack naming the builder survives, per
- * ADR-0032, and re-wrapping it to add a worktree path would spend exactly that. Anything else unclassified is
- * returned untouched for the same reason — `ensure` is idempotent, so the worktree is recoverable without it.
+ * Anything unclassified is returned untouched, keeping its stack: `ensure` is idempotent, so the worktree is
+ * recoverable without a message naming it, and a stack says more about a broken invariant than a sentence about
+ * recovery would.
  */
 function startedNothing(cause: unknown, pick: StartPick, worktree: WorktreeOutcome, command: Argv): unknown {
 	if (cause instanceof GitHubClaimError) {
@@ -764,8 +776,8 @@ function parse(argv: readonly string[]): Options {
  * `repo#number` and a pasted URL can. Checked for `--print-command` too, which prints a line meant to be pasted
  * and run.
  *
- * The host half of this check is gone, and its absence is the point: a `GitHubTicketRef` cannot carry another
- * host, and a `CheckoutIdentity` cannot be resolved from a remote on one. ADR-0038 and ADR-0039 have the pair.
+ * No host comparison, and nothing should add one back: a `GitHubTicketRef` carries none, and a
+ * `CheckoutIdentity` resolves only from a GitHub remote — ADR-0038 and ADR-0039 have the pair.
  *
  * A `StartError` rather than a usage error, though a reference is what triggers it: the remedy is to run the
  * command somewhere else, not to spell the line differently, and the usage beside it would bury that.
@@ -780,8 +792,6 @@ function requireTicketInThisCheckout(ref: TicketRef, checkout: Checkout): void {
 	const here = checkout(
 		(reason) => new StartError(`${formatTicketRef(ref)} names a repository, and ${reason}, so nothing was started`),
 	);
-	// A plain `===`: both paths were folded to lower case where they were built, because GitHub resolves
-	// `owner/repo` case-insensitively while a remote records whatever was typed.
 	if (ref.repo === here.repo) return;
 	throw new StartError(
 		`${formatTicketRef(ref)} is in ${ref.repo} and this checkout is ${here.repo}, so nothing was started — the worktree and the session would be made here while the claim landed there. Run this inside ${ref.repo} instead.`,

@@ -180,6 +180,5 @@ _Avoid_: config, settings, project registry, checkout identity
 Which repository the checkout a command was invoked in *is*, resolved once per run from the origin
 remote. About the checkout rather than about a ticket — a **TicketRef** names a ticket, and `ticketId`
 already uses "identity" for a ticket's graph key. Distinct from **Scope binding**, which records what
-cannot be inferred from a remote; this is what *is* inferred from one. It exists only when resolved:
-there is no unknown state, because everything that reads it is deciding whether a write may happen.
+cannot be inferred from a remote; this is what *is* inferred from one.
 _Avoid_: repo identity, origin, current repo, scope binding

@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { resolveCheckoutIdentity, resolveCheckoutRepoPath } from "./checkout-identity";
+import { checkoutIdentityFor, resolveCheckoutIdentity, resolveCheckoutRepoPath } from "./checkout-identity";
 import type { CommandResult, Runner } from "./runner";
 import { routedRunner } from "./test-support";
-import { GITHUB_HOST } from "./ticket-ref";
+import { GITHUB_HOST } from "./repo-address";
 
 // Every remote below is built rather than spelled: GitHub's own host comes from the constant, and the other
 // hosts are joined, so no scheme-and-authority literal appears in this file for the identifier guard to read.
@@ -16,7 +16,7 @@ const refuse = (reason: string) => new Refused(reason);
 describe("resolveCheckoutIdentity", () => {
 	test("answers with the repository the origin remote names", () => {
 		const runner = routedRunner(remote(`git@${GITHUB_HOST}:example/repo.git`));
-		expect(resolveCheckoutIdentity(runner, refuse)).toEqual({ repo: "example/repo" });
+		expect(resolveCheckoutIdentity(runner, refuse)).toEqual(checkoutIdentityFor("example/repo", refuse));
 	});
 
 	// A clone spelled in another case is this repository, not a different one: GitHub resolves the path
@@ -46,7 +46,7 @@ describe("resolveCheckoutIdentity", () => {
 		for (const host of [GITHUB_HOST, `ssh.${GITHUB_HOST}`]) {
 			for (const port of [22, 443]) {
 				const runner = routedRunner(remote(`${scheme}//git@${host}:${port}/example/repo.git`));
-				expect(resolveCheckoutIdentity(runner, refuse)).toEqual({ repo: "example/repo" });
+				expect(resolveCheckoutIdentity(runner, refuse)).toEqual(checkoutIdentityFor("example/repo", refuse));
 			}
 		}
 	});
@@ -62,12 +62,8 @@ describe("resolveCheckoutIdentity", () => {
 	});
 });
 
-// The one reading that is not a `CheckoutIdentity`: a bare `glab:<number>` needs the path its remote spells, on
-// whatever host, unfolded — issue 15 owns GitLab's case semantics.
 describe("resolveCheckoutRepoPath", () => {
 	test("answers for a remote on any host, and keeps the path as spelled", () => {
-		// Joined rather than spelled whole, for the reason the header gives: a literal URL in a tracked file is
-		// what the identifier guard reads.
 		const runner = routedRunner(remote(["https:/", "example.com", "Group", "Project.git"].join("/")));
 		expect(resolveCheckoutRepoPath(runner, refuse)).toBe("Group/Project");
 	});

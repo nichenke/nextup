@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { ticketId } from "./ticket";
-import { GITHUB_HOST, type TicketRef, githubTicketRef, gitlabTicketRef, jiraTicketRef, resolveTicketRef } from "./ticket-ref";
+import { GITHUB_HOST } from "./repo-address";
+import {
+	type TicketRef,
+	githubTicketRef,
+	gitlabTicketRef,
+	jiraTicketRef,
+	resolveTicketRef,
+} from "./ticket-ref";
 import { routedRunner } from "./test-support";
 
 const gitlab = (over: { repo?: string; host?: string | null; key?: string } = {}): TicketRef =>
@@ -43,9 +50,8 @@ describe("ticketId tells distinct tickets apart", () => {
 	});
 });
 
-// The three axes ADR-0038's Consequences name. Each one used to give a GitHub ticket a second graph key
-// depending on how its reference was obtained, and each is closed by the GitHub variant's own shape rather
-// than by a comparison somewhere downstream.
+// The three axes ADR-0038's Consequences name, each closed by the GitHub variant's own shape rather than by a
+// comparison somewhere downstream.
 describe("ticketId is one key per GitHub ticket, however the reference was obtained", () => {
 	const ADAPTER = githubTicketRef("example/repo", "1");
 	const NO_GIT = routedRunner({});

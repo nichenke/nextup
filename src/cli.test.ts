@@ -15,7 +15,7 @@ import {
 	sentinelLines,
 } from "./test-support";
 import { GITHUB_TEST_TREE, type TestTreeSpec, openIssues, shapeTitle } from "./test-tree";
-import { GITHUB_HOST } from "./ticket-ref";
+import { GITHUB_HOST } from "./repo-address";
 
 /** Every test below runs through this, so a call that started shelling out fails loudly here first. */
 const refuseToRun: Runner = (argv) => {
@@ -237,6 +237,29 @@ function startSequence(
 describe("starting work on the pick", () => {
 	const TREE = openIssues(GITHUB_TEST_TREE).length;
 	const LIMIT = ["--limit", String(TREE)];
+
+	/**
+	 * The ranked path's only checkout comparison, and the reason `requireThisCheckout` lives in the claim rather
+	 * than beside the named-ticket check that looks like its duplicate.
+	 *
+	 * A repository renamed on GitHub with a stale local remote reaches here: the read asks under the old name,
+	 * GitHub redirects, and `requireOneRepository` deliberately tolerates rows answering under the new one. So
+	 * every ranked reference names a repository this checkout does not, nothing upstream compares them, and the
+	 * claim is what refuses. The remedy is to correct the remote, which is what the message names. ADR-0039.
+	 */
+	test("refuses to claim a ranked ticket whose rows name a repository this checkout is not", () => {
+		const renamed = (argv: string[]): CommandResult | null => {
+			if (argv[0] !== "git" || !argv.includes("get-url")) return null;
+			return { code: 0, stdout: `git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo.replace(/[^/]+$/, "old-name")}.git\n`, stderr: "" };
+		};
+		const { runner, of } = startSequence(renamed);
+		const result = run([...LIMIT, "--yes"], deps(runner));
+
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("old-name");
+		expect(result.stderr).toContain(GITHUB_TEST_TREE.repo);
+		expect(of("issue", "edit")).toEqual([]);
+	});
 
 	// ADR-0016, which is the reason this ordering has a test of its own rather than being implied by a
 	// successful run: the worktree is the leftover a failure is allowed to have, so it goes first.
@@ -952,8 +975,8 @@ describe("starting a ticket named on the command line", () => {
 		const { runner, of } = starting("ticket-view");
 		const result = run([`gh:${recordedIssue(githubRecording("ticket-view"))}`, "--yes"], deps(runner));
 		expect(result.code).toBe(0);
-		// Once, and the count is the assertion: resolving the bare form, checking the ticket belongs here, and the
-		// claim all take the same value, and a second reading is what would let two of them disagree. ADR-0039.
+		// Resolving the bare form, checking the ticket belongs here, and the claim all take the same value; a
+		// second reading is what would let two of them disagree. ADR-0039.
 		expect(of("get-url")).toHaveLength(1);
 		expect(of("issue", "view")).toHaveLength(1);
 	});

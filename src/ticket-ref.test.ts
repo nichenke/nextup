@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { CommandResult } from "./runner";
 import { routedRunner } from "./test-support";
+import { GITHUB_HOST } from "./repo-address";
 import {
-	GITHUB_HOST,
 	type TicketRef,
 	TicketRefError,
 	compareTicketRefs,
@@ -24,8 +24,6 @@ const GIT_REMOTE_ELSEWHERE = remote("https://example.com/example/repo.git");
 // the identifier guard reads — CLAUDE.md's identifier section.
 const SSH_SCHEME = "ssh:";
 const sshRemote = (host: string, port: number) => `${SSH_SCHEME}//git@${host}:${port}/example/repo.git`;
-// Joined rather than spelled whole, for the same reason: a literal URL on GitHub's host would put that host
-// in this file for the guard to read.
 const githubUrl = (...path: string[]) => ["https:/", GITHUB_HOST, ...path].join("/");
 const GH_AUTHED = { "gh auth status --hostname example.com --active": { code: 0, stdout: "", stderr: "" } };
 const GLAB_AUTHED = { "glab auth status --hostname example.com": { code: 0, stdout: "", stderr: "" } };
@@ -290,10 +288,8 @@ describe("resolveTicketRef: pasted URLs", () => {
 	});
 });
 
-// The three shapes that used to be checked by a consumer, refused where the reference is built instead —
-// ADR-0038. Each was a live check in `githubTicketTarget`, `claimGitHubTicket` or `requireTicketInThisCheckout`
-// before this; a GitHub variant carrying a non-GitHub host is the fourth, and it is a compile error rather than
-// a test, which is the whole point of the union.
+// Refused where the reference is built rather than by each consumer — ADR-0038. A GitHub variant carrying a
+// non-GitHub host is the fourth of these and has no test, being a compile error, which is the point of the union.
 describe("githubTicketRef", () => {
 	test("folds the repository path, so one ticket cannot hold two identities", () => {
 		expect(githubTicketRef("NicHenke/NextUp", "1").repo).toBe("nichenke/nextup");
@@ -357,8 +353,7 @@ describe("compareTicketRefs", () => {
 		expect(compareTicketRefs(gh("example/repo"), gh("group/project"))).toBeLessThan(0);
 	});
 
-	// On GitLab, which is the tracker a reference can still carry a host for. GitHub's variant has none, so the
-	// pair this used to separate cannot be built — ADR-0038.
+	// On GitLab, the one tracker whose reference still carries a host — ADR-0038.
 	test("separates two hosts that share a repository and a number", () => {
 		const at = (host: string | null): TicketRef => gitlabTicketRef("example/repo", host, "1");
 		expect(compareTicketRefs(at(null), at("example.com"))).toBeLessThan(0);
@@ -374,9 +369,8 @@ describe("compareTicketRefs", () => {
 		expect(compareTicketRefs(gh("7"), gh("70"))).toBeLessThan(0);
 	});
 
-	// The padded pair this used to assert on cannot be built any more, and the rule it rested on is unchanged:
 	// `compareKeys` still treats `07` and `7` as different tickets, which is why a padded key is refused at
-	// construction rather than folded there. A Jira key is where a padded numeral can still be spelled.
+	// construction rather than folded there. A Jira key is the one a padded numeral can still be spelled in.
 	test("still orders a padded numeral apart from its bare form, for the trackers that can carry one", () => {
 		expect(compareTicketRefs(jiraTicketRef(null, "TEST-07"), jiraTicketRef(null, "TEST-7"))).toBeLessThan(0);
 	});

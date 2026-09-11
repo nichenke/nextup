@@ -4,10 +4,11 @@ import { deriveEffectiveBlockedness } from "./effective-blockedness";
 import { GitHubAdapterError, readGitHubTicket, readGitHubTicketSet } from "./github-adapter";
 import { readPriority } from "./priority";
 import type { Runner } from "./runner";
-import { answeringOrigin, githubRecording, recordedIssue, replayRunner, respondingRunner } from "./test-support";
+import { githubRecording, recordedIssue, replayRunner, respondingRunner } from "./test-support";
 import { GITHUB_TEST_TREE, openIssues, shapeTitle } from "./test-tree";
 import { type Ticket, ticketId } from "./ticket";
-import { GITHUB_HOST, type TicketRef, githubTicketRef, gitlabTicketRef, jiraTicketRef } from "./ticket-ref";
+import { GITHUB_HOST } from "./repo-address";
+import { type TicketRef, githubTicketRef, gitlabTicketRef, jiraTicketRef } from "./ticket-ref";
 import type { TicketRead, TicketSetRead } from "./ticket-set-read";
 
 const REPO = GITHUB_TEST_TREE.repo;
@@ -25,9 +26,6 @@ const TRUNCATING = 3;
 
 // Built from the adapter's own accepted host, in git's scp form, so no spelling of it appears here for the
 // identifier guard to read — and so these cannot drift from the host the adapter actually accepts.
-const REMOTE = `git@${GITHUB_HOST}:example/repo.git`;
-const NESTED_REMOTE = `git@${GITHUB_HOST}:group/subgroup/project.git`;
-const ELSEWHERE_REMOTE = "https://example.com/example/repo.git";
 
 /**
  * The ticket carrying one test-tree shape, found by the spec's title rather than by number, because a
@@ -506,40 +504,33 @@ describe("two edges disagreeing about one blocker outside the read", () => {
 	});
 });
 
+// The adapter no longer answers "which repository am I standing in" — `CheckoutIdentity` does, and the caller
+// resolves one before reaching here (ADR-0039). `checkout-identity.test.ts` holds the remote cases that used to
+// live in this block: a host that is not GitHub's, a remote naming no owner and repository, and no remote at all.
 describe("the repository a read is about", () => {
-	function watching(remote: string, response: Runner): { readonly asked: string[][]; readonly runner: Runner } {
+	function watching(response: Runner): { readonly asked: string[][]; readonly runner: Runner } {
 		const asked: string[][] = [];
-		const answering = answeringOrigin(remote, response);
 		const runner: Runner = (argv) => {
 			asked.push([...argv]);
-			return answering(argv);
+			return response(argv);
 		};
 		return { asked, runner };
 	}
 
-	test("is the working directory's remote when the caller names none", () => {
-		const { asked, runner } = watching(REMOTE, respondingRunner(githubRecording("read-defect")));
-		expect(() => readGitHubTicketSet({ limit: 1, runner })).toThrow(GitHubAdapterError);
-		expect(asked[1]).toEqual([...githubIssueListCommand({ repo: "example/repo", rows: 2 })]);
+	test("is the one the caller named, and no git command is issued to second-guess it", () => {
+		const { asked, runner } = watching(respondingRunner(githubRecording("read-defect")));
+		expect(() => readGitHubTicketSet({ repo: "example/repo", limit: 1, runner })).toThrow(GitHubAdapterError);
+		expect(asked).toEqual([[...githubIssueListCommand({ repo: "example/repo", rows: 2 })]]);
 	});
 
-	test("refuses a remote on a host this adapter does not read, before asking any tracker anything", () => {
-		// A read carries no hostname, so a remote elsewhere would be asked of github.com — answering about a
-		// different repository that happens to share the path, which is somebody else's work.
-		const { asked, runner } = watching(ELSEWHERE_REMOTE, respondingRunner(githubRecording("ticket-set")));
-		expect(() => readGitHubTicketSet({ limit: 1, runner })).toThrow(/the same name somewhere else/);
-		expect(asked).toHaveLength(1);
-	});
-
-	test("refuses a remote that names no GitHub owner and repository, before asking the tracker anything", () => {
-		const { asked, runner } = watching(NESTED_REMOTE, respondingRunner(githubRecording("ticket-set")));
-		expect(() => readGitHubTicketSet({ limit: 1, runner })).toThrow(/owner and repository/);
-		expect(asked).toHaveLength(1);
-	});
-
-	test("refuses when there is no remote to resolve", () => {
-		const runner: Runner = () => ({ code: 1, stdout: "", stderr: "fatal: No such remote 'origin'\n" });
-		expect(() => readGitHubTicketSet({ limit: 1, runner })).toThrow(GitHubAdapterError);
+	// The path the caller supplies is a bare string, so the shape check stays even though a `CheckoutIdentity`
+	// has already validated the one both production callers pass.
+	test("refuses a path that is not one owner and one repository, before asking the tracker anything", () => {
+		const { asked, runner } = watching(respondingRunner(githubRecording("ticket-set")));
+		expect(() => readGitHubTicketSet({ repo: "group/subgroup/project", limit: 1, runner })).toThrow(
+			/owner and repository/,
+		);
+		expect(asked).toEqual([]);
 	});
 });
 
@@ -638,8 +629,8 @@ describe("readGitHubTicket, over a single named ticket", () => {
 		expect(refused).toThrow(/could not be reached/);
 	});
 
-	// The only refusal the reference can still carry here. A path that is not owner-and-repository, and a host
-	// that is not GitHub's, are shapes `githubTicketRef` refuses to build — `ticket-ref.test.ts` holds those now.
+	// The only refusal a reference can still carry here: a bad path is one `githubTicketRef` refuses to build and
+	// a non-GitHub host is unrepresentable, so `ticket-ref.test.ts` holds both — ADR-0038.
 	test("refuses a reference on a tracker this has no adapter for, before asking anything", () => {
 		expect(refusing(gitlabTicketRef("group/project", null, "1"))).toThrow(/GitHub/);
 		expect(refusing(jiraTicketRef(null, "ABC-7"))).toThrow(/GitHub/);

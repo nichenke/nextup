@@ -13,9 +13,9 @@ export interface GitHubClaimInput {
 	/**
 	 * The repository this run is standing in, required rather than looked up here.
 	 *
-	 * It is a parameter so that a caller cannot write the claim without having resolved it — the split this
-	 * exists to prevent is the claim landing in one repository while the worktree and the session are made in
-	 * another, and a check the caller has to remember is what let that reach review three times. ADR-0039.
+	 * A parameter so that a caller cannot write the claim without having resolved it — the split this exists to
+	 * prevent is the claim landing in one repository while the worktree and the session are made in another,
+	 * and a check the caller has to remember is what let that reach review three times. ADR-0039.
 	 */
 	readonly checkout: CheckoutIdentity;
 }
@@ -32,8 +32,8 @@ export interface GitHubClaimInput {
  *
  * @throws GitHubClaimError when the ticket is not in this checkout, or when the write fails. Both failure
  * classes throw, because a failed claim aborts either way; which one it was is what the message says.
- * @throws CommandBuilderError from the builder's own canonical-key assertion, which no input reaching here can
- * trip: `githubTicketRef` refuses a padded key at construction. ADR-0038 has why the builder keeps it anyway.
+ * @throws TicketRefError from the builder's own canonical-key assertion, which no input reaching here can trip:
+ * `githubTicketRef` refuses a padded key at construction. ADR-0038 has why the builder keeps it anyway.
  */
 export function claimGitHubTicket(input: GitHubClaimInput): void {
 	requireThisCheckout(input.ref, input.checkout);
@@ -44,10 +44,11 @@ export function claimGitHubTicket(input: GitHubClaimInput): void {
 /**
  * Refuses a claim on a ticket that lives somewhere other than the checkout this run is standing in.
  *
- * A plain `===`, because both sides were folded to lower case where they were built. Last of several
- * refusals rather than the only one — `cli.ts` makes the same comparison before anything is written, so
- * reaching this one means an earlier caller was skipped. It is here anyway because this is the write, and
- * ADR-0039 has why the invariant lives with the thing it protects rather than with whoever remembers it.
+ * Load-bearing on the ranked path, where it is the only such comparison: `cli.ts` checks a *named* ticket
+ * before anything is written, but a ranked one is never compared — the set read is merely scoped to this
+ * repository, and `requireOneRepository` deliberately tolerates rows answering under a different name after a
+ * rename. So a stale local remote reaches here with a reference this checkout does not match, and this is what
+ * turns that into a refusal rather than a claim written somewhere the worktree is not. ADR-0039.
  */
 function requireThisCheckout(ref: GitHubTicketRef, checkout: CheckoutIdentity): void {
 	if (ref.repo === checkout.repo) return;

@@ -47,14 +47,14 @@ export interface Ticket {
  * from 1 collide. Without the host, two self-hosted GitLab instances sharing a namespace and number
  * collide, and every Jira tenant collapses onto `jira:PROJ-1` because Jira carries no repo at all.
  *
- * One constraint follows, and it is the reason this is worth reading before adding an adapter: a Jira
- * short form carries neither host nor repo — nothing resolves a tenant — so the same key from two
- * tenants lands on one id. A caller merging ticket sets across tenants must qualify the host first.
+ * Two constraints follow, and they are the reason this is worth reading before adding an adapter:
  *
- * The constraint that used to sit beside it — that refs entering one graph agree on how much they know
- * — is now the GitHub variant's own shape. It has no host to differ on and its repository and key are
- * normalized at construction, so a pasted URL and an adapter row for one ticket land on one node.
- * ADR-0038 records the three merges.
+ * - Refs entering one graph must agree on how much they know. A GitLab short form resolved from a git
+ *   remote has no host while a pasted URL for the same ticket does, so the two occupy different nodes —
+ *   an adapter must emit one consistent form for a set rather than mixing them. GitHub is the exception
+ *   and not by luck: its variant has no host to differ on, and ADR-0038 has why.
+ * - A Jira short form carries neither host nor repo — nothing resolves a tenant — so the same key from
+ *   two tenants lands on one id. A caller merging ticket sets across tenants must qualify the host first.
  */
 export function ticketId(ref: TicketRef): IssueId {
 	// A fixed-arity tuple with its nulls kept, rather than the readable parts joined by a delimiter.

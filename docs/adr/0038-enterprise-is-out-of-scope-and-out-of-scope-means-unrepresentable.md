@@ -75,7 +75,9 @@ nodes whose openness overwrite each other.
   `["github","github.com","owner/repo","1"]` and `["github",null,"owner/repo","1"]`.
 - **Repository case.** `parseRemote` folds the host and deliberately leaves the repository path as
   spelled, so `NicHenke/NextUp` and `nichenke/nextup` were two identities for one ticket. Three sites
-  hand-folded case at comparison time instead; all three now compare with `===`.
+  hand-folded case at comparison time instead; all three now compare with `===`. That GitHub resolves the
+  path case-insensitively is not measured here: [0027](./0027-blocking-is-read-from-edges-and-unknown-is-never-a-zero.md)
+  infers it from exactly this collision, observed live, and that is the evidence the fold rests on.
 - **Key.** Issue 56's measurement, reproduced rather than paraphrased — gh 2.100.0:
 
   | step | result |
@@ -97,8 +99,10 @@ GitHub itself would redirect is a bad reference, not one to silently rewrite.
 
 `requireCanonicalIssueKey` still runs inside `githubIssueViewCommand` and `githubClaimCommand`, and it is
 now unreachable from a `GitHubTicketRef`. It stays because those builders take a bare `repo` and `key`
-rather than a reference, and the capture script hands them values no reference would hold — 0032 is
-explicit that loosening the argv guard is what opens the hole, so it is kept rather than relaxed.
+rather than a reference, so a caller reaching past the reference types can still spell either badly — and
+the capture script does exactly that, though with the repository rather than the key: it hands the builder
+a three-segment host-carrying path to capture `claim-outage`. 0032 is explicit that loosening the argv
+guard is what opens the hole, so it is kept rather than relaxed.
 
 Supporting GitHub Enterprise is still out of scope. This records the boundary; it does not move it. What
 it changes is that moving it later means widening a type rather than finding every check that agreed by

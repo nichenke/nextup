@@ -318,8 +318,8 @@ export interface GitHubIssueCommandInput {
  * "closed" is the refusal an operator who named it needs to be told.
  *
  * @throws TicketRefError from the canonical-key assertion, which a `GitHubTicketRef` cannot trip. ADR-0038 has
- * why it stays here anyway: this builder takes a bare `repo` and `key`, so a caller reaching past the reference
- * types can still spell one, and the capture script does.
+ * why it stays: this builder takes a bare `repo` and `key` rather than a reference, so a caller reaching past
+ * the reference types can spell either badly — and the capture script does, with the repository.
  */
 export function githubIssueViewCommand(input: GitHubIssueCommandInput): readonly string[] {
 	return ["gh", "issue", "view", "--repo", input.repo, "--json", GITHUB_TICKET_FIELDS.join(","), "--", requireCanonicalIssueKey(input.key)];

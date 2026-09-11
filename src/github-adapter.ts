@@ -5,8 +5,8 @@ import { type GraphSeed, seedGraph } from "./graph-store";
 import type { CommandResult, Runner } from "./runner";
 import { type Claim, type Ticket, ticketId } from "./ticket";
 import { type ReadDegrade, type TicketRead, type TicketSetRead, ticketRead } from "./ticket-set-read";
-import { resolveCheckoutIdentity } from "./checkout-identity";
-import { type GitHubTicketRef, type TicketRef, TicketRefError, formatTicketRef, githubTicketRef, githubTicketTarget, isValidRepoPath } from "./ticket-ref";
+import { isValidRepoPath } from "./repo-address";
+import { type GitHubTicketRef, type TicketRef, TicketRefError, formatTicketRef, githubTicketRef, githubTicketTarget } from "./ticket-ref";
 
 export class GitHubAdapterError extends Error {}
 
@@ -34,8 +34,12 @@ export interface GitHubReadInput {
 	 * Required rather than defaulted: a default is a claim about somebody's backlog size.
 	 */
 	readonly limit: number;
-	/** The `owner/repo` to read, or absent to resolve it from the working directory's git remote. */
-	readonly repo?: string;
+	/**
+	 * The `owner/repo` to read. Required: this adapter reads a repository somebody else decided on, and does not
+	 * decide which one. `CheckoutIdentity` is what answers that — ADR-0039 — and both production callers resolve
+	 * one before reaching here.
+	 */
+	readonly repo: string;
 }
 
 /**
@@ -46,14 +50,14 @@ export interface GitHubReadInput {
  * one and ADR-0020 argues from.
  *
  * @throws GitHubAdapterError on a defect — a limit that is not a positive whole number, a repository that is
- * not `owner/repo` or that no remote resolves to, a request the tracker rejects, a response whose shape
- * cannot be read, or one holding two rows for one issue. An outage is flagged and continued past instead.
+ * not `owner/repo`, a request the tracker rejects, a response whose shape cannot be read, or one holding two
+ * rows for one issue. An outage is flagged and continued past instead.
  */
 export function readGitHubTicketSet(input: GitHubReadInput): TicketSetRead {
 	if (!isReadableLimit(input.limit)) {
 		throw new GitHubAdapterError(`${input.limit} is not a number of tickets to read: it must be a whole number above zero`);
 	}
-	const repo = resolveRepo(input);
+	const repo = requireRepoPath(input.repo);
 	const result = input.runner([...githubIssueListCommand({ repo, rows: input.limit + 1 })]);
 	if (result.code !== 0) return failedRead(repo, result.stderr);
 
@@ -106,8 +110,8 @@ export interface GitHubTicketReadInput {
  * @throws GitHubAdapterError on a reference no GitHub command can act on, a call that failed either way, a
  * response that is not one issue object or whose shape cannot be read, and one answering about a different issue
  * than was named.
- * @throws CommandBuilderError when the reference's key is not a canonical issue number, unwrapped for the
- * reason `github-claim.ts` leaves the claim's unwrapped: the stack names the builder, per ADR-0032.
+ * @throws TicketRefError from the view builder's canonical-key assertion, which a `GitHubTicketRef` cannot
+ * trip — ADR-0038 has why the builder keeps an assertion it can no longer be handed a bad value for.
  */
 export function readGitHubTicket(input: GitHubTicketReadInput): TicketRead {
 	const target = githubTicketTarget(input.ref);
@@ -128,8 +132,6 @@ export function readGitHubTicket(input: GitHubTicketReadInput): TicketRead {
 	// the new name: that read asked about a repository, where this one asked about one issue and so has an exact
 	// expectation to hold the answer to. A rename with a stale local remote is refused here, and the message names
 	// both so the remote can be corrected.
-	//
-	// A plain `===` on both halves: `githubTicketRef` folded the case and refused a padded key on each side.
 	const answered = reading.ticket.ref;
 	if (answered.key !== target.ref.key || answered.repo !== target.ref.repo) {
 		throw new GitHubAdapterError(`reading ${named} answered about ${formatTicketRef(answered)}`);
@@ -240,15 +242,13 @@ function failedRead(repo: string, stderr: string): TicketSetRead {
 }
 
 /**
- * The repository to read: the one named, or the one the working directory's origin points at.
+ * The repository to read, checked for shape.
  *
- * A resolved remote has to be on GitHub, and that check is the point rather than a formality. The remote's
- * host is not carried into the query, so a checkout on a GitHub Enterprise or GitLab host resolves to a bare
- * `owner/repo` indistinguishable from a github.com one — and the read then answers with whatever public
- * repository happens to sit at that path, which is somebody else's work presented as this project's.
+ * Kept even though every production caller now hands over a path a `CheckoutIdentity` already validated: this
+ * is an exported entry point, and its parameter is a bare string that a caller reaching past the reference and
+ * checkout types can spell any way at all.
  */
-function resolveRepo(input: GitHubReadInput): string {
-	const repo = input.repo ?? requireGitHubOrigin(input.runner);
+function requireRepoPath(repo: string): string {
 	if (!isValidRepoPath("github", repo)) {
 		throw new GitHubAdapterError(`${repo} is not a GitHub owner and repository`);
 	}
@@ -268,13 +268,6 @@ function requireOneRepository(readings: readonly RowReading[], asked: string): v
 	}
 }
 
-function requireGitHubOrigin(runner: Runner): string {
-	return resolveCheckoutIdentity(
-		runner,
-		(reason) => new GitHubAdapterError(`no repository was named, and ${reason}`),
-	).repo;
-}
-
 interface Edge {
 	readonly ref: TicketRef;
 	readonly open: boolean;
@@ -290,8 +283,9 @@ interface RowReading {
 	/**
 	 * Narrowed to a GitHub reference, which `readRow` builds every one of. That narrowing is what lets the
 	 * response-identity check and `requireOneRepository` read a repository at all — `Ticket.ref` is the whole
-	 * union, and a Jira reference has none. `Ticket`'s own docstring has why every property is `readonly`, which
-	 * is what makes narrowing one in a subtype sound.
+	 * union, and a Jira reference has none. Sound against any `Ticket`-typed alias, because `Ticket.ref` is
+	 * itself `readonly` — but `readonly` is not part of assignability, so a helper taking a mutable
+	 * `{ ref: TicketRef }` could still widen it back. There is no such helper; adding one would need this read.
 	 */
 	readonly ticket: Ticket & { readonly ref: GitHubTicketRef };
 	readonly edges: EdgeReading;

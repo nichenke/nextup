@@ -16,10 +16,15 @@ host that is not GitHub's. Three null checks agreeing by accident is not the sam
 `resolveCheckoutIdentity` is now the only caller. It answers with a repository path or throws, and the
 GitHub-host test is inside it rather than beside each call.
 
-The distinct error classes stay. They encode different recoveries and 0032 is explicit that collapsing
-them would be wrong: `cli.ts` reads the class to decide what a failed start leaves open, the adapter's is
-a failed read, and the resolver's is a bad reference. So the resolver takes a `refuse` callback that
-builds the caller's own class from a reason the resolver supplies. One decision, three framings.
+The distinct error classes stay, because they encode different recoveries: `cli.ts` reads the class to
+decide what a failed start leaves open, `ticket-ref.ts` raises a bad reference, and
+`scripts/reconstruct.ts` a run that cannot be made. So the resolver takes a `refuse` callback that builds
+the caller's own class from a reason the resolver supplies. One decision, three framings.
+
+The callback's type says "produce an `Error`", not "produce your own class", so nothing stops a caller
+passing `(r) => new Error(r)` and collapsing exactly what this preserves. That invariant is documentation
+rather than enforcement, which is worth knowing in a change spent removing such things; no type-level fix
+looked worth its complexity.
 
 ## The value has no unresolved state
 
@@ -43,16 +48,26 @@ The point is not the saved subprocess. It is that the reference the run resolved
 ticket it checked and the repository it claimed in cannot disagree about where "here" is, because there
 is only one answer and they all hold it.
 
-The adapter keeps its own fallback for callers that reach it directly — `scripts/reconstruct.ts` does —
-and that fallback goes through the same resolver.
+`GitHubReadInput.repo` became required and the adapter's own origin lookup is gone. It had no caller left:
+`cli.ts` and `scripts/reconstruct.ts` both resolve an identity first and pass the path in. The adapter
+reads a repository somebody else decided on and no longer decides which one.
 
 ## A write takes one as a parameter
 
-`claimGitHubTicket` requires a `CheckoutIdentity` and refuses a reference naming another repository. It
-is not the only check: `cli.ts` makes the same comparison before anything is written, and reaching the
-one in the claim means an earlier caller was skipped. It is there anyway because it is the write, and the
-split this exists to prevent — the claim landing in one repository while the worktree and the session are
-made in another — is what a check the caller has to remember let reach review three times.
+`claimGitHubTicket` requires a `CheckoutIdentity` and refuses a reference naming another repository.
+
+On the named path that repeats a comparison `cli.ts` already made. On the ranked path it is the *only*
+one, which is the thing to know before anyone deletes it as redundant: `cli.ts` never compares a ranked
+reference against the checkout — it scopes the read to this repository and stops there — and
+`requireOneRepository` deliberately tolerates rows answering under a different name, because a rename
+redirects. So a repository renamed on GitHub with a stale local remote produces ranked references naming
+a repository this checkout is not, with nothing upstream to notice.
+
+`CheckoutIdentity` is branded, so `resolveCheckoutIdentity` and its test-facing sibling are the only
+things that can produce one. Without the brand the type is structurally `{ repo: string }`, and the value
+this module deliberately does not hand to a write — `resolveCheckoutRepoPath`'s unfolded path off any
+host — could be passed straight into the claim as one. ADR-0038 rejects branding for `GitHubTicketRef` on
+the cost to every test literal; that argument does not transfer, because there is one such literal here.
 
 This is a refusal before the write, so it leaves the tracker untouched, which is what
 [0016](./0016-the-worktree-is-created-before-the-claim.md) intends. It arbitrates nothing and is not a
@@ -76,3 +91,9 @@ production caller, and the first would have been a second caller of `resolveOrig
 
 A run in a directory with no origin remote now fails with the wording of whichever step asked, rather
 than with whichever of the four checks happened to run first. The exit status is unchanged.
+
+A ranked run in a checkout whose remote still spells a repository's old name now refuses at the claim,
+where before it claimed under the new name. That is a new refusal on a path that worked, and it is the
+one this consolidation adds deliberately: the tool cannot tell a rename from a different repository at
+the same path, and the single-ticket read already refuses the same shape. The remedy is to correct the
+remote, which the message names.

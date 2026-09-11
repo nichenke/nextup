@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { CheckoutIdentity } from "./checkout-identity";
+import { type CheckoutIdentity, checkoutIdentityFor } from "./checkout-identity";
 import { githubClaimCommand } from "./command-builders";
 import { GitHubClaimError, claimGitHubTicket } from "./github-claim";
 import type { Runner } from "./runner";
@@ -44,7 +44,7 @@ function githubRef(key: string = WRITE_TARGET, repo: string = REPO): GitHubTicke
 }
 
 /** The checkout every claim below is standing in: the test tree, which is where its references live. */
-const HERE: CheckoutIdentity = { repo: REPO.toLowerCase() };
+const HERE: CheckoutIdentity = checkoutIdentityFor(REPO, (reason) => new Error(reason));
 
 /** A runner keeping every call it was handed, so a claim can be asserted to be one write and no read. */
 function counted(runner: Runner): { readonly runner: Runner; readonly calls: readonly string[][] } {
@@ -131,18 +131,14 @@ describe("claimGitHubTicket, when the write fails", () => {
 });
 
 describe("claimGitHubTicket, before it writes anything", () => {
-	// The one refusal left here. The four this block used to hold — another tracker, no repository, a path that is
-	// not owner-and-repository, and a host that is not GitHub's — are shapes `GitHubTicketRef` cannot hold, so
-	// there is no value to hand this function that would trip them. ADR-0038 records the collapse and
-	// `ticket-ref.test.ts` is where each refusal moved to; the padded-key and flag-shaped-key pair moved there too.
+	// The refusals this block used to hold are shapes `GitHubTicketRef` cannot carry, so there is no value to hand
+	// this function that would trip them. `ticket-ref.test.ts` holds them now — ADR-0038.
 	test("refuses a ticket in another repository, rather than claiming there while the work happens here", () => {
 		expect(() =>
 			claimGitHubTicket({ runner: unreachable, ref: githubRef(WRITE_TARGET, "example/elsewhere"), checkout: HERE }),
 		).toThrow(GitHubClaimError);
 	});
 
-	// Both sides were folded at construction, so a clone spelled in another case is this repository rather than a
-	// different one — the fold that used to happen at this comparison.
 	test("accepts a reference whose repository was spelled in another case", () => {
 		const runner = replayRunner([CLAIM]);
 		expect(() => claimGitHubTicket({ runner, ref: githubRef(WRITE_TARGET, REPO.toUpperCase()), checkout: HERE })).not.toThrow();

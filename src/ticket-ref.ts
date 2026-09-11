@@ -1,49 +1,9 @@
 import { type Runner, defaultRunner } from "./runner";
 import { type CheckoutIdentity, type RefuseCheckout, resolveCheckoutIdentity, resolveCheckoutRepoPath } from "./checkout-identity";
+import { GITHUB_HOST, isGitHubHost, isValidRepoPath } from "./repo-address";
 import { hasJiraAuth, isAuthenticatedHost } from "./host-auth";
 
 export type Tracker = "github" | "gitlab" | "jira";
-
-/**
- * GitHub's own host. Lives here rather than in the adapter because a short form resolved from a git remote has
- * to check it before any adapter is reached, and the adapter importing from here keeps that one-way.
- */
-export const GITHUB_HOST = "github.com";
-
-/**
- * Every authority GitHub serves, as a git remote or a pasted URL may write it.
- *
- * A flat set rather than a host compared beside a port tested separately, because a port is not a thing this
- * supports: GitHub at some other port is out of scope, so there is nothing to parse a port *for*. Enumerating the
- * endpoints says which are allowed in data rather than leaving a rule to be read off a comparison.
- *
- * Two hosts — the web host and the `ssh.` host GitHub publishes for a firewalled 22 — each written bare or with
- * either default port, since a remote may spell `:22` or `:443` explicitly and both are the port that host already
- * answers on. Six entries, and no pair of host and port outside them.
- *
- * Lower-case throughout, which both producers guarantee: `parseRemote` folds a remote's authority and
- * `normalizeHost` folds a URL's.
- */
-const GITHUB_AUTHORITIES: ReadonlySet<string> = new Set([
-	GITHUB_HOST,
-	`${GITHUB_HOST}:22`,
-	`${GITHUB_HOST}:443`,
-	`ssh.${GITHUB_HOST}`,
-	`ssh.${GITHUB_HOST}:22`,
-	`ssh.${GITHUB_HOST}:443`,
-]);
-
-/**
- * Whether a git remote's host, or a pasted URL's, is one GitHub answers on.
- *
- * Every caller reads a pass as "this checkout is the GitHub repository at that path" and writes the claim from it
- * — ADR-0032 has why the host is the check that matters. That is what the set has to be exact about: an authority
- * this admits wrongly is one whose checkout gets a worktree while GitHub's own API gets the claim, measured on an
- * SSH remote at port 8443 exiting 0.
- */
-export function isGitHubHost(host: string): boolean {
-	return GITHUB_AUTHORITIES.has(host);
-}
 
 /**
  * A GitHub ticket, valid by construction: `githubTicketRef` is the only way to make one and refuses anything
@@ -123,8 +83,7 @@ export function refRepo(ref: TicketRef): string | null {
  *   something else — and `gh` reads `--repo` as `[HOST/]OWNER/REPO`, so a three-segment value is a host.
  * - The path is folded to lower case, because GitHub resolves it case-insensitively while a git remote records
  *   whatever was typed. Unfolded, `NicHenke/NextUp` and `nichenke/nextup` are two graph keys for one ticket.
- * - The key is a canonical issue number. `gh` normalizes `037` to issue 37 while `compareTicketRefs` treats the
- *   two as different tickets, so a padded key names one issue and addresses another.
+ * - The key is a canonical issue number — `requireCanonicalIssueKey` has the measurement behind that one.
  *
  * @throws TicketRefError when the path is not GitHub-shaped, or the key is not a canonical issue number.
  */
@@ -169,11 +128,10 @@ export function jiraTicketRef(host: string | null, key: string): JiraTicketRef {
  * as much as non-digits.
  *
  * `gh` normalizes `037` to issue 37 while `compareTicketRefs` treats the two as different tickets, so a padded
- * key would act on one issue under a reference naming another and exit 0. Measured on the read both times:
- * ADR-0032 records `gh issue view --repo <repo> -- 022` answering issue 22, and the `--json` form answers
- * `{"number":12}` for `-- 012` on gh 2.100.0. Not measured on `gh issue edit`, which shares the parser — and
- * that inference is exactly why one guard covers both rather than each trusting its own subcommand. `--` does
- * not help: it stops flag parsing, not number normalization.
+ * key would act on one issue under a reference naming another and exit 0. ADR-0032 records the measurement:
+ * `gh issue view --repo <repo> -- 022` answered issue 22 on gh 2.100.0. Not measured on `gh issue edit`, which
+ * shares the parser — and that inference is exactly why one guard covers both rather than each trusting its own
+ * subcommand. `--` does not help: it stops flag parsing, not number normalization.
  *
  * Here rather than at the argv boundary, which is where ADR-0032 first put it: a key is identity, so `ticketId`,
  * the ranking ladder, the worktree path and the session prompt all read it too, and a rule at the argv boundary
@@ -274,9 +232,8 @@ function compareNumerals(a: string, b: string): number {
 /**
  * The GitHub reference a command can act on, or why the reference it was given is not one.
  *
- * All this does now is narrow the union. It used to compare the host, reject a null repository and validate the
- * path as well — every one of which `githubTicketRef` settles at construction, so a caller reaching here can no
- * longer be holding a reference that fails them. ADR-0038 records the collapse.
+ * Narrowing only: `githubTicketRef` settles the host, the path and the key at construction, so a caller reaching
+ * here cannot be holding a reference that fails any of them. ADR-0038 records the collapse.
  *
  * The reason comes back rather than being thrown, because each caller raises its own class: `cli.ts` decides
  * which recovery a failure leaves open from that class, and one shared error would collapse the two.
@@ -297,7 +254,7 @@ export interface ResolveDeps {
 	/**
 	 * Which repository the caller is standing in, for the one form that has no repository of its own: a bare
 	 * `gh:<number>`. Supplied by a caller that has already resolved it, so a run asks git once rather than once
-	 * here and again at the claim — ADR-0039. Defaults to resolving it from `runner`.
+	 * here and again when the checkout is checked — ADR-0039. Defaults to resolving it from `runner`.
 	 */
 	checkout?: (refuse: RefuseCheckout) => CheckoutIdentity;
 }
@@ -353,14 +310,6 @@ export function resolveTicketRef(input: string, deps: ResolveDeps = {}): TicketR
 	);
 }
 
-// GitHub is always exactly owner/repo; GitLab allows a nested namespace/subgroup, so two or
-// more. Either way every segment must be non-empty, rejecting shapes like "/repo", "owner/",
-// or "group//repo" that `repo.includes("/")` alone would have let through.
-export function isValidRepoPath(tracker: "github" | "gitlab", repo: string): boolean {
-	const segments = repo.split("/");
-	if (segments.some((segment) => segment === "")) return false;
-	return tracker === "github" ? segments.length === 2 : segments.length >= 2;
-}
 
 /**
  * A `gh:` or `glab:` short form, in either of its two shapes: a bare number against the checkout's own
@@ -368,9 +317,8 @@ export function isValidRepoPath(tracker: "github" | "gitlab", repo: string): boo
  *
  * The bare shape is the one that reaches outside the string it was given, and the two trackers ask different
  * questions of the checkout. GitHub asks for a `CheckoutIdentity`, which exists only where the origin remote is
- * on GitHub — without that, `gh:1` in a GitHub Enterprise or GitLab checkout would resolve to whatever sits at
- * that path on github.com. GitLab asks only for the remote's path, because a self-hosted instance can be any
- * host and so its remote carries no comparable evidence; ADR-0039 has why the two readings stay distinct.
+ * on GitHub. GitLab asks only for the remote's path, because a self-hosted instance can be any host and so its
+ * remote carries no comparable evidence; ADR-0039 has why the two readings stay distinct.
  *
  * @throws TicketRefError on either shape the short form does not have, and on anything the reference
  * constructors refuse.
@@ -443,8 +391,8 @@ function normalizeHost(host: string): string {
 }
 
 /**
- * Which tracker a two-segment `/<a>/<b>/issues/<n>` URL belongs to, which its shape alone cannot say: GitHub's
- * every issue URL has it, and so does a GitLab instance still on the pre-11.0 route with no `/-/`.
+ * Which tracker a two-segment `/<a>/<b>/issues/<n>` URL belongs to, which `GENERIC_ISSUES_URL`'s comment says
+ * its shape alone cannot.
  *
  * The host decides, and only the host. GitHub serves its issues from the authorities `isGitHubHost` enumerates
  * and from nowhere else, so a URL on one of them is GitHub's and a URL on any other is not — whatever the `gh`
@@ -470,7 +418,8 @@ function whichTracker(url: string, host: string, runner: Runner): "github" | "gi
  * A GitLab reference from a URL whose shape already says it is GitLab's, once the host is one `glab` can reach.
  *
  * Built before the authentication is asked about, so that a malformed path or key is reported as the malformed
- * thing it is rather than as an unreachable host — the order the checks were in before they moved.
+ * thing it is rather than as an unreachable host. That was the path check's order before it moved into the
+ * constructor; the key check is new here, and takes the same position.
  *
  * @throws TicketRefError from the constructor, and when `glab` is authenticated to no such host.
  */

@@ -325,8 +325,7 @@ describe("whole-set-read", () => {
 
 describe("references-parse", () => {
 	// A GitLab reference that knows its host, which `formatTicketRef` deliberately drops: the short form has
-	// nowhere to carry one, so the printed reference parses back as a different node. The shape this used to use
-	// — a three-segment GitHub path — is one `githubTicketRef` now refuses to build, so it cannot reach a read.
+	// nowhere to carry one, so the printed reference parses back as a different node.
 	test("fails a reference this tool's own parser does not take back to the same ticket", () => {
 		const input = world();
 		const elsewhere = gitlabTicketRef("group/project", "example.com", "1");

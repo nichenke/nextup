@@ -13,7 +13,8 @@ import { DEFAULT_LABEL_FILTER, compileLabelFilter } from "../src/label-filter";
 import { type CheckResult, type ReconstructionReport, ReconstructionError, checkReconstructionTracker, heldEverywhere } from "../src/reconstruction";
 import { NotAReadError, readOnlyRunner } from "../src/read-only-runner";
 import { defaultRunner } from "../src/runner";
-import { TicketRefError, formatTicketRef, isValidRepoPath } from "../src/ticket-ref";
+import { isValidRepoPath } from "../src/repo-address";
+import { TicketRefError, formatTicketRef } from "../src/ticket-ref";
 
 const USAGE = `reconstruct — reads a real repository through the adapter and checks it against the tracker
 
