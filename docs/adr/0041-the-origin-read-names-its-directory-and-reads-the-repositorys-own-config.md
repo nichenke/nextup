@@ -57,10 +57,16 @@ shapes, measured:
   That is a repository this tool would refuse as not being on GitHub, or — where the rewrite lands on another
   GitHub path — a different ticket set at exit 0. `--local` answered with the repository's own URL. This is
   the case the decision is right about.
-- **A rewrite that expands an alias**, where the local URL is a bare word and a colon and only a global rule
-  makes it a URL at all. `get-url` answered with the expanded URL; `--local` answered with the alias, whose
-  host is the bare word. This is the case the decision is wrong about, and it is a regression: a checkout
-  configured that way worked before and is refused now.
+- **A rewrite that expands an alias**, where the local URL is a bare word and a colon and an `insteadOf` rule
+  is what makes it a URL at all. `get-url` answered with the expanded URL; `--local` answered with the alias,
+  whose host is the bare word. This is the case the decision is wrong about, and it is a regression: a
+  checkout configured that way worked before and is refused now.
+
+  The rule's own scope does not matter, which is worth stating because the rest of this decision turns on
+  scope. Measured with the `insteadOf` rule in the *repository's* config and `HOME` pointed at nothing:
+  `get-url` still expanded it and `--local` still answered with the alias. `--local` narrows where the URL is
+  read from; it does not apply rewriting from anywhere, so "reads what the repository configured" is true of
+  the value and not of the rewriting.
 
 A third regression, narrower and measured: a repository that declares a local `[remote "origin"]` section
 carrying no `url` — a bare fetch refspec, say — while the URL itself sits in global config. `get-url` answered

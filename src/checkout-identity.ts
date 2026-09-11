@@ -68,8 +68,8 @@ function checkoutIdentityOf(repo: string): CheckoutIdentity {
 /**
  * What a host refusal adds when the host carries no dot.
  *
- * The one shape whose answer is a host nobody configured: a remote URL only a global `url.<base>.insteadOf`
- * rule expands. The refusal is right either way — an alias is not evidence of a GitHub checkout — but without
+ * The one shape whose answer is a host nobody configured: a remote URL that a `url.<base>.insteadOf` rule is
+ * what expands, in whichever scope that rule sits. The refusal is right either way — an alias is not evidence of a GitHub checkout — but without
  * this it reports a tracker at that host. ADR-0041 has the other shapes the two commands differ over.
  *
  * A dot is the test, which catches the bare-word idiom and not every alias — ADR-0041 has what it misses and
