@@ -16,11 +16,12 @@ const adrDir = join(import.meta.dir, "..", "docs", "adr");
  * Gaps are not a fault. This repository has none at 0014 or 0015 and both are deliberate: a number is
  * spent when an ADR is drafted, and one that never lands leaves a hole rather than a renumbering.
  *
- * What this cannot catch is the shape that caused the collision it exists to prevent: two branches each
- * adding the same number pass their own runs, and CI checks a merge commit only on a run made after the
- * sibling landed. A pull request whose last run predates that merge stays green. Closing it needs
- * branch protection requiring branches be up to date; until then the run on `main` is an after-the-fact
- * backstop rather than a gate.
+ * The shape that caused the collision this exists to prevent -- two branches each adding one number,
+ * each passing its own run -- is closed by the repository rather than by this file. `main` requires the
+ * `check` context with `strict: true`, so a branch behind `main` cannot merge until it is updated and
+ * re-run, and that re-run reads the combined tree. The collision got in because no check existed, not
+ * because the branch was stale. What remains open is that `enforce_admins` is false, so an admin merge
+ * bypasses it.
  */
 function adrNumberFaults(filenames: readonly string[]): {
 	readonly malformed: readonly string[];
