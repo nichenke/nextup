@@ -6,7 +6,7 @@ able to say. `TicketRef` is now a discriminated union whose GitHub variant has n
 built only from a validated repository path and a canonical issue key, and folds that path to lower case
 at construction. The scope decision is the type.
 
-[0039](./0039-checkout-identity-is-resolved-once-and-a-write-cannot-happen-without-one.md) is the other
+[0040](./0040-checkout-identity-is-resolved-once-and-a-write-cannot-happen-without-one.md) is the other
 half: the remote side, and what "which repository am I standing in" became.
 
 ## Five checks, three review rounds, one invariant

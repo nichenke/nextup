@@ -501,7 +501,7 @@ describe("two edges disagreeing about one blocker outside the read", () => {
 });
 
 // The adapter no longer answers "which repository am I standing in" — `CheckoutIdentity` does, and the caller
-// resolves one before reaching here (ADR-0039). `checkout-identity.test.ts` holds the remote cases that used to
+// resolves one before reaching here (ADR-0040). `checkout-identity.test.ts` holds the remote cases that used to
 // live in this block: a host that is not GitHub's, a remote naming no owner and repository, and no remote at all.
 describe("the repository a read is about", () => {
 	function watching(response: Runner): { readonly asked: string[][]; readonly runner: Runner } {
@@ -626,7 +626,7 @@ describe("readGitHubTicket, over a single named ticket", () => {
 	});
 
 	// The only refusal a reference can still carry here: a bad path is one `githubTicketRef` refuses to build and
-	// a non-GitHub host is unrepresentable, so `ticket-ref.test.ts` holds both — ADR-0038.
+	// a non-GitHub host is unrepresentable, so `ticket-ref.test.ts` holds both — ADR-0039.
 	test("refuses a reference on a tracker this has no adapter for, before asking anything", () => {
 		expect(refusing(gitlabTicketRef("group/project", null, "1"))).toThrow(/GitHub/);
 		expect(refusing(jiraTicketRef(null, "ABC-7"))).toThrow(/GitHub/);

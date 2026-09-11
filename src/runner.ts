@@ -88,7 +88,7 @@ const REDIRECTING_GH_VARIABLE = "GH_HOST";
 /**
  * Refuses a `gh` command when the environment names a host for it.
  *
- * Refused rather than accommodated, because GitHub Enterprise is out of scope — ADR-0038 has why, and why that
+ * Refused rather than accommodated, because GitHub Enterprise is out of scope — ADR-0039 has why, and why that
  * boundary is a property of the reference types rather than a rule stated in several places. A set `GH_HOST` is
  * therefore either redundant or points somewhere this tool does not work. Accommodating it instead means carrying a
  * host into every repository argument — the preflight, the reads, the write, the release and its verification — and

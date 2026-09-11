@@ -7,7 +7,7 @@ step on one number, and two inputs make that number lie. Both are refused before
 
 ## A reference whose host is not GitHub's
 
-> **Relocated by [0038](./0038-enterprise-is-out-of-scope-and-out-of-scope-means-unrepresentable.md).**
+> **Relocated by [0039](./0039-enterprise-is-out-of-scope-and-out-of-scope-means-unrepresentable.md).**
 > This section and the renumbered-key one below describe hazards that are unchanged, and the argv guards
 > they put in place are still there. What moved is where each is *stopped*: a GitHub reference can no
 > longer carry a host at all, and a padded key can no longer be built, so neither shape reaches the claim

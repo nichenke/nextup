@@ -245,7 +245,7 @@ describe("starting work on the pick", () => {
 	 * A repository renamed on GitHub with a stale local remote reaches here: the read asks under the old name,
 	 * GitHub redirects, and `requireOneRepository` deliberately tolerates rows answering under the new one. So
 	 * every ranked reference names a repository this checkout does not, nothing upstream compares them, and the
-	 * claim is what refuses. The remedy is to correct the remote, which is what the message names. ADR-0039.
+	 * claim is what refuses. The remedy is to correct the remote, which is what the message names. ADR-0040.
 	 */
 	test("refuses to claim a ranked ticket whose rows name a repository this checkout is not", () => {
 		const renamed = (argv: string[]): CommandResult | null => {
@@ -982,7 +982,7 @@ describe("starting a ticket named on the command line", () => {
 		const result = run([`gh:${recordedIssue(githubRecording("ticket-view"))}`, "--yes"], deps(runner));
 		expect(result.code).toBe(0);
 		// Resolving the bare form, checking the ticket belongs here, and the claim all take the same value; a
-		// second reading is what would let two of them disagree. ADR-0039.
+		// second reading is what would let two of them disagree. ADR-0040.
 		expect(of("get-url")).toHaveLength(1);
 		expect(of("issue", "view")).toHaveLength(1);
 	});

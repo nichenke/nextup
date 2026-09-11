@@ -36,7 +36,7 @@ export interface GitHubReadInput {
 	readonly limit: number;
 	/**
 	 * The `owner/repo` to read. Required: this adapter reads a repository somebody else decided on, and does not
-	 * decide which one. `CheckoutIdentity` is what answers that — ADR-0039 — and both production callers resolve
+	 * decide which one. `CheckoutIdentity` is what answers that — ADR-0040 — and both production callers resolve
 	 * one before reaching here.
 	 */
 	readonly repo: string;
@@ -111,7 +111,7 @@ export interface GitHubTicketReadInput {
  * response that is not one issue object or whose shape cannot be read, and one answering about a different issue
  * than was named.
  * @throws TicketRefError from the view builder's canonical-key assertion, which a `GitHubTicketRef` cannot
- * trip — ADR-0038 has why the builder keeps an assertion it can no longer be handed a bad value for.
+ * trip — ADR-0039 has why the builder keeps an assertion it can no longer be handed a bad value for.
  */
 export function readGitHubTicket(input: GitHubTicketReadInput): TicketRead {
 	const target = githubTicketTarget(input.ref);

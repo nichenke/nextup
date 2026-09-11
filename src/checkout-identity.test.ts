@@ -31,7 +31,7 @@ describe("resolveCheckoutIdentity", () => {
 	});
 
 	// The check that matters: `gh` carries no hostname in `--repo`, so `owner/repo` read off a remote elsewhere
-	// addresses whatever sits at that path on GitHub. ADR-0039.
+	// addresses whatever sits at that path on GitHub. ADR-0040.
 	test("refuses a remote on any other host rather than answering with a path that means something else there", () => {
 		const runner = routedRunner(remote("https://example.com/example/repo.git"));
 		expect(() => resolveCheckoutIdentity(runner, refuse)).toThrow(Refused);

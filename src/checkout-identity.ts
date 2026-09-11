@@ -17,7 +17,7 @@ const checkoutIdentity: unique symbol = Symbol("checkout-identity");
  * are different questions. `CONTEXT.md` holds both terms apart.
  *
  * Branded and resolved-or-nothing: `resolveCheckoutIdentity` is the only producer, and there is no unknown arm.
- * ADR-0039 has why both, and ADR-0038 the five checks the pair replaced.
+ * ADR-0040 has why both, and ADR-0039 the five checks the pair replaced.
  */
 export interface CheckoutIdentity {
 	readonly [checkoutIdentity]: true;
@@ -30,7 +30,7 @@ export interface CheckoutIdentity {
  *
  * Passed in rather than thrown from here, because each caller raises its own class and each encodes a different
  * recovery: `cli.ts` reads the class to decide what a failed start leaves open, `ticket-ref.ts` raises a bad
- * reference, and `scripts/reconstruct.ts` a run that cannot be made. ADR-0039 has why.
+ * reference, and `scripts/reconstruct.ts` a run that cannot be made. ADR-0040 has why.
  */
 export type RefuseCheckout = (reason: string) => Error;
 
@@ -67,8 +67,8 @@ function checkoutIdentityOf(repo: string): CheckoutIdentity {
  * The repository path this checkout's remote spells, on whatever host, as spelled.
  *
  * The one reading that is not a `CheckoutIdentity`, and it has exactly one caller: the bare `glab:<number>`
- * short form. A GitLab instance can be any host, so there is no host test to pass and nothing to fold — ADR-0038
- * has why leaving GitLab's case semantics undecided is safe, and ADR-0039 why this is not an identity.
+ * short form. A GitLab instance can be any host, so there is no host test to pass and nothing to fold — ADR-0039
+ * has why leaving GitLab's case semantics undecided is safe, and ADR-0040 why this is not an identity.
  *
  * @throws whatever `refuse` builds, when the remote cannot be resolved.
  */

@@ -7,15 +7,15 @@ export type Tracker = "github" | "gitlab" | "jira";
 
 /**
  * A GitHub ticket. `githubTicketRef` is the only builder in production and refuses anything this tool cannot act
- * on; the type itself enforces the host and not the other two, which ADR-0038 records as the residual.
+ * on; the type itself enforces the host and not the other two, which ADR-0039 records as the residual.
  *
- * There is no `host` field, and that absence is the scope decision rather than a saving — ADR-0038. GitHub
+ * There is no `host` field, and that absence is the scope decision rather than a saving — ADR-0039. GitHub
  * Enterprise is out of scope, so a reference on any other host is not a GitHub reference this can represent,
  * and a caller cannot be handed one to check.
  */
 export interface GitHubTicketRef {
 	readonly tracker: "github";
-	/** `owner/repo`, two non-empty segments, folded to lower case — ADR-0038 has why the fold is here. */
+	/** `owner/repo`, two non-empty segments, folded to lower case — ADR-0039 has why the fold is here. */
 	readonly repo: string;
 	/** A canonical issue number: no leading zeros, and never a bare `0`. */
 	readonly key: string;
@@ -25,7 +25,7 @@ export interface GitHubTicketRef {
  * A GitLab ticket. Unlike the GitHub variant this carries a host, because a self-hosted instance can be any
  * host and the host is what tells two instances apart.
  *
- * Its repository path is kept as spelled, for the reason ADR-0038 gives.
+ * Its repository path is kept as spelled, for the reason ADR-0039 gives.
  */
 export interface GitLabTicketRef {
 	readonly tracker: "gitlab";
@@ -49,7 +49,7 @@ export interface JiraTicketRef {
  * discriminant that discriminates nothing.
  *
  * Every variant is built by a constructor in this module that validates and normalizes it, so a consumer
- * receives a reference it does not have to check. ADR-0038 records what that replaced: five checks, added
+ * receives a reference it does not have to check. ADR-0039 records what that replaced: five checks, added
  * across three review rounds, each asking a consumer to re-derive what the type can now state.
  */
 export type TicketRef = GitHubTicketRef | GitLabTicketRef | JiraTicketRef;
@@ -75,7 +75,7 @@ export function refRepo(ref: TicketRef): string | null {
  * The GitHub reference for `repo` and `key`, normalized, or a refusal.
  *
  * The production builder for a `GitHubTicketRef`, which is what lets every consumer stop checking. Three things
- * are settled here, and ADR-0038 has the measurement behind each:
+ * are settled here, and ADR-0039 has the measurement behind each:
  *
  * - The repository path is exactly two non-empty segments. GitHub has no subgroups, so a third segment names
  *   something else — and `gh` reads `--repo` as `[HOST/]OWNER/REPO`, so a three-segment value is a host.
@@ -152,7 +152,7 @@ export function jiraTicketRef(host: string | null, key: string): JiraTicketRef {
  *
  * Here rather than at the argv boundary, which is where ADR-0032 first put it: a key is identity, so `ticketId`,
  * the ranking ladder, the worktree path and the session prompt all read it too, and a rule at the argv boundary
- * reaches none of them. ADR-0038 has the full account.
+ * reaches none of them. ADR-0039 has the full account.
  *
  * @throws TicketRefError when the key is not a canonical issue number.
  */
@@ -250,7 +250,7 @@ function compareNumerals(a: string, b: string): number {
  * The GitHub reference a command can act on, or why the reference it was given is not one.
  *
  * Narrowing only: `githubTicketRef` settles the host, the path and the key at construction, so a caller reaching
- * here cannot be holding a reference that fails any of them. ADR-0038 records the collapse.
+ * here cannot be holding a reference that fails any of them. ADR-0039 records the collapse.
  *
  * The reason comes back rather than being thrown, because each caller raises its own class: `cli.ts` decides
  * which recovery a failure leaves open from that class, and one shared error would collapse the two.
@@ -271,7 +271,7 @@ export interface ResolveDeps {
 	/**
 	 * Which repository the caller is standing in, for the one form that has no repository of its own: a bare
 	 * `gh:<number>`. Supplied by a caller that has already resolved it, so a run asks git once rather than once
-	 * here and again when the checkout is checked — ADR-0039. Defaults to resolving it from `runner`.
+	 * here and again when the checkout is checked — ADR-0040. Defaults to resolving it from `runner`.
 	 *
 	 * A bare `glab:<number>` is outside this: it needs the remote's path unfolded on any host, which is not a
 	 * `CheckoutIdentity`, so it reads the remote itself. Nothing downstream compares a GitLab reference against a
@@ -339,7 +339,7 @@ export function resolveTicketRef(input: string, deps: ResolveDeps = {}): TicketR
  * The bare shape is the one that reaches outside the string it was given, and the two trackers ask different
  * questions of the checkout. GitHub asks for a `CheckoutIdentity`, which exists only where the origin remote is
  * on GitHub. GitLab asks only for the remote's path, because a self-hosted instance can be any host and so its
- * remote carries no comparable evidence; ADR-0039 has why the two readings stay distinct.
+ * remote carries no comparable evidence; ADR-0040 has why the two readings stay distinct.
  *
  * @throws TicketRefError on either shape the short form does not have, and on anything the reference
  * constructors refuse.
@@ -419,7 +419,7 @@ function normalizeHost(host: string): string {
  *
  * The host decides, and only the host. GitHub serves its issues from the authorities `isGitHubHost` enumerates
  * and from nowhere else, so a URL on one of them is GitHub's and a URL on any other is not — whatever the `gh`
- * CLI is authenticated to. That is the scope boundary ADR-0038 draws, and it is why this no longer asks `gh`:
+ * CLI is authenticated to. That is the scope boundary ADR-0039 draws, and it is why this no longer asks `gh`:
  * a GitHub Enterprise host is one `gh` answers for and one this tool cannot act on, so treating that answer as
  * evidence admitted exactly the reference the type now refuses to hold.
  *

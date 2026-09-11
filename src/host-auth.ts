@@ -14,7 +14,7 @@ import type { Runner } from "./runner";
  * rather than adding an exact-host:port-only mode nothing currently needs.
  */
 /**
- * The `"github"` arm has no production caller since ADR-0038: a URL on GitHub's own authorities is GitHub's
+ * The `"github"` arm has no production caller since ADR-0039: a URL on GitHub's own authorities is GitHub's
  * whatever `gh` reports, and every other host asks `glab`. It is kept rather than narrowed away because
  * `authStatusCommand`'s `--active` branch encodes a measured `gh` behaviour — it exits 1 when any account on a
  * host has a problem, so the question has to be narrowed to the account that would be used — and a golden pins

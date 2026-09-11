@@ -175,7 +175,7 @@ merely blocked or deadlocked. A wrapper deciding whether to retry has to read th
  * A function rather than a value, because not every run needs one: `--help` and a usage error answer without
  * touching git, and a `gh:<owner>/<name>#12` typed in a directory with no remote is still a reference this can
  * refuse on its own terms. A memo rather than a second resolution, so that the claim and the check that came
- * before it cannot disagree about where "here" is — ADR-0039.
+ * before it cannot disagree about where "here" is — ADR-0040.
  *
  * `refuse` belongs to the caller because the class decides the recovery: a failed identification is a
  * `StartError` where a start was being attempted and a usage error where a reference was being parsed.
@@ -220,7 +220,7 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 	}
 
 	// Resolved before the read rather than left to the adapter's own fallback, so that the set this ranks and the
-	// claim it ends with are provably about one repository: both take this value. ADR-0039.
+	// claim it ends with are provably about one repository: both take this value. ADR-0040.
 	let here: CheckoutIdentity;
 	try {
 		here = checkout((reason) => new StartError(`a run ranks the tickets of the repository it is standing in, and ${reason}`));
@@ -403,7 +403,7 @@ export type StartOutcome =
  * @throws CommandBuilderError unwrapped, from `--slash-command` naming something `sessionCommand` will not
  * build — which parsing already refused and this backstops, before anything is written. The claim's own
  * canonical-key assertion raises `TicketRefError` and is unreachable: `githubTicketRef` refuses a padded key at
- * construction, so no reference reaching here can carry one (ADR-0038).
+ * construction, so no reference reaching here can carry one (ADR-0039).
  */
 function startWork(answer: Answer, options: Options, deps: CliDeps, checkout: Checkout): StartOutcome {
 	const pick = answer.selection.pick;
@@ -773,7 +773,7 @@ function parse(argv: readonly string[]): Options {
  * and run.
  *
  * No host comparison, and nothing should add one back: a `GitHubTicketRef` carries none, and a
- * `CheckoutIdentity` resolves only from a GitHub remote — ADR-0038 and ADR-0039 have the pair.
+ * `CheckoutIdentity` resolves only from a GitHub remote — ADR-0039 and ADR-0040 have the pair.
  *
  * A `StartError` rather than a usage error, though a reference is what triggers it: the remedy is to run the
  * command somewhere else, not to spell the line differently, and the usage beside it would bury that.

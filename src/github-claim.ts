@@ -15,7 +15,7 @@ export interface GitHubClaimInput {
 	 *
 	 * A parameter so that a caller cannot write the claim without having resolved it — the split this exists to
 	 * prevent is the claim landing in one repository while the worktree and the session are made in another,
-	 * and a check the caller has to remember is what let that reach review three times. ADR-0039.
+	 * and a check the caller has to remember is what let that reach review three times. ADR-0040.
 	 */
 	readonly checkout: CheckoutIdentity;
 }
@@ -33,7 +33,7 @@ export interface GitHubClaimInput {
  * @throws GitHubClaimError when the ticket is not in this checkout, or when the write fails. Both failure
  * classes throw, because a failed claim aborts either way; which one it was is what the message says.
  * @throws TicketRefError from the builder's own canonical-key assertion, which no input reaching here can trip:
- * `githubTicketRef` refuses a padded key at construction. ADR-0038 has why the builder keeps it anyway.
+ * `githubTicketRef` refuses a padded key at construction. ADR-0039 has why the builder keeps it anyway.
  */
 export function claimGitHubTicket(input: GitHubClaimInput): void {
 	requireThisCheckout(input.ref, input.checkout);
@@ -47,7 +47,7 @@ export function claimGitHubTicket(input: GitHubClaimInput): void {
  * The split it catches is the claim landing in one repository while the worktree and the session are made in
  * another. A stale local remote is the reachable way there: a repository renamed on GitHub keeps answering
  * under its new name, and `requireOneRepository` deliberately tolerates that, so the references a ranked run
- * holds name a repository this checkout is not. ADR-0039.
+ * holds name a repository this checkout is not. ADR-0040.
  *
  * Here rather than beside `CheckoutIdentity`, which is the data it reads and where review first put it: moving
  * it there makes `checkout-identity.ts` import `formatTicketRef`, which is the `ticket-ref.ts` cycle

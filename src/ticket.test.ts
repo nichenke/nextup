@@ -50,7 +50,7 @@ describe("ticketId tells distinct tickets apart", () => {
 	});
 });
 
-// The three axes ADR-0038's Consequences name, each closed by the GitHub variant's own shape rather than by a
+// The three axes ADR-0039's Consequences name, each closed by the GitHub variant's own shape rather than by a
 // comparison somewhere downstream.
 describe("ticketId is one key per GitHub ticket, however the reference was obtained", () => {
 	const ADAPTER = githubTicketRef("example/repo", "1");

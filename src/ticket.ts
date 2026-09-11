@@ -52,7 +52,7 @@ export interface Ticket {
  * - Refs entering one graph must agree on how much they know. A GitLab short form resolved from a git
  *   remote has no host while a pasted URL for the same ticket does, so the two occupy different nodes —
  *   an adapter must emit one consistent form for a set rather than mixing them. GitHub is the exception
- *   and not by luck: its variant has no host to differ on, and ADR-0038 has why.
+ *   and not by luck: its variant has no host to differ on, and ADR-0039 has why.
  * - A Jira short form carries neither host nor repo — nothing resolves a tenant — so the same key from
  *   two tenants lands on one id. A caller merging ticket sets across tenants must qualify the host first.
  */

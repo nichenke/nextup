@@ -317,7 +317,7 @@ export interface GitHubIssueCommandInput {
  * reader parses. No state filter, unlike the list read: a closed ticket has to come back as closed, because
  * "closed" is the refusal an operator who named it needs to be told.
  *
- * @throws TicketRefError from the canonical-key assertion, which a `GitHubTicketRef` cannot trip. ADR-0038 has
+ * @throws TicketRefError from the canonical-key assertion, which a `GitHubTicketRef` cannot trip. ADR-0039 has
  * why it stays: this builder takes a bare `repo` and `key` rather than a reference, so a caller reaching past
  * the reference types can spell either badly — and the capture script does, with the repository.
  */

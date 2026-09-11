@@ -20,7 +20,7 @@ export function parseRemote(remote: string): RemoteAddress | null {
 	return repo === "" ? null : { host: host.toLowerCase(), repo };
 }
 
-/** The origin remote, or null where there is none to read. A null is turned into a refusal by ADR-0039's resolver. */
+/** The origin remote, or null where there is none to read. A null is turned into a refusal by ADR-0040's resolver. */
 export function resolveOriginRemote(runner: Runner): RemoteAddress | null {
 	const result = runner([...originRemoteCommand()]);
 	if (result.code !== 0) return null;

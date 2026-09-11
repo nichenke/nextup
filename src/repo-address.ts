@@ -37,7 +37,7 @@ const GITHUB_AUTHORITIES: ReadonlySet<string> = new Set([
 /**
  * Whether a git remote's host, or a pasted URL's, is one GitHub answers on.
  *
- * Every caller reads a pass as "this checkout is the GitHub repository at that path" and writes from it — ADR-0038
+ * Every caller reads a pass as "this checkout is the GitHub repository at that path" and writes from it — ADR-0039
  * has why the host is the check that matters. That is what the set has to be exact about: an authority this admits
  * wrongly is one whose checkout gets a worktree while GitHub's own API gets the claim, measured on an SSH remote at
  * port 8443 exiting 0.

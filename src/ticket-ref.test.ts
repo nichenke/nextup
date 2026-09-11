@@ -216,7 +216,7 @@ describe("resolveTicketRef: pasted URLs", () => {
 		expect(ref).toEqual({ tracker: "gitlab", repo: "group/subgroup/project", host: "example.com", key: "1" });
 	});
 
-	// The host decides this shape now, and nothing else — ADR-0038. What `gh` is authenticated to used to be the
+	// The host decides this shape now, and nothing else — ADR-0039. What `gh` is authenticated to used to be the
 	// evidence, and that is exactly what admitted an Enterprise URL the reference types cannot hold.
 	describe("the two-segment /issues/ shape, shared by GitHub and older self-hosted GitLab", () => {
 		const GITHUB_URL = githubUrl("example", "repo", "issues", "1");
@@ -255,7 +255,7 @@ describe("resolveTicketRef: pasted URLs", () => {
 	});
 
 	// nichenke/nextup issue 56, refused where the reference is built rather than at the argv boundary —
-	// `requireCanonicalIssueKey` has the measurement and ADR-0038 has why the layer moved.
+	// `requireCanonicalIssueKey` has the measurement and ADR-0039 has why the layer moved.
 	describe("a padded issue number, at every entry point that could mint one", () => {
 		test("the bare short form is refused", () => {
 			expect(() => resolveTicketRef("gh:037", { runner: routedRunner(GIT_REMOTE) })).toThrow(/canonical issue number/);
@@ -287,7 +287,7 @@ describe("resolveTicketRef: pasted URLs", () => {
 	});
 });
 
-// Refused where the reference is built rather than by each consumer — ADR-0038. A GitHub variant carrying a
+// Refused where the reference is built rather than by each consumer — ADR-0039. A GitHub variant carrying a
 // non-GitHub host is the fourth of these and has no test, being a compile error, which is the point of the union.
 describe("githubTicketRef", () => {
 	test("folds the repository path, so one ticket cannot hold two identities", () => {
@@ -400,7 +400,7 @@ describe("compareTicketRefs", () => {
 		expect(compareTicketRefs(gh("example/repo"), gh("group/project"))).toBeLessThan(0);
 	});
 
-	// On GitLab, the one tracker whose reference still carries a host — ADR-0038.
+	// On GitLab, the one tracker whose reference still carries a host — ADR-0039.
 	test("separates two hosts that share a repository and a number", () => {
 		const at = (host: string | null): TicketRef => gitlabTicketRef("example/repo", host, "1");
 		expect(compareTicketRefs(at(null), at("example.com"))).toBeLessThan(0);

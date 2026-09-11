@@ -4,7 +4,7 @@ Which repository the command was invoked in is now one value, `CheckoutIdentity`
 per run and passed to everything that writes. It used to be a question three call sites asked git
 separately and compared for themselves.
 
-[0038](./0038-enterprise-is-out-of-scope-and-out-of-scope-means-unrepresentable.md) is the other half:
+[0039](./0039-enterprise-is-out-of-scope-and-out-of-scope-means-unrepresentable.md) is the other half:
 the reference side, and the five checks this pair replaced, with the order they were added in.
 
 ## The three callers collapse into one resolver
@@ -70,7 +70,7 @@ structurally `{ repo: string }`, and the value this module deliberately does not
 
 A test-facing factory was tried and removed: it was a door into the brand that production lacked, and the
 tests did not need it. `github-claim.test.ts` stands its checkout up through the real resolver off a fake
-remote, which exercises the host test and the fold rather than skipping them. ADR-0038 rejects branding
+remote, which exercises the host test and the fold rather than skipping them. ADR-0039 rejects branding
 for `GitHubTicketRef` on a different ground, which is that its tests assert the shape a resolver produces
 and a brand would make those assertions compare the constructor against itself.
 
