@@ -151,6 +151,17 @@ describe("check-identifiers under a redirected git environment", () => {
 		expect(result.stderr.toString()).toContain("internal.corp.test");
 	});
 
+	// `git ls-files --deleted` applies `core.quotePath`, so this path came back as `"caf\303\251.md"` while the
+	// tracked listing gave the bytes. Compared against each other, no quoted path ever matched, and deleting
+	// one unstaged was refused as unreadable.
+	test("scans a tree where the file deleted but not staged has a name git would quote", () => {
+		const root = repositoryWith({ "café.md": "clean\n", "b.md": `leak at ${unknownHttpsUrl}\n` });
+		rmSync(join(root, "café.md"));
+		const result = guardIn(root);
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr.toString()).toContain("internal.corp.test");
+	});
+
 	test("scans a tracked file whose name begins with a hyphen", () => {
 		const root = repositoryWith({ "-d": `leak at ${unknownHttpsUrl}\n` });
 		const result = guardIn(root);
@@ -187,24 +198,78 @@ describe("check-identifiers under a redirected git environment", () => {
 		expect(result.stderr.toString()).toContain("internal.corp.test");
 	});
 
+	// Following the link reads content that is not in the tree, and reports it under a message asserting a
+	// tracked file holds it.
+	test("leaves the contents of a symlink's target out of the scan when the target is untracked", () => {
+		const root = repositoryWith({ "a.md": "clean\n", ".gitignore": "secret.txt\n" });
+		writeFileSync(join(root, "secret.txt"), `leak at ${unknownHttpsUrl}\n`);
+		symlinkSync("secret.txt", join(root, "link"));
+		const identity = ["-c", "user.email=n@invalid", "-c", "user.name=n"];
+		expect(defaultRunner(["git", "-C", root, "add", "link"]).code).toBe(0);
+		expect(defaultRunner(["git", "-C", root, ...identity, "commit", "--quiet", "-m", "link"]).code).toBe(0);
+		const result = guardIn(root);
+		expect(result.exitCode).toBe(0);
+		expect(result.stdout.toString()).toContain("ok");
+	});
+
+	// grep blocks on opening a FIFO and never returns, which in CI is a hung job rather than a failed one.
+	test("does not follow a tracked symlink whose target is a FIFO", () => {
+		const root = repositoryWith({ "a.md": "clean\n", ".gitignore": "pipe\n" });
+		expect(defaultRunner(["mkfifo", join(root, "pipe")]).code).toBe(0);
+		symlinkSync("pipe", join(root, "fifolink"));
+		const identity = ["-c", "user.email=n@invalid", "-c", "user.name=n"];
+		expect(defaultRunner(["git", "-C", root, "add", "fifolink"]).code).toBe(0);
+		expect(defaultRunner(["git", "-C", root, ...identity, "commit", "--quiet", "-m", "link"]).code).toBe(0);
+		const result = guardIn(root);
+		expect(result.exitCode).toBe(0);
+	});
+
+	/**
+	 * Runs the guard in `cwd` with a shim named `tool` ahead of it on `PATH`, failing whenever it is passed
+	 * `trigger` and delegating to the real tool otherwise. The real path is resolved here rather than written
+	 * into the shim, where `command -v` would find the shim itself.
+	 */
+	function guardWithFailingTool(cwd: string, tool: string, trigger: string) {
+		const real = defaultRunner(["command", "-v", tool]).stdout.trim() || `/usr/bin/${tool}`;
+		const shim = mkdtempSync(join(tmpdir(), "nextup-shim-"));
+		decoys.push(shim);
+		writeFileSync(
+			join(shim, tool),
+			`#!/bin/sh\nfor a in "$@"; do [ "$a" = "${trigger}" ] && { echo "simulated ${tool} failure" >&2; exit 1; }; done\nexec ${real} "$@"\n`,
+		);
+		chmodSync(join(shim, tool), 0o755);
+		return spawnSync({
+			cmd: ["bash", join(import.meta.dir, "check-identifiers.sh")],
+			cwd,
+			env: { ...process.env, PATH: `${shim}:${process.env.PATH ?? ""}` },
+		});
+	}
+
 	// A listing that fails after the tree has been checked reaches the scan as fewer paths, and an empty scan
 	// reads as nothing found. The shim fails only `ls-files -z`, so every check before it still passes.
 	test("refuses when the listing the scan reads fails part way through", () => {
 		const root = repositoryWith({ "a.md": `leak at ${unknownHttpsUrl}\n` });
-		const shim = mkdtempSync(join(tmpdir(), "nextup-shim-"));
-		decoys.push(shim);
-		writeFileSync(
-			join(shim, "git"),
-			'#!/bin/sh\nfor a in "$@"; do [ "$a" = "-z" ] && { echo "fatal: simulated" >&2; exit 1; }; done\nexec /usr/bin/git "$@"\n',
-		);
-		chmodSync(join(shim, "git"), 0o755);
-		const result = spawnSync({
-			cmd: ["bash", join(import.meta.dir, "check-identifiers.sh")],
-			cwd: root,
-			env: { ...process.env, PATH: `${shim}:${process.env.PATH ?? ""}` },
-		});
+		const result = guardWithFailingTool(root, "git", "-z");
 		expect(result.exitCode).toBe(1);
 		expect(result.stderr.toString()).toContain("failed while listing the tree");
+	});
+
+	// Under `set -e` a bare assignment from a failing command substitution exits before its own `if`, with the
+	// stderr captured into the variable, so this refused in total silence.
+	test("names the failure when the deleted listing cannot be read", () => {
+		const root = repositoryWith({ "a.md": "clean\n" });
+		const result = guardWithFailingTool(root, "git", "--deleted");
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr.toString()).toContain("git ls-files --deleted failed");
+	});
+
+	// The checks run before the scan, so a file that stops being readable in between was skipped with its error
+	// discarded. grep's status cannot carry this, since exit 1 is the ordinary "no match" here.
+	test("refuses when the scan itself cannot read a file, rather than passing over it", () => {
+		const root = repositoryWith({ "a.md": "clean\n" });
+		const result = guardWithFailingTool(root, "grep", "-Ih");
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr.toString()).toContain("could not read a tracked file");
 	});
 
 	test("refuses a tracked file named as a lone hyphen, which grep would read as standard input", () => {

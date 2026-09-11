@@ -177,6 +177,33 @@ readability test is not the subset that carries unscanned text. Refusing the dan
 resolving one closed the shape that was noticed and left the shape that mattered — the same fault the three
 attempts above record. Reading the target covers both, and removes a refusal rather than adding one.
 
+Reading the target is only half of it: the link must also leave the list the scan reads, or `grep` follows it
+anyway. A draft that read targets and left the links in place made the guard fail on the contents of an
+*untracked* file, under a message asserting a tracked file held it and naming no path, and hang forever on a
+link whose target was a FIFO — `timeout` reported 124, which in CI is a hung job rather than a failed one.
+Both measured. The scan now reads a list built during the walk, holding the paths it may open and nothing
+else.
+
+Two comparisons in that walk are byte comparisons, and one of them was not. `git ls-files --deleted` without
+`-z` applies `core.quotePath`, returning `"caf\303\251.md"` where the tracked listing gives the bytes, so no
+path holding a non-ASCII character, a quote or a backslash ever matched — and deleting one without staging it
+was refused as unreadable, which is precisely the everyday tree the deleted branch exists to keep scanning.
+Measured. Both listings are now `-z` and compared whole.
+
+A deleted path is also kept out of the scan list rather than merely exempted from the refusal, because the
+scan now treats any `grep` diagnostic as fatal and a missing file produces one.
+
+That last rule is the answer to a question the checks above cannot settle on their own: they all run *before*
+the scan, so a file that stopped being readable in between — a concurrent checkout, a rewrite, a mode change —
+was skipped with its error sent to `/dev/null` and its status eaten by `|| true`. The exit status cannot
+carry it, because `grep` exits 1 for "no match", which is the ordinary result here. Its stderr is kept instead,
+and anything on it refuses.
+
+Finally, `set -e` made two of these refusals silent. A bare `v=$(cmd)` takes the substitution's status, so a
+failing git exited the script *before* the `if` meant to report it, with git's stderr captured into the
+variable and never printed — a refusal with no output at all. Measured. Each such capture is now written as
+`if ! v=$(cmd)` with its own message.
+
 Separately, the scan now passes `--` to `grep`. A tracked filename may begin with a hyphen, and `git ls-files`
 happily reports one: with a file named `-d`, BSD `grep` rejected its own argument list, `2>/dev/null` ate the
 error, `|| true` ate the status, and the guard printed `ok` over the identifier inside it. Measured. This is
