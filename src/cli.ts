@@ -33,7 +33,15 @@ import {
 } from "./selection-output";
 import { SelectionError, select } from "./selector";
 import type { Ticket } from "./ticket";
-import { type TicketRef, TicketRefError, formatTicketRef, githubTicketTarget, resolveTicketRef } from "./ticket-ref";
+import {
+	GITHUB_HOST,
+	type TicketRef,
+	TicketRefError,
+	formatTicketRef,
+	githubTicketTarget,
+	isGitHubHost,
+	resolveTicketRef,
+} from "./ticket-ref";
 import { WorktreeError, type WorktreeOutcome, ensure } from "./worktree";
 import { renderWorktree } from "./worktree-output";
 
@@ -289,7 +297,7 @@ function runNamed(ref: TicketRef, options: Options, deps: CliDeps): CliResult {
 			{
 				ticket: override.target.ticket,
 				blocked: override.target.blocked,
-				caveats: [...forcedCaveats(override), ...readCaveats(answer.readDegraded)],
+				caveats: [...forcedCaveats(override), ...readCaveats(answer.readDegraded, "kept")],
 			},
 			options,
 			deps,
@@ -304,7 +312,12 @@ function runNamed(ref: TicketRef, options: Options, deps: CliDeps): CliResult {
  * What a named run decided and what it wrote, as one result. Either half may be missing, and each says so as an
  * explicit `null` rather than a dropped key, the way `selectionJson` does and for the same reason: `answer` is
  * null where `--print-command` answered before anything was read, and `start` is null where a refusal stopped the
- * run before the writes. Neither is ever reported as an empty version of itself.
+ * run before the writes.
+ *
+ * There is no `selection` key, because nothing was ranked — `README.md` says what that means for a consumer
+ * handling both paths. `readDegraded` is the one field an absence does not distinguish: it is `[]` both for a read
+ * that degraded in no way and for the `--print-command` branch that never read, which `override: null` is what
+ * tells apart.
  *
  * `start` cannot be `nothing-to-start`: that arm means the ladder had nothing to recommend, and a named ticket is
  * what there was to start. Excluding it is what makes `USAGE`'s "a named ticket is never 1" a type fact.
@@ -707,7 +720,18 @@ function requireTicketInThisCheckout(ref: TicketRef, deps: CliDeps): void {
 			`${formatTicketRef(ref)} names a repository, and this checkout's own remote could not be resolved to compare it against, so nothing was started`,
 		);
 	}
-	if (origin.repo === ref.repo) return;
+	// The host as well as the path, because the path alone leaves the split reachable by another route: a checkout
+	// whose origin is a GitLab or Enterprise host carrying this same `owner/repo` would match on the path while the
+	// claim still went to github.com. `resolveRepoScopedShort` refuses that for a bare `gh:12`, which leaves the
+	// explicit `repo#number` and a pasted URL to be refused here.
+	if (ref.tracker === "github" && !isGitHubHost(origin.host)) {
+		throw new StartError(
+			`${formatTicketRef(ref)} is a ${GITHUB_HOST} ticket and this checkout's remote is on ${origin.host}, so nothing was started — the claim would be written to a repository of the same name somewhere else entirely.`,
+		);
+	}
+	// Compared with case folded away, because a tracker resolves `owner/repo` case-insensitively while a remote
+	// records whatever was typed — and a clone spelled in another case is this repository, not a different one.
+	if (origin.repo.toLowerCase() === ref.repo.toLowerCase()) return;
 	throw new StartError(
 		`${formatTicketRef(ref)} is in ${ref.repo} and this checkout is ${origin.repo}, so nothing was started — the worktree and the session would be made here while the claim landed there. Run this inside ${ref.repo} instead.`,
 	);

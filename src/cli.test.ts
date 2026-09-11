@@ -807,6 +807,38 @@ describe("starting a ticket named on the command line", () => {
 	});
 
 	/**
+	 * The path alone is not the repository: `owner/repo` exists on every host, and a reference carries no host of
+	 * its own in the short form. Matching on the path would claim on github.com from a checkout that lives
+	 * somewhere else entirely — the same hazard ADR-0032 records for the claim, reached by another route.
+	 */
+	test("refuses a GitHub ticket from a checkout whose remote is on another host", () => {
+		// The path matches and only the host differs, so this reaches the host check rather than the path one. The
+		// remote is spelled as the allowlisted synthetic one, which the identifier guard already accepts.
+		const elsewhere: Runner = (argv) => {
+			if (argv[0] === "git" && argv.includes("get-url")) {
+				return { code: 0, stdout: "https://example.com/example/repo.git\n", stderr: "" };
+			}
+			throw new Error(`nothing may run ${argv.join(" ")} for a checkout on another host`);
+		};
+		const result = run(["gh:example/repo#1", "--yes"], deps(elsewhere));
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("example.com");
+		expect(result.stderr).not.toContain("usage: nextup");
+	});
+
+	// A tracker resolves the path case-insensitively, so a remote spelling it differently is this repository —
+	// refusing it would send the operator to the checkout they are already standing in.
+	test("accepts a named ticket whose repository the remote spells in another case", () => {
+		const shouted: Runner = (argv) =>
+			argv[0] === "git" && argv.includes("get-url")
+				? { code: 0, stdout: `git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo.toUpperCase()}.git\n`, stderr: "" }
+				: { code: 1, stdout: "", stderr: "nothing else should be reached" };
+		const result = run([`gh:${GITHUB_TEST_TREE.repo}#1`, "--print-command"], deps(shouted));
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain(DEFAULT_SLASH_COMMAND);
+	});
+
+	/**
 	 * The arm that decides what happens when the comparison itself cannot be made. Refused rather than allowed
 	 * through: a reference that may or may not belong to this checkout is not one to start work on, and the
 	 * alternative fails in the direction that splits the two writes across repositories.

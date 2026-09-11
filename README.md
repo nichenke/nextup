@@ -94,10 +94,14 @@ A named ticket is never exit 1, because there was no recommendation to be absent
 and so is a read that failed — the one ticket was the whole answer, including when the tracker could not be
 reached, so there is no degraded version of it to hand back.
 
-`--json` carries the reasons as two lists, and a consumer has to read both: `selection.degraded` is what the
-selector concluded about the ticket set, and `readDegraded` is what the read itself could not do. An outage
-appears in the second while also setting the first to `truncated`, since nothing was read — so a wrapper
+`--json` on a ranked run carries the reasons as two lists, and a consumer has to read both: `selection.degraded`
+is what the selector concluded about the ticket set, and `readDegraded` is what the read itself could not do. An
+outage appears in the second while also setting the first to `truncated`, since nothing was read — so a wrapper
 keyed only on `truncated` would answer a network outage by widening a window that was never opened.
+
+A named run's document has no `selection` at all, because nothing was ranked: it carries `override`, the same
+`readDegraded`, and `start`. A wrapper that handles both paths has to branch on which key is present rather than
+reach straight into `selection`.
 
 Nothing is started without an answer. The gate asks on the controlling terminal rather than through stdin and
 stdout, so it still works when either is redirected, and the question names the pick because the rendering it

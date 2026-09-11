@@ -122,7 +122,7 @@ function readDegradeJson(degrade: ReadDegrade): ReadDegradeJson {
 }
 
 export function renderAnswer(answer: Answer): string {
-	const read = answer.readDegraded.map((degrade) => `${degradedLine(readDegradeReason(degrade))}\n`);
+	const read = readCaveats(answer.readDegraded, "held-out").map((reason) => `${degradedLine(reason)}\n`);
 	return `${renderSelection(answer.selection)}${read.join("")}`;
 }
 
@@ -139,13 +139,23 @@ export function degradedLine(reason: string): string {
 }
 
 /**
+ * What a read did about the tickets it could not judge, which differs by which read it was: a set read drops such
+ * a ticket from its answer, and a single read returns the one ticket it was asked about.
+ *
+ * Supplied by the render boundary rather than baked into the reason, because a sentence naming either consequence
+ * understates on the other path — and the set read's exclusion is the only statement that those tickets were
+ * considered at all, while the override path is about to start the ticket the line describes.
+ */
+export type PartialOutcome = "held-out" | "kept";
+
+/**
  * One read's degrades as the reasons they are reported by, unprefixed and one to an entry.
  *
  * The override path renders these and asks them at its gate, exactly as `answerCaveats` does for a ranked
  * answer — so the wording stays in one place whichever path did the reading.
  */
-export function readCaveats(degraded: readonly ReadDegrade[]): readonly string[] {
-	return degraded.map(readDegradeReason);
+export function readCaveats(degraded: readonly ReadDegrade[], outcome: PartialOutcome): readonly string[] {
+	return degraded.map((degrade) => readDegradeReason(degrade, outcome));
 }
 
 /**
@@ -176,14 +186,17 @@ const DEGRADE_REASON: Record<Degrade["kind"], string> = {
  * `approved` in `cli.ts` why the gate does not want them.
  */
 export function answerCaveats(answer: Answer): readonly string[] {
-	return [...answer.selection.degraded.map((degrade) => DEGRADE_REASON[degrade.kind]), ...readCaveats(answer.readDegraded)];
+	return [
+		...answer.selection.degraded.map((degrade) => DEGRADE_REASON[degrade.kind]),
+		...readCaveats(answer.readDegraded, "held-out"),
+	];
 }
 
 /**
  * `DEGRADE_REASON`'s sibling for the kinds a read reports, which `ticket-set-read.ts` leaves as kinds for
  * exactly this boundary to word.
  */
-function readDegradeReason(degrade: ReadDegrade): string {
+function readDegradeReason(degrade: ReadDegrade, outcome: PartialOutcome): string {
 	switch (degrade.kind) {
 		case "outage":
 			return `the ticket set could not be read, so nothing was considered: ${degrade.detail}`;
@@ -191,11 +204,10 @@ function readDegradeReason(degrade: ReadDegrade): string {
 			// "of the rows read" rather than "of tickets", which the counts line above uses for a narrower
 			// population: a ticket held back for partial blocking is a row that was read and is not a ticket.
 			return `${degrade.tickets} of ${degrade.of} rows read did not report their blockers, so nothing confirms them unblocked`;
-		case "partial-blocking":
-			// Not "held out of the answer": a set read does hold these out, and a single-ticket read returns the one
-			// ticket it was asked about — so a wording naming either consequence is false on the other path, and this
-			// one reaches the override path's gate, where the run is about to start the ticket it describes.
-			return `only a page of their blockers arrived, so nothing confirms them unblocked: ${refList(degrade.refs)}`;
+		case "partial-blocking": {
+			const consequence = outcome === "held-out" ? ", so they were held out of the answer" : "";
+			return `only a page of their blockers arrived, so nothing confirms them unblocked${consequence}: ${refList(degrade.refs)}`;
+		}
 		case "contradicted-blocker":
 			return `read as unknown blockers, because the edges naming them disagreed about their state: ${refList(degrade.refs)}`;
 	}

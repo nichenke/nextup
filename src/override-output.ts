@@ -31,7 +31,7 @@ export function renderOverride(answer: OverrideAnswer): string {
 	lines.push("  named directly, so the ranking was not consulted");
 	lines.push(`  ${blockingPhrase(target)}, ${claimPhrase(target.ticket)}`);
 	lines.push("");
-	for (const caveat of readCaveats(answer.readDegraded)) lines.push(degradedLine(caveat));
+	for (const caveat of readCaveats(answer.readDegraded, "kept")) lines.push(degradedLine(caveat));
 	return `${lines.join("\n")}\n`;
 }
 
@@ -60,7 +60,7 @@ export function renderRefusal(answer: OverrideAnswer): string {
 	const reasons = override.refusals.map((refusal) => `  ${refusalReason(refusal)}`).join("\n");
 	// The read's degrades come too: without them a refusal advises forcing past a claim while saying nothing about
 	// a blocking read that arrived incomplete, which is the one caveat that changes whether forcing is wise.
-	const caveats = readCaveats(answer.readDegraded).map((caveat) => `${degradedLine(caveat)}\n`);
+	const caveats = readCaveats(answer.readDegraded, "kept").map((caveat) => `${degradedLine(caveat)}\n`);
 	return `${what} was not started, and nothing was claimed or created:\n${reasons}\n${caveats.join("")}${advice(override.refusals)}\n`;
 }
 

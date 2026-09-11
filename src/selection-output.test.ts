@@ -1,7 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { seedGraph } from "./graph-store";
 import { DEFAULT_LABEL_FILTER, type LabelFilterSpec, compileLabelFilter } from "./label-filter";
-import { DEGRADED_PREFIX, type Answer, answerJson, renderAnswer, renderSelection, selectionJson } from "./selection-output";
+import {
+	DEGRADED_PREFIX,
+	type Answer,
+	answerJson,
+	readCaveats,
+	renderAnswer,
+	renderSelection,
+	selectionJson,
+} from "./selection-output";
 import { type Selection, select } from "./selector";
 import { deadlockLines, sentinelLines } from "./test-support";
 import { type Ticket, ticketId } from "./ticket";
@@ -267,6 +275,8 @@ describe("renderAnswer", () => {
 		// The whole clause, not just "a page of their blockers": the wording this replaced also contained that much,
 		// so asserting the substring alone let the change ADR-0037 depends on survive a revert.
 		expect(lines[2]).toContain("only a page of their blockers arrived, so nothing confirms them unblocked");
+		// And the consequence a set read owns: these tickets were dropped, and nothing else in the answer says so.
+		expect(lines[2]).toContain("so they were held out of the answer");
 		expect(lines[3]).toContain("disagreed about their state");
 		for (const line of lines.slice(2)) expect(line).toContain("gh:example/repo#4");
 	});
@@ -304,5 +314,24 @@ describe("answerJson", () => {
 		expect(JSON.parse(JSON.stringify(json))).toEqual(json);
 		expect(json.readDegraded).toEqual([{ kind: "partial-blocking", refs: ["gh:example/repo#4"] }]);
 		expect(json.selection.pick?.ref).toBe("gh:example/repo#1");
+	});
+});
+
+describe("readCaveats", () => {
+	const PARTIAL: readonly ReadDegrade[] = [{ kind: "partial-blocking", refs: [{ tracker: "github", repo: "example/repo", host: null, key: "4" }] }];
+
+	/**
+	 * One fact, two consequences. A set read drops such a ticket and that exclusion is the only account of it the
+	 * answer gives; a single read returns the one ticket it was asked about, and is about to start it. A shared
+	 * sentence naming either consequence is false on the other path, which is what `PartialOutcome` exists for.
+	 */
+	test("names the exclusion for a read that held the ticket out, and not for one that kept it", () => {
+		const [heldOut] = readCaveats(PARTIAL, "held-out");
+		const [kept] = readCaveats(PARTIAL, "kept");
+
+		expect(heldOut).toContain("nothing confirms them unblocked");
+		expect(heldOut).toContain("held out of the answer");
+		expect(kept).toContain("nothing confirms them unblocked");
+		expect(kept).not.toContain("held out");
 	});
 });
