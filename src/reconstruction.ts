@@ -1,11 +1,11 @@
-import type { DependencyGraph, IssueId } from "./effective-blockedness";
+import { type DependencyGraph, type IssueId, deriveEffectiveBlockedness } from "./effective-blockedness";
 import type { LabelFilter } from "./label-filter";
 import type { NonEmpty } from "./non-empty";
 import type { Runner } from "./runner";
 import { type Selection, select } from "./selector";
 import { type Ticket, ticketId } from "./ticket";
-import { type TicketRef, formatTicketRef, resolveTicketRef } from "./ticket-ref";
-import type { ReadDegrade, TicketSetRead } from "./ticket-set-read";
+import { type TicketRef, compareTicketRefs, formatTicketRef, resolveTicketRef } from "./ticket-ref";
+import type { ReadDegrade, TicketRead, TicketSetRead } from "./ticket-set-read";
 
 export class ReconstructionError extends Error {}
 
@@ -45,6 +45,32 @@ export interface ReconstructionTracker {
 	read(limit: number): TicketSetRead;
 	/** The same read with no blocking field in the response at all. */
 	readBlind(limit: number): TicketSetRead;
+	/**
+	 * One named ticket through the adapter's single-ticket read, which is the override path's own surface.
+	 *
+	 * A separate tracker call rather than a slice of `read`: the whole point of ADR-0037's single read is that it
+	 * asks a different question of the tracker — no state filter, one issue — so only a live call can say whether
+	 * the two surfaces agree, and whether a closed ticket really does come back as one.
+	 */
+	readNamed(ref: TicketRef): TicketRead;
+}
+
+/** One ticket read on its own, or why that read failed — a failure is this check's business, not the run's. */
+export type NamedRead =
+	| { readonly kind: "read"; readonly ref: TicketRef; readonly read: TicketRead }
+	| { readonly kind: "failed"; readonly ref: TicketRef; readonly why: string };
+
+/**
+ * The single-ticket reads a run made, chosen from what the set read returned.
+ *
+ * Chosen there rather than here because the choice needs the set read, and gathered into one shape so that
+ * `checkReconstruction` stays pure over its inputs — the same split `read` and `blind` already have.
+ */
+export interface NamedReads {
+	/** An open ticket the set read also returned, so the two surfaces can be compared on one ticket. */
+	readonly open: NamedRead | null;
+	/** A closed blocker an edge named, which the set read cannot answer about at all. */
+	readonly closed: NamedRead | null;
 }
 
 /** `unexercised` — the check met nothing — is not a pass, and `heldEverywhere` counts it with the failures. */
@@ -73,6 +99,7 @@ export interface ReconstructionInput {
 	readonly blind: TicketSetRead;
 	readonly observations: readonly TrackerObservation[];
 	readonly filter: LabelFilter;
+	readonly named: NamedReads;
 }
 
 /** Whether every check ran and held, which is the whole verdict a caller exits on. */
@@ -100,7 +127,7 @@ export function checkReconstructionTracker(tracker: ReconstructionTracker, filte
 	}
 	const read = tracker.read(observations.length);
 	const blind = tracker.readBlind(observations.length);
-	const checked = checkReconstruction({ read, blind, observations, filter });
+	const checked = checkReconstruction({ read, blind, observations, filter, named: namedReads(tracker, read) });
 	return { tracker: tracker.name, ...checked };
 }
 
@@ -121,6 +148,8 @@ export function checkReconstruction(input: ReconstructionInput): Omit<Reconstruc
 			closedBlockerUnblocksItsDependent(input, frontier),
 			blockerOutsideTheSet(input),
 			unknownBlockingIsNotAnEmptyList(input),
+			namedTicketAgreesWithTheSet(input),
+			namedTicketAnswersAboutAClosedOne(input),
 		],
 	};
 }
@@ -565,6 +594,110 @@ function unknownBlockingIsNotAnEmptyList(input: ReconstructionInput): CheckResul
 }
 
 /** Every blocking edge, paired with the ticket that named it. A ticket whose blocking is unknown contributes none. */
+/**
+ * The two tickets worth reading one at a time, read through the tracker's single-ticket surface.
+ *
+ * Both are picked by lowest reference rather than by what the ladder favours, so a re-run over an unchanged
+ * repository reads the same two and its report is comparable. A read that fails is carried as a fault for the
+ * check to report, not thrown: the set read just named this ticket, so its own surface failing to answer about it
+ * is a finding rather than a reason to abandon every other check.
+ */
+function namedReads(tracker: ReconstructionTracker, read: TicketSetRead): NamedReads {
+	const open = [...read.tickets].sort((one, other) => compareTicketRefs(one.ref, other.ref))[0]?.ref ?? null;
+	return { open: open === null ? null : attempt(tracker, open), closed: closedBlockerRef(read) === null ? null : attempt(tracker, closedBlockerRef(read)!) };
+}
+
+function attempt(tracker: ReconstructionTracker, ref: TicketRef): NamedRead {
+	try {
+		return { kind: "read", ref, read: tracker.readNamed(ref) };
+	} catch (cause) {
+		return { kind: "failed", ref, why: cause instanceof Error ? cause.message : String(cause) };
+	}
+}
+
+/**
+ * The lowest-referenced blocker the read's own edges say is closed and that is not a row itself.
+ *
+ * A closed ticket is reachable no other way: the set read asks for open tickets only (ADR-0028), so one appears
+ * in it solely as an edge, carrying the openness that edge claimed. That makes it the one subject that tests what
+ * ADR-0037 rests on — that the single read answers about a closed ticket rather than reporting it absent.
+ */
+function closedBlockerRef(read: TicketSetRead): TicketRef | null {
+	const own = new Set(read.tickets.map((ticket) => ticketId(ticket.ref)));
+	const closed = [...refsById([...edges(read.tickets)].map(({ blocker }) => blocker)).values()]
+		.filter((ref) => !own.has(ticketId(ref)) && read.graph.isOpen(ticketId(ref)) === false)
+		.sort(compareTicketRefs);
+	return closed[0] ?? null;
+}
+
+/**
+ * That one ticket read on its own says what the set read says about it.
+ *
+ * The two ask the tracker different questions — one issue with no state filter, against a filtered list — and
+ * parse the answers through the same row reader, so a disagreement is the tracker's two surfaces differing or
+ * one of them having changed between the reads. Either is worth a person's attention, which is what a fault here
+ * asks for.
+ *
+ * Blocking is asserted in one direction only. The set read's graph knows every row's own state, where a single
+ * read knows only this ticket's edges, and ADR-0027 allows an edge to be staler than the row it copies — so the
+ * single read reporting a *less* confident state is expected and is reported as detail. What must never happen is
+ * the other direction: the override path calling a ticket startable that the ranking path knows is blocked.
+ */
+function namedTicketAgreesWithTheSet(input: ReconstructionInput): CheckResult {
+	const named = input.named.open;
+	if (named === null) return verdictOver("named-ticket-agrees-with-the-set", 0, [], "");
+	if (named.kind === "failed") {
+		return verdictOver("named-ticket-agrees-with-the-set", 1, [`reading ${formatTicketRef(named.ref)} on its own failed: ${named.why}`], "");
+	}
+
+	const id = ticketId(named.ref);
+	const row = input.read.tickets.find((ticket) => ticketId(ticket.ref) === id);
+	if (row === undefined) {
+		return verdictOver("named-ticket-agrees-with-the-set", 1, [`${formatTicketRef(named.ref)} came from the set read and is no longer in it`], "");
+	}
+
+	const one = named.read.ticket;
+	const faults: string[] = [];
+	if (one.title !== row.title) faults.push(`${formatTicketRef(named.ref)} is titled ${one.title} read alone and ${row.title} in the set`);
+	if (one.state !== row.state) faults.push(`${formatTicketRef(named.ref)} is ${one.state} read alone and ${row.state} in the set`);
+	if ((one.claim === null) !== (row.claim === null)) {
+		faults.push(`${formatTicketRef(named.ref)} is ${one.claim === null ? "unclaimed" : "claimed"} read alone and the opposite in the set`);
+	}
+	if ([...one.labels].sort().join(",") !== [...row.labels].sort().join(",")) {
+		faults.push(`${formatTicketRef(named.ref)} carries different labels read alone than in the set`);
+	}
+
+	const alone = deriveEffectiveBlockedness(id, named.read.graph);
+	const inSet = deriveEffectiveBlockedness(id, input.read.graph);
+	if (inSet === "blocked" && alone !== "blocked") {
+		faults.push(`${formatTicketRef(named.ref)} reads ${alone} on its own and blocked in the set, so naming it would start blocked work`);
+	}
+	return verdictOver("named-ticket-agrees-with-the-set", 1, faults, `${formatTicketRef(named.ref)} agrees, ${alone} alone and ${inSet} in the set`);
+}
+
+/**
+ * That a closed ticket comes back from the single read as closed.
+ *
+ * This is what ADR-0037 rests on and the one claim no fixture can settle: the set read asks for open tickets only,
+ * so if the single read answered the same way, a closed ticket would come back absent and the override path would
+ * refuse it as a ticket that does not exist rather than as finished work.
+ */
+function namedTicketAnswersAboutAClosedOne(input: ReconstructionInput): CheckResult {
+	const named = input.named.closed;
+	if (named === null) return verdictOver("named-ticket-answers-about-a-closed-one", 0, [], "");
+	if (named.kind === "failed") {
+		return verdictOver(
+			"named-ticket-answers-about-a-closed-one",
+			1,
+			[`reading the closed ${formatTicketRef(named.ref)} on its own failed, where the override path needs it refused as closed: ${named.why}`],
+			"",
+		);
+	}
+	const state = named.read.ticket.state;
+	const faults = state === "closed" ? [] : [`${formatTicketRef(named.ref)} is closed on its dependent's edge and came back ${state} read on its own`];
+	return verdictOver("named-ticket-answers-about-a-closed-one", 1, faults, `${formatTicketRef(named.ref)} came back closed`);
+}
+
 function edges(tickets: readonly Ticket[]): readonly { readonly ticket: Ticket; readonly blocker: TicketRef }[] {
 	return tickets.flatMap((ticket) =>
 		ticket.blockers === "unknown" ? [] : ticket.blockers.map((blocker) => ({ ticket, blocker })),

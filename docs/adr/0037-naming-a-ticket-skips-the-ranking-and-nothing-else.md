@@ -78,6 +78,11 @@ reference naming another.
 A reference naming a tracker this has no adapter for — `glab:`, `jira:` — is refused here rather than
 read. The spec brings both in later, GitLab first and Jira override-only.
 
+Two reconstruction checks cover this read against real repositories, because the claims it rests on are
+ones no fixture can settle: that the two surfaces agree about one ticket, and that a closed ticket comes
+back closed rather than absent. `docs/agents/reconstruction.md` has what each faults on, and why the
+blocking comparison faults in one direction only.
+
 ## `--print-command` with a named ticket reads nothing
 
 It starts nothing, creates nothing and claims nothing, and the session command follows from the

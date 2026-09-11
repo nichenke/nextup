@@ -3,6 +3,7 @@ import { seedGraph } from "./graph-store";
 import { DEFAULT_LABEL_FILTER, compileLabelFilter } from "./label-filter";
 import {
 	type CheckResult,
+	type NamedRead,
 	type ReconstructionInput,
 	type TrackerObservation,
 	type ReconstructionTracker,
@@ -13,7 +14,7 @@ import {
 } from "./reconstruction";
 import { type Ticket, ticketId } from "./ticket";
 import type { TicketRef } from "./ticket-ref";
-import type { TicketSetRead } from "./ticket-set-read";
+import { type TicketRead, type TicketSetRead, ticketRead } from "./ticket-set-read";
 
 const REPO = "example/repo";
 const FILTER = compileLabelFilter(DEFAULT_LABEL_FILTER);
@@ -110,7 +111,65 @@ function blindOf(shapes: readonly Shape[]): TicketSetRead {
 }
 
 function world(shapes: readonly Shape[] = SHAPES): ReconstructionInput {
-	return { read: readOf(shapes), blind: blindOf(shapes), observations: shapes.map(observationOf), filter: FILTER };
+	return {
+		read: readOf(shapes),
+		blind: blindOf(shapes),
+		observations: shapes.map(observationOf),
+		filter: FILTER,
+		named: namedWorld(shapes),
+	};
+}
+
+/**
+ * One ticket of the world as the tracker's single-ticket surface would answer about it: the shape's own ticket,
+ * and a seed per blocker carrying the openness that shape's edge claims. Built from the same shapes, so an
+ * agreeing world agrees here too and a case has to say what it wants to differ.
+ */
+function namedTicketReadOf(shapes: readonly Shape[], key: string, overrides: Partial<Ticket> = {}): TicketRead {
+	const shape = shapes.find((one) => one.key === key);
+	if (shape === undefined) throw new Error(`no shape is keyed ${key}`);
+	return ticketRead({
+		ticket: { ...ticketOf(shape), ...overrides },
+		blockers: (shape.blockers ?? []).map(([blockerKey, open]) => ({ ref: ref(blockerKey), open })),
+		degraded: [],
+	});
+}
+
+function namedReadOf(shapes: readonly Shape[], key: string, overrides: Partial<Ticket> = {}): NamedRead {
+	return { kind: "read", ref: ref(key), read: namedTicketReadOf(shapes, key, overrides) };
+}
+
+/**
+ * A blocker the set read met only as an edge, read on its own: closed, and with no blockers of its own read.
+ *
+ * This is the shape the single read exists for — ADR-0028 keeps a closed ticket out of the set read, so the only
+ * way one is ever answered about is a call like this.
+ */
+function closedTicketReadOf(key: string): TicketRead {
+	return {
+		...ticketRead({ ticket: { ...ticketOf({ key }), state: "closed" }, blockers: [], degraded: [] }),
+	};
+}
+
+/**
+ * The two single-ticket reads an agreeing world answers with: its lowest-referenced open ticket, and the closed
+ * blocker outside it. Chosen the way `namedReads` chooses, so the default world exercises both checks rather than
+ * leaving them unexercised — a world that agrees everywhere has to agree here too.
+ */
+function namedWorld(shapes: readonly Shape[]): { open: NamedRead | null; closed: NamedRead | null } {
+	const keys = [...shapes].map((shape) => shape.key).sort();
+	const own = new Set(keys);
+	const closedOutside = shapes
+		.flatMap((shape) => shape.blockers ?? [])
+		.filter(([key, open]) => !own.has(key) && !open)
+		.map(([key]) => key)
+		.sort();
+	const open = keys[0];
+	const closed = closedOutside[0];
+	return {
+		open: open === undefined ? null : namedReadOf(shapes, open),
+		closed: closed === undefined ? null : { kind: "read", ref: ref(closed), read: closedTicketReadOf(closed) },
+	};
 }
 
 /**
@@ -151,6 +210,8 @@ describe("checkReconstruction over an agreeing read", () => {
 			"closed-blocker-unblocks-its-dependent": "held",
 			"blocker-outside-the-set": "held",
 			"unknown-blocking-is-not-an-empty-list": "held",
+			"named-ticket-agrees-with-the-set": "held",
+			"named-ticket-answers-about-a-closed-one": "held",
 		});
 	});
 
@@ -678,6 +739,10 @@ describe("checkReconstructionTracker", () => {
 				limits.push(limit);
 				return blindOf(shapes);
 			},
+			// Falls back to the closed form for a key no shape describes, which is how a live tracker answers about a
+			// blocker the set read met only as an edge.
+			readNamed: (named) =>
+				shapes.some((shape) => shape.key === named.key) ? namedTicketReadOf(shapes, named.key) : closedTicketReadOf(named.key),
 		};
 	}
 
@@ -697,5 +762,90 @@ describe("checkReconstructionTracker", () => {
 		const report = checkReconstructionTracker(tracker([{ key: "1" }, { key: "2" }]), FILTER);
 		expect(report.checks.some((check) => check.verdict === "unexercised")).toBe(true);
 		expect(heldEverywhere(report)).toBe(false);
+	});
+});
+
+describe("named-ticket-agrees-with-the-set", () => {
+	const NAME = "named-ticket-agrees-with-the-set";
+
+	test("is unexercised where no ticket was read on its own", () => {
+		expect(checkNamed({ ...world(), named: { open: null, closed: null } }, NAME)).toMatchObject({ verdict: "unexercised" });
+	});
+
+	test("fails when the two surfaces disagree about the ticket itself", () => {
+		const input = world();
+		const open = namedReadOf(SHAPES, "1", { title: "a different title" });
+		expect(checkNamed({ ...input, named: { ...input.named, open } }, NAME)).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("is titled"),
+		});
+	});
+
+	test("fails when the single read calls startable a ticket the set read knows is blocked", () => {
+		const input = world();
+		// Ticket 2 waits on an open ticket in the set. Read alone with its edges unreadable it derives `unknown`,
+		// which the override path would start — the one direction of disagreement that matters.
+		const open = namedReadOf(SHAPES, "2", { blockers: "unknown" });
+		expect(checkNamed({ ...input, named: { ...input.named, open } }, NAME)).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("would start blocked work"),
+		});
+	});
+
+	/**
+	 * The other direction is expected rather than wrong: a single read knows only this ticket's edges, and ADR-0027
+	 * allows an edge to be staler than the row it copies. Faulting on it would make the check cry wolf on exactly
+	 * the staleness the set read's row-over-edge precedence exists to absorb.
+	 */
+	test("holds when the single read is the more cautious of the two", () => {
+		const input = world();
+		const cautious: NamedRead = {
+			kind: "read",
+			ref: ref("4"),
+			read: ticketRead({ ticket: ticketOf({ key: "4", blockers: [["9", false]] }), blockers: [{ ref: ref("9"), open: true }], degraded: [] }),
+		};
+		expect(checkNamed({ ...input, named: { ...input.named, open: cautious } }, NAME)).toMatchObject({ verdict: "held" });
+	});
+
+	test("fails when the ticket the set read named cannot be read on its own", () => {
+		const input = world();
+		const failed: NamedRead = { kind: "failed", ref: ref("1"), why: "the tracker could not be reached" };
+		expect(checkNamed({ ...input, named: { ...input.named, open: failed } }, NAME)).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("failed"),
+		});
+	});
+});
+
+describe("named-ticket-answers-about-a-closed-one", () => {
+	const NAME = "named-ticket-answers-about-a-closed-one";
+
+	test("is unexercised where no edge named a closed blocker", () => {
+		const input = world([{ key: "1" }, { key: "2", blockers: [["1", true]] }]);
+		expect(checkNamed(input, NAME)).toMatchObject({ verdict: "unexercised" });
+	});
+
+	// The property ADR-0037 rests on: were the single read to ask for open tickets the way the set read does, a
+	// closed ticket would come back absent and the override path would refuse it as one that does not exist.
+	test("fails when a closed blocker comes back open read on its own", () => {
+		const input = world();
+		const closed: NamedRead = {
+			kind: "read",
+			ref: ref("9"),
+			read: ticketRead({ ticket: ticketOf({ key: "9" }), blockers: [], degraded: [] }),
+		};
+		expect(checkNamed({ ...input, named: { ...input.named, closed } }, NAME)).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("came back open"),
+		});
+	});
+
+	test("fails when the closed blocker cannot be read at all", () => {
+		const input = world();
+		const failed: NamedRead = { kind: "failed", ref: ref("9"), why: "no issue found" };
+		expect(checkNamed({ ...input, named: { ...input.named, closed: failed } }, NAME)).toMatchObject({
+			verdict: "failed",
+			detail: expect.stringContaining("refused as closed"),
+		});
 	});
 });

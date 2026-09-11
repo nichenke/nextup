@@ -1,6 +1,6 @@
 import { withoutBlockingField } from "./command-builders";
 import { collapseFailure } from "./failure-class";
-import { readGitHubTicketSet } from "./github-adapter";
+import { readGitHubTicket, readGitHubTicketSet } from "./github-adapter";
 import type { TrackerObservation, ObservedBlocker, ReconstructionTracker } from "./reconstruction";
 import type { Runner } from "./runner";
 import type { TicketSetRead } from "./ticket-set-read";
@@ -47,6 +47,7 @@ export function githubReconstructionTracker(input: GitHubReconstructionInput): R
 		observe: () => observe(input),
 		read: (limit) => readGitHubTicketSet({ runner: input.runner, limit, repo: input.repo }),
 		readBlind: (limit) => readBlind(input, limit),
+		readNamed: (ref) => readGitHubTicket({ runner: input.runner, ref }),
 	};
 }
 
