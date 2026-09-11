@@ -106,7 +106,7 @@ _Avoid_: error, rejection, validation failure
 
 **Brief**:
 The whole answer a session puts in front of a person: everything the plain rendering carries, with the
-paragraphs only a reading of the ticket body can write composed around it. ADR-0041 fixes its shape and
+paragraphs only a reading of the ticket body can write composed around it. ADR-0042 fixes its shape and
 states what it promises a caller.
 _Avoid_: summary, digest, report, explanation
 
