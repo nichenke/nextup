@@ -325,8 +325,9 @@ export function githubIssueViewCommand(input: GitHubIssueCommandInput): readonly
 
 /**
  * The issue one `gh` subcommand acts on, refused unless it is a canonical issue number — leading zeros and a
- * bare `0` as much as non-digits. Exported because the override path refuses a typed key where it reads nothing
- * at all, and a caller reaching that guard by building an argv it discards had to explain itself in a comment.
+ * bare `0` as much as non-digits. Exported because the override path refuses a typed key on the one route that
+ * builds no argv to carry it: `--print-command`, which contacts no tracker and still must not print a command
+ * naming an issue `gh` would resolve to a different one.
  *
  * `gh` normalizes `037` to issue 37 while `compareTicketRefs` treats the two as different tickets, so a padded
  * key would act on one issue under a reference naming another and exit 0. Measured on the read both times:

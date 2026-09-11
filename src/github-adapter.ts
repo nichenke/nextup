@@ -96,9 +96,8 @@ export interface GitHubTicketReadInput {
 /**
  * Reads one named GitHub ticket through the `gh` CLI, normalized the same way a set read's rows are.
  *
- * For the override path, and its own call rather than a lookup inside a set read: that read asks for open
- * tickets only, within a limit, in the repository the origin resolves to, so a closed, older or elsewhere
- * ticket would come back absent rather than as the refusal it is. ADR-0037 has the whole reasoning.
+ * For the override path, and its own call rather than a lookup inside a set read — ADR-0037 has why, and what a
+ * lookup would report instead.
  *
  * Both failure classes throw, unlike the set read, which flags an outage and carries on with less known: the
  * one ticket is the entire answer here, so there is nothing to continue with. `claimGitHubTicket` aborts on

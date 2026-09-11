@@ -527,10 +527,9 @@ function startedNothing(cause: unknown, pick: StartPick, worktree: WorktreeOutco
 		);
 	}
 	if (cause instanceof LaunchError) {
-		// Nothing is predicted about a re-run of a named ticket. What one does there turns on whether the line carried
-		// `--force` — which clears the very claim check a warning would be about — and a sentence guessing at the next
-		// invocation has now been wrong twice in review. The command below is the recovery either way, which is what
-		// ADR-0035 leaves this line for.
+		// Nothing is predicted about a re-run of a named ticket: what one does there turns on whether the line carried
+		// `--force`, which clears the very claim check a warning would be about. The command below is the recovery
+		// either way, which is what ADR-0035 leaves this line for.
 		//
 		// The ranked arm keeps its warning because it turns on nothing a later line can change: a claimed ticket is
 		// not a candidate, so a re-run picks something else whatever flags it carries, and an operator who does not
@@ -776,7 +775,7 @@ function requireTicketInThisCheckout(ref: TicketRef, deps: CliDeps): void {
 	);
 }
 
-/** The flags each path has no use for, which every one of the three describes a ticket set or the override. */
+/** The flags that describe a ticket set, which a named run reads none of. `--force` is refused separately. */
 const ABOUT_THE_SET: readonly string[] = ["--limit", "--include", "--exclude"];
 
 /**

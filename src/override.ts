@@ -31,10 +31,9 @@ export type Refusal =
 /**
  * The ticket a named reference points at, with the blocking state derived over the read's graph.
  *
- * Not a `Candidate`: nothing was ranked, so there is no runner-up, no deciding rung and no `unblocks` count —
- * that counts dependents within a ticket set this read never asked for, and a zero would read as a claim that
- * nothing waits on this ticket. `Candidate.blocked` also promises never to be `"blocked"`, which a forced
- * target can be. ADR-0037 has both.
+ * Deliberately not a `Candidate` — `CONTEXT.md`'s **Target** defines the distinction and ADR-0037 argues it. The
+ * half that binds code here: `blocked` is the whole tri-state, where `Candidate.blocked` promises never to be
+ * `"blocked"` and a forced target can be.
  */
 export interface Target {
 	readonly ticket: Ticket;
@@ -110,7 +109,7 @@ export function decideOverride(input: OverrideInput): Override {
 
 /**
  * The checks, in the order a person reads them: whether there is work, whether somebody else has it, whether
- * it can be started. `place` in `selector.ts` asks the first two of a candidate and the filter between them;
+ * it can be started. `place` in `selector.ts` asks these three of a candidate and the label filter as well;
  * here the filter is absent because naming a ticket is the override, and `Unknown` is absent from the third
  * because it is not blocked — both per ADR-0037.
  */
@@ -132,7 +131,8 @@ function refusalsFor(target: Target, read: TicketRead): readonly Refusal[] {
  * means one of these is open, and the refusal names the ones to go close.
  *
  * A ticket whose blockers could not be listed never derives `blocked`, so the empty result is unreachable
- * through `decideOverride` — which is why no caller has to word it.
+ * through `decideOverride`. `refusalReason` words it anyway, as the defence against a reader that is not
+ * `decideOverride`.
  */
 function openBlockers(ticket: Ticket, read: TicketRead): readonly TicketRef[] {
 	if (ticket.blockers === "unknown") return [];

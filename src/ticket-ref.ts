@@ -14,11 +14,12 @@ export const GITHUB_HOST = "github.com";
  * Every authority GitHub serves, as a git remote or a pasted URL may write it.
  *
  * A flat set rather than a host compared beside a port tested separately, because a port is not a thing this
- * supports: GitHub at some other port is out of scope, so there is nothing to parse a port *for*. What is in
- * scope is GitHub's own endpoints, and two of them spell a port — an explicit `:22`, and the `ssh.` host at
- * `:443` that GitHub publishes as the workaround for a firewalled 22. Enumerating them says that in data, where
- * splitting the authority and testing the halves said it in prose and invited the question of which other ports
- * might be allowed.
+ * supports: GitHub at some other port is out of scope, so there is nothing to parse a port *for*. Enumerating the
+ * endpoints says which are allowed in data rather than leaving a rule to be read off a comparison.
+ *
+ * Two hosts — the web host and the `ssh.` host GitHub publishes for a firewalled 22 — each written bare or with
+ * either default port, since a remote may spell `:22` or `:443` explicitly and both are the port that host already
+ * answers on. Six entries, and no pair of host and port outside them.
  *
  * Lower-case throughout, which both producers guarantee: `parseRemote` folds a remote's authority and
  * `normalizeHost` folds a URL's.
@@ -36,9 +37,9 @@ const GITHUB_AUTHORITIES: ReadonlySet<string> = new Set([
  * Whether a git remote's host, or a pasted URL's, is one GitHub answers on.
  *
  * Every caller reads a pass as "this checkout is the GitHub repository at that path" and writes the claim from it
- * — ADR-0032 has why the host is the check that matters. Measured against an earlier version that dropped any
- * port before comparing: a named run whose origin was an SSH remote at port 8443 exited 0, having claimed the
- * path through GitHub's own API.
+ * — ADR-0032 has why the host is the check that matters. That is what the set has to be exact about: an authority
+ * this admits wrongly is one whose checkout gets a worktree while GitHub's own API gets the claim, measured on an
+ * SSH remote at port 8443 exiting 0.
  */
 export function isGitHubHost(host: string): boolean {
 	return GITHUB_AUTHORITIES.has(host);
@@ -144,7 +145,16 @@ function compareNumerals(a: string, b: string): number {
  * refusal — the three checks below are the ones that decide whether a command acts on the ticket it names.
  */
 export type GitHubTicketTarget =
-	| { readonly kind: "ticket"; readonly repo: string; readonly key: string }
+	| {
+			readonly kind: "ticket";
+			readonly repo: string;
+			/**
+			 * Carried as the reference spells it, unvalidated: put it through `requireCanonicalIssueKey` before it
+			 * reaches an argv, or `gh` resolves a padded form to a different issue. The builders do that themselves;
+			 * a caller reaching past them has to.
+			 */
+			readonly key: string;
+	  }
 	| { readonly kind: "refused"; readonly reason: string };
 
 /**

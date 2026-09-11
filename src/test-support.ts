@@ -85,7 +85,7 @@ function responseOf(recording: Recording): CommandResult {
  * construction and assert nothing about what the read asks for.
  *
  * @throws RecordingError when the recording's response names no issue number, which means it is not a
- * single-ticket read.
+ * single-ticket read, and SyntaxError from `JSON.parse` when its stdout is not JSON at all.
  */
 export function recordedIssue(recording: Recording): string {
 	const number = (JSON.parse(recording.stdout) as { number?: unknown }).number;

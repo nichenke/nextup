@@ -885,8 +885,8 @@ describe("starting a ticket named on the command line", () => {
 	/**
 	 * The checkout boundary is checked before the read, against the reference as typed — but the claim is written
 	 * with the reference the *response* carried, which `readRow` builds from the issue's own address. An issue
-	 * transferred to another repository that lands on the same number therefore passes the number check, and the
-	 * claim goes there while the worktree is made here.
+	 * transferred to another repository that lands on the same number would otherwise pass the number check, and
+	 * the claim would go there while the worktree was made here.
 	 */
 	test("refuses a response naming another repository, even at the number asked for", () => {
 		const elsewhere = (argv: string[]): CommandResult | null => {
@@ -982,13 +982,11 @@ describe("starting a ticket named on the command line", () => {
  * What a failure after the worktree tells the operator, over every combination that changes the answer.
  *
  * The inputs that decide it: which step failed, whether the ticket carried a claim before this run, and whether the
- * operator named it. Four rounds of review landed on this wording, each seeing one combination, so the cases are
- * gathered here rather than left beside the test of whichever path introduced them.
+ * operator named it. Gathered here rather than beside the test of whichever path introduced each, so that a change
+ * to one message is read against all of them.
  *
- * `--force` is deliberately not among the inputs, and the fourth round is why: the session branch used to predict
- * what a re-run would do for a named ticket, which `--force` changes, so the prediction was removed rather than
- * given another input to read. A message that guesses at the next invocation's flags cannot be made correct by
- * enumerating more of them.
+ * `--force` is not among the inputs because nothing reads it: a message that guesses at the next invocation's flags
+ * cannot be made correct by enumerating more of them, so the session branch predicts nothing for a named ticket.
  *
  * One arm is deliberately absent: a `Claim` whose `by` is null. `readClaim` demands a login string from GitHub's
  * assignees, so this tracker cannot produce one, and the wording handles it for an adapter that later can.

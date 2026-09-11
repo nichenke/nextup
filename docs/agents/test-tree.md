@@ -57,11 +57,15 @@ Run it after changing what the adapter asks for, and read the diff: a recording 
 query changing is the CLI's projection moving under us, which is what the stored version line is for.
 
 Run it outside a network-filtering sandbox, and read the two unresolvable-host recordings in the diff first.
-A filtering proxy answers the unresolvable host itself rather than letting resolution fail, so the capture
-stores `Bad Gateway` where a connectivity error belongs — which `classifyFailure` reads as a **defect**, the
-opposite of what those two recordings exist to pin. Measured in a Claude Code sandbox on gh 2.100.0: both
-`read-outage` and `claim-outage` came back rewritten that way, with exit 1 intact, so `Capture.succeeds` does
-not catch it and the diff is the only control.
+A filtering proxy answers the unresolvable host itself rather than letting resolution fail, so the capture stores
+the proxy's own refusal where a connectivity error belongs. Measured in a Claude Code sandbox on gh 2.100.0: both
+`read-outage` and `claim-outage` came back carrying `Post "<url>": Bad Gateway`, with exit 1 intact, so
+`Capture.succeeds` does not catch it and the diff is the only control.
+
+That string is a **defect** to `classifyFailure`, which is the opposite of what those two recordings exist to pin.
+The token it turns on is the one the proxy's wording lacks: `HTTP 5xx` is in the outage pattern and a bare
+`Bad Gateway` from a transport error is not, so `gh`'s own `HTTP 502: Bad Gateway` rendering would have classified
+as an outage and this does not.
 
 Three of the thirteen captures write rather than read: the claim landing on `write-target`, a claim naming an
 issue the tree does not have, and a claim against an unresolvable host. They come last, and the run releases
