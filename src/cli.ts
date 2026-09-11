@@ -302,7 +302,9 @@ function startedNothing(cause: unknown, worktree: WorktreeOutcome, command: Argv
 	}
 	if (cause instanceof LaunchError) {
 		return new StartError(
-			`${cause.message}\nThe ticket is claimed and ${worktree.path} is in place on ${worktree.branch}. Running this again would pick a different ticket, because a claimed one is no longer a candidate — so start this session yourself instead:\n  cd ${worktree.path} && ${formatCommand(command)}`,
+			// The `cd` goes through `formatCommand` too: this line is the only recovery offered for an already-claimed
+			// ticket, so it has to survive a checkout path holding a space, which is ordinary rather than exotic.
+			`${cause.message}\nThe ticket is claimed and ${worktree.path} is in place on ${worktree.branch}. Running this again would pick a different ticket, because a claimed one is no longer a candidate — so start this session yourself instead:\n  ${formatCommand(["cd", worktree.path])} && ${formatCommand(command)}`,
 		);
 	}
 	return cause;

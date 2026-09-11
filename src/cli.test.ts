@@ -194,7 +194,11 @@ describe("run, over a ticket set read from GitHub", () => {
  * number, which ADR-0023 says why a test may not claim. `replayRunner` is still what asserts the *read*'s argv;
  * what these tests assert is the sequence of writes, per the spec's one-injected-seam testing decision.
  */
-function startSequence(over: (argv: string[]) => CommandResult | null = () => null, read = "ticket-set") {
+function startSequence(
+	over: (argv: string[]) => CommandResult | null = () => null,
+	read = "ticket-set",
+	primary = PRIMARY,
+) {
 	const calls: string[][] = [];
 	const runner: Runner = (argv) => {
 		calls.push(argv);
@@ -206,8 +210,8 @@ function startSequence(over: (argv: string[]) => CommandResult | null = () => nu
 		if (argv[0] === "gh") return respondingRunner(githubRecording(read))(argv);
 		if (argv[0] !== "git") throw new Error(`nothing answers ${argv.join(" ")}`);
 		if (argv.includes("get-url")) return { code: 0, stdout: `git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo}.git\n`, stderr: "" };
-		if (argv.includes("list")) return { code: 0, stdout: `worktree ${PRIMARY}\0branch refs/heads/main\0\0`, stderr: "" };
-		if (argv.includes("--git-common-dir")) return { code: 0, stdout: `${PRIMARY}/.git\n`, stderr: "" };
+		if (argv.includes("list")) return { code: 0, stdout: `worktree ${primary}\0branch refs/heads/main\0\0`, stderr: "" };
+		if (argv.includes("--git-common-dir")) return { code: 0, stdout: `${primary}/.git\n`, stderr: "" };
 		if (argv.includes("symbolic-ref")) return { code: 0, stdout: "refs/remotes/origin/main\n", stderr: "" };
 		// Present for origin/HEAD's target, absent for the ticket's own branch, which is what makes the run cut
 		// a new one rather than adopt something.
@@ -463,6 +467,23 @@ describe("a start that could not finish", () => {
 		expect(of("worktree", "add")).toEqual([]);
 		expect(of("issue", "edit")).toEqual([]);
 		expect(of("new-workspace")).toEqual([]);
+	});
+
+	/**
+	 * The handover is the only recovery offered once the claim has landed, so it has to survive a checkout path
+	 * holding a space — which is ordinary on macOS, not exotic. Unquoted, `cd` took the first word and the
+	 * operator was sent somewhere else entirely.
+	 */
+	test("quotes the worktree path in that handover, so a path with a space still works", () => {
+		const spaced = "/nextup not a real checkout";
+		const { runner } = startSequence(
+			(argv) => (argv[1] === "new-workspace" ? { code: 1, stdout: "", stderr: "no window" } : null),
+			"ticket-set",
+			spaced,
+		);
+		const result = run([...LIMIT, "--yes"], { runner, confirm: terminal().confirm, cwd: spaced });
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain(`cd '${spaced}/.worktrees/`);
 	});
 
 	test("reports a worktree that could not be made, and claims nothing", () => {
