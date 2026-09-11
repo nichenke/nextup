@@ -16,6 +16,27 @@ End to end on GitHub. Run it inside a GitHub checkout and it reads the repositor
 at, ranks the candidates, shows you the pick, and — once you agree — makes the ticket's worktree, claims the
 ticket, and asks cmux to run a session in that worktree.
 
+## Installing it
+
+`nextup` is a Claude Code plugin. It ships one command, `/nextup`, and no marketplace of its own —
+the `dispatch` marketplace is where it is published, so installing it is installing that marketplace
+and then this plugin from it.
+
+To work on the plugin itself, point Claude Code at a checkout instead, which needs no marketplace:
+
+```sh
+claude --plugin-dir <path to this checkout>
+```
+
+`/nextup` takes no arguments. The flags below belong to the binary; the command surfaces only the
+two that decide whether anything is written, and `--slash-command` is how you start something other
+than the `/implement` session it defaults to.
+
+`bun`, `gh` and `cmux` are expected on `PATH`, and `/implement` has to come from somewhere else —
+this plugin declares that dependency rather than satisfying it.
+
+## From a checkout
+
 ```sh
 bun bin/nextup.ts                       # show the pick, then ask before starting it
 bun bin/nextup.ts --limit 50            # consider 50 open tickets rather than the default 199
@@ -27,6 +48,11 @@ bun bin/nextup.ts gh:12                 # start this ticket instead, skipping th
 bun bin/nextup.ts gh:12 --force         # start it past the blocked and claimed checks, loudly
 bun bin/nextup.ts --help                # every flag
 ```
+
+A Claude Code session has no controlling terminal for the gate below to ask on, which is why
+`/nextup` previews with `--print-command` and starts with `--yes`.
+[ADR-0038](./docs/adr/0038-the-plugin-ships-one-command-and-previews-before-it-starts.md) has the
+rest of the packaging decision, including why there is no prerequisite check.
 
 Naming a ticket — `gh:12`, `gh:<owner>/<name>#12`, or an issue URL pasted from a browser — starts that one. It
 skips the ranking ladder and the label filter, because both decide only what may be *recommended* and
