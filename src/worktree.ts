@@ -560,6 +560,12 @@ function adoptableFromOrigin(runner: Runner, repo: string, branch: string): bool
  * A segment that is not there is appended and the walk continues, rather than the remainder being taken
  * as written: a `..` can cancel that segment out and hand a symlink back to a walk that then has to
  * resolve it.
+ *
+ * `..` is the one segment resolved without asking the filesystem, so what it climbs out of is asked about
+ * separately. Nothing may be reached through a regular file — `git worktree add` refuses such a path with
+ * "Not a directory", as `ls` and `realpath` do — and string arithmetic alone would step over one and carry
+ * on to a sibling that does exist. A segment that is merely absent is climbed out of, which is what git
+ * does with it.
  */
 function canonical(path: string): string {
 	// `parse().root` rather than `sep`, so the volume a platform puts before the first separator survives the
@@ -570,6 +576,13 @@ function canonical(path: string): string {
 	for (const segment of path.slice(root.length).split(sep)) {
 		if (segment === "" || segment === ".") continue;
 		if (segment === "..") {
+			const entry = inspect(at);
+			if (entry !== undefined && !entry.isDirectory()) {
+				throw new WorktreeError(
+					`${at} is not a directory, so a worktree root cannot be reached through it`,
+					"stale-directory",
+				);
+			}
 			at = dirname(at);
 			continue;
 		}

@@ -75,6 +75,13 @@ past: a symlink to nothing, a loop, a file a later segment would have to be reac
 read from `lstat`, not from a caught `ENOENT`, because `realpathSync` raises `ENOENT` for a dangling link
 and for a path that is not there alike, and only the second is a root to create.
 
+`..` is the one segment resolved without asking the filesystem, so what it climbs out of is asked about
+on its own. Nothing may be reached through a regular file, and `dirname` alone would step over one and
+carry on to a sibling that does exist — turning a root the OS calls unreachable into a worktree somewhere
+else, since what git is handed is the path computed here rather than the caller's spelling. Checked
+against git across the five things a `..` can climb out of: it refuses a file and a symlink to one, and
+accepts a directory, a symlink to one, and a segment that is not there. This now matches on all five.
+
 The container itself is then asked whether it is a directory, which the walk cannot answer for it: a file
 named as the root has no later segment to be walked through, so it resolves like any other and only the
 leaf checks would catch it — reporting `<root>/<leaf>`, a path the caller never typed for a mistake they

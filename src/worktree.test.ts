@@ -703,6 +703,24 @@ describe("ensure", () => {
 		);
 	});
 
+	test("refuses a root whose parent segment climbs out of a file, which no filesystem lets it do", () => {
+		const { repo, state } = primaryOn();
+		const afile = join(repo, "not-a-directory");
+		writeFileSync(afile, "a file no path can be reached through\n");
+		symlinkSync(afile, join(repo, "link-to-file"));
+		const git = stubGit(state);
+
+		// `..` is the one segment resolved without asking the filesystem, so a file it climbs out of was
+		// never noticed: the root collapsed to a sibling that does exist and a worktree was made there,
+		// from a spelling `git worktree add` refuses outright with "Not a directory".
+		for (const first of ["not-a-directory", "link-to-file"]) {
+			const root = [first, "..", "trees"].reduce((at, one) => `${at}${sep}${one}`, repo);
+			expect(() => ensure({ runner: git.runner, repo, ticket: READER, root })).toThrow(
+				`${afile} is not a directory, so a worktree root cannot be reached through it`,
+			);
+		}
+	});
+
 	test("refuses a file named as the root itself, naming the root rather than a path under it", () => {
 		const { repo, state } = primaryOn();
 		const afile = join(repo, "not-a-directory");
