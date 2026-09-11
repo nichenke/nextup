@@ -44,8 +44,6 @@ export type RefuseCheckout = (reason: string) => Error;
  * `--repo`, so `owner/repo` read off a GitHub Enterprise or GitLab checkout addresses whatever sits at that
  * path on GitHub instead.
  *
- * `directory` rather than the ambient one — ADR-0041.
- *
  * @throws whatever `refuse` builds, always as an Error.
  */
 export function resolveCheckoutIdentity(runner: Runner, directory: string, refuse: RefuseCheckout): CheckoutIdentity {
@@ -72,8 +70,8 @@ function checkoutIdentityOf(repo: string): CheckoutIdentity {
  * what expands, in whichever scope that rule sits. The refusal is right either way — an alias is not evidence of a GitHub checkout — but without
  * this it reports a tracker at that host. ADR-0041 has the other shapes the two commands differ over.
  *
- * A dot is the test, which catches the bare-word idiom and not every alias — ADR-0041 has what it misses and
- * why that is affordable. Nothing here decides on it: a miss leaves the refusal as it would have been.
+ * Nothing here decides on the dot: a miss leaves the refusal as it would have been. ADR-0041 has what the
+ * test misses and why that is affordable.
  */
 function aliasNote(host: string): string {
 	return host.includes(".")
@@ -88,9 +86,8 @@ function aliasNote(host: string): string {
  * short form. A GitLab instance can be any host, so there is no host test to pass and nothing to fold — ADR-0039
  * has why leaving GitLab's case semantics undecided is safe, and ADR-0040 why this is not an identity.
  *
- * Having no host test also means this is the one path where a `url.<base>.insteadOf` alias is not refused:
- * `git@gitlab:group/project` is a legitimate short hostname and `work:group/project` an alias, and nothing here
- * tells them apart. ADR-0041 bounds what that can cost.
+ * Having no host test also means this is the one path where a `url.<base>.insteadOf` alias cannot be refused —
+ * nothing distinguishes one from a short hostname. ADR-0041 bounds what that can cost.
  *
  * @throws whatever `refuse` builds, when the remote cannot be resolved.
  */

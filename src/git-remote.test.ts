@@ -75,12 +75,9 @@ describe("resolveOriginRemote", () => {
 		expect(resolveOriginRemote(fakeRunner({ code: 0, stdout: "\n", stderr: "" }), "/repo")).toBeNull();
 	});
 
-	// The empty value is refused rather than stepped over. Skipping it was tried and reverted: it answers with a
-	// url the checkout does not fetch from, which is a wrong repository at exit 0 in exchange for a
-	// configuration nobody has. ADR-0041.
-	test("refuses an empty first url rather than answering with a later one", () => {
+	test("skips an empty url, which git drops from a remote rather than fetching from", () => {
 		const runner = fakeRunner({ code: 0, stdout: originStdout("") + originStdout(HTTPS_REMOTE), stderr: "" });
-		expect(resolveOriginRemote(runner, "/repo")).toBeNull();
+		expect(resolveOriginRemote(runner, "/repo")?.repo ?? null).toBe("example/repo");
 	});
 });
 
@@ -89,8 +86,6 @@ describe("checkoutOriginUrl", () => {
 		expect(checkoutOriginUrl(originStdout(HTTPS_REMOTE))).toBe(HTTPS_REMOTE);
 	});
 
-	// A linked worktree's own `config.worktree`, which `--local` does not read — the shape that made reading one
-	// file the wrong rule. ADR-0041.
 	test("takes a value a worktree configures for itself", () => {
 		expect(checkoutOriginUrl(originStdout(HTTPS_REMOTE, "worktree"))).toBe(HTTPS_REMOTE);
 	});
@@ -103,11 +98,17 @@ describe("checkoutOriginUrl", () => {
 		expect(checkoutOriginUrl(originStdout(NESTED_REMOTE, "global") + originStdout(HTTPS_REMOTE))).toBe(HTTPS_REMOTE);
 	});
 
-	test("skips a line carrying no scope rather than reading it as a value", () => {
-		expect(checkoutOriginUrl(`${HTTPS_REMOTE}\n`)).toBeNull();
+	test("answers nothing for output carrying no scope at all", () => {
+		expect(checkoutOriginUrl(`${HTTPS_REMOTE}\0`)).toBeNull();
 	});
 
-	test("keeps a value containing a tab, since only the first one delimits the scope", () => {
-		expect(checkoutOriginUrl(originStdout("a\tb"))).toBe("a\tb");
+	/**
+	 * The vector `-z` exists for: a value git prints verbatim, whose own text spells a record separator and a
+	 * contract scope. Line-delimited, this read attributed the forged half to the checkout — which is the
+	 * ambient redirect the whole decision refuses, coming back in through the parser. ADR-0041.
+	 */
+	test("keeps a forged scope inside a value rather than reading it as a record", () => {
+		const forged = `${HTTPS_REMOTE}\nlocal\t${NESTED_REMOTE}`;
+		expect(checkoutOriginUrl(originStdout(forged, "global"))).toBeNull();
 	});
 });

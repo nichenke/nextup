@@ -150,26 +150,18 @@ export function jiraIdentityCommand(): readonly string[] {
 /**
  * The remote a repository-scoped reference is resolved against: the URL this checkout itself configures.
  *
- * `config` rather than `remote get-url`, which reads the merged configuration and so answers from a global
- * file a redirected `HOME` or `XDG_CONFIG_HOME` supplies — the wrong-ticket-set failure, at exit 0 and with no
- * `GIT_` variable for the runner to strip. It also applies `url.<base>.insteadOf` rewriting, which this does
- * not. ADR-0041 has the measurements and what the second half costs.
+ * `config` rather than `remote get-url`, which reads merged configuration — so a global file answers for a
+ * repository this checkout is not, at exit 0, with no `GIT_` variable for the runner to strip. ADR-0041 has the
+ * measurements, the scopes this keeps, and what the choice costs.
  *
- * `--show-scope` because git's own label for where a value came from is the whole test, and `resolveOriginRemote`
- * keeps the scopes ADR-0041 puts in contract. Selecting `--local` instead reads one *file*, which is narrower
- * than this checkout in two measured ways — a value reached through an `[include]`, and one in a worktree's own
- * `config.worktree` — and closing those one at a time is what this replaced.
- *
- * `--includes` is git's default with no scope selected, and is spelled anyway so the read does not change
- * meaning if that default does.
- *
- * `--get-all` rather than `--get`, which answers with the *last* value where a remote carries several, while
- * git takes the first.
+ * `-z` is load-bearing rather than tidiness: a config value may contain a newline, and in the line-oriented
+ * form only a value's *first* line carries its scope, so a global value ending `\nlocal<tab><url>` presents a
+ * forged `local` record. Measured on git 2.50.1 and 2.55 — it is the ambient redirect this read exists to
+ * refuse, walking back in through the parser.
  */
 export function originRemoteCommand(directory: string): readonly string[] {
-	return ["git", "-C", directory, "config", "--show-scope", "--includes", "--get-all", "remote.origin.url"];
+	return ["git", "-C", directory, "config", "-z", "--show-scope", "--includes", "--get-all", "remote.origin.url"];
 }
-
 
 export function worktreeListCommand(repo: string): readonly string[] {
 	// `-z`, for the reason `parseWorktreeList` gives.

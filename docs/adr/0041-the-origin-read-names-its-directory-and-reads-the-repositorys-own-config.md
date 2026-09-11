@@ -1,7 +1,7 @@
 # The origin read names its directory and reads the repository's own config
 
 `git remote get-url origin` is replaced by
-`git -C <directory> config --show-scope --includes --get-all remote.origin.url`, whose answer is filtered to
+`git -C <directory> config -z --show-scope --includes --get-all remote.origin.url`, whose answer is filtered to
 the scopes this checkout configures for itself.
 
 The two halves reach [0029](./0029-a-git-command-is-given-an-environment-with-no-git-variable-in-it.md)
@@ -16,7 +16,7 @@ one deferred. 0029 carries a banner saying so.
 a repository the checkout is not, at exit 0, through two names the runner's `GIT_` scrub cannot reach.
 
 **The scope boundary is the decision, and it is stated once.** In contract: `local` — `.git/config` and every
-file it names, since git labels an included value by the file that included it — and `worktree`, a linked
+file it names, since an included value carries the including file's scope — and `worktree`, a linked
 worktree's own `config.worktree`. Out of contract: `global`, `system`, and `command`. That line exists so a
 later question about a scope has an answer here rather than a patch: what this refuses is configuration the
 checkout never asked for, and an include or a worktree config is the checkout asking.
@@ -43,7 +43,16 @@ global      <other>      <- rejected
 local       <intended>   <- taken
 ```
 
-A repository that configures nothing of its own is refused, not answered for by `HOME`. The one way an ambient
+This is not a rule about repositories that configure nothing. A repository with a perfectly good local origin is
+*still* answered for by an ambient one under `get-url`, because `remote.origin.url` is multi-valued and global
+accumulates before local — measured on 2.50.1 and 2.55, with both set, `get-url` answers `<other>`. That is the
+ordinary case, not an edge.
+
+**`-z`, because otherwise the label can be forged.** A config value may contain a newline, and in the
+line-oriented form only a value's first line carries its scope. A global value ending `\nlocal<tab><url>` is
+printed across two lines, the second indistinguishable from a real `local` record — and the filter took it.
+Measured on both versions, and it is this decision's own vector arriving through the parser rather than through
+git. NUL-delimited, the forged text stays inside the value where it belongs. The one way an ambient
 file is read is that `.git/config` names it in an `[include]`, which `get-url` did too — so the boundary costs
 none of what this decision buys. It also newly rejects `command` scope, which `-c` and `GIT_CONFIG_PARAMETERS`
 supply; the runner already strips the latter, so that is belt and braces rather than a second guard.
@@ -54,14 +63,18 @@ builds that named no repository. The directory is now a value a caller supplies 
 
 **`--get-all`, taking the first value in contract.** A remote may carry several URLs. `get-url` answers with
 the first and a bare `--get` with the *last*, so `--get` alone would have silently changed which URL identifies
-a run's repository. `--show-scope` emits values in scope order and, within a scope, in file order, so the first
-line bearing a contract scope is the one git takes.
+a run's repository. Values arrive in scope order and, within a scope, in file order, so the first in a contract
+scope is the first the checkout configures for itself.
 
-An empty first value is refused rather than stepped over. Skipping it shipped briefly, on a review's reading
-that `remote get-url` skips empties — which reproduces on git 2.50.1 and 2.55, and is beside the point: the
-result is that the run answers with a URL the checkout does not fetch from, which is a wrong repository at exit
-0 bought in exchange for a configuration nobody has. Refusing is the answer this decision gives everywhere
-else, and it is the answer here.
+That is deliberately *not* "the URL git fetches from", which is the first across every scope and so is the
+global one whenever a global one exists. Answering differently is the decision; an earlier draft of this file
+claimed the two were the same, which the row above disproves.
+
+An empty value is skipped, because git drops empty URLs from a remote rather than fetching from them —
+measured, `remote get-url --all` reports only the non-empty ones. This flip-flopped once: refusing shipped
+briefly on the reasoning that skipping "answers with a URL the checkout does not fetch from", which is false
+for exactly that reason. Both readings were asserted before they were measured; the measurement is what
+settles it.
 
 `--includes` is git's default with no scope selected, and is spelled anyway so the read does not change meaning
 if that default does. It does not weaken what the allowlist leans on: every write flag is still rejected beside
@@ -147,8 +160,8 @@ have to arbitrate is exactly the alias case — where refusing is what this alre
 ## What else moved
 
 `readOnlyRunner` matches its allowlist after skipping a leading `git -C <directory>`, because a directory
-cannot be enumerated in a prefix. Its entry is `git config --show-scope --includes --get-all`: `--get-all` is
-what puts `git config` in a mode that cannot write, so it is part of the prefix rather than trailing detail.
+cannot be enumerated in a prefix. Its entry is `git config -z --show-scope --includes --get-all`: `--get-all`
+is what puts `git config` in a mode that cannot write, so it is part of the prefix rather than trailing detail.
 
 `CliDeps.cwd` no longer carries an invariant that it must be where the process is standing. It is handed to
 the origin read, so a `cwd` naming somewhere else moves the whole run there rather than splitting it — the

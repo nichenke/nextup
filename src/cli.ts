@@ -49,7 +49,7 @@ export interface CliDeps {
 	 * The checkout the command was invoked in: both the repository the run's tickets are read from and the one the
 	 * worktree step resolves the primary checkout from.
 	 *
-	 * One value for both, rather than an invariant that they agree. The origin read is given this directory too —
+	 * One value for both. The origin read is given this directory too —
 	 * ADR-0041 — so a `cwd` naming somewhere else moves the whole run there instead of claiming a ticket in one
 	 * repository and building the worktree in another.
 	 */

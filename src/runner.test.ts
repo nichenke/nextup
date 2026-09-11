@@ -282,8 +282,8 @@ describe("refuseRedirectedGitHub", () => {
 
 /**
  * The two doors the runner cannot close: neither name carries a `GIT_` prefix, so both survive the scrub and
- * reach git as a place to look for a global config. What refuses them is the origin read asking `config
- * --local`, which reads the repository's own file and no other — ADR-0041.
+ * reach git as a place to look for a global config. What refuses them is the scope the origin read keeps —
+ * ADR-0041.
  *
  * Real git in a child process, for the reason the block above gives.
  */
@@ -331,9 +331,20 @@ describe("an origin the repository configures somewhere other than .git/config",
 
 		const result = defaultRunner([...originRemoteCommand(repo)]);
 		expect(result.code).toBe(0);
-		// `local`, not a scope of its own: git labels an included value by the file that pulled it in.
-		expect(result.stdout).toBe(originStdout(repo));
+		// `local` rather than a scope of its own: an included value carries the including file's scope.
 		expect(checkoutOriginUrl(result.stdout)).toBe(repo);
+	});
+
+	test("is not forged by an ambient value whose own text spells a record separator and a scope", () => {
+		const { root, intended, other } = twoRepositories();
+		perTestRoots.push(root);
+		const home = join(root, "home");
+		mkdirSync(home);
+		// Written through git's own escapes, so the value *contains* a newline and a tab rather than the file
+		// carrying a second line: that is what makes it one value git prints across two lines.
+		writeFileSync(join(home, ".gitconfig"), `[remote "origin"]\n\turl = "${other}\\nlocal\\t${other}"\n`);
+		const { stdout } = inChildProcess(printing([...originRemoteCommand(intended)]), { HOME: home });
+		expect(checkoutOriginUrl(stdout)).toBe(intended);
 	});
 
 	test("is read from a worktree's own config.worktree, which the repository's config file does not hold", () => {

@@ -14,8 +14,7 @@ export function githubRecording(name: string): Recording {
  * definition of how that call is faked, so a change to the argv a read resolves its repository through
  * cannot leave some tests answering the old shape.
  *
- * Matched on the key rather than on the whole argv, which carries a directory the caller chooses, and on the
- * key rather than on `git` alone, so any other git command still reaches `answer` and fails there visibly.
+ * Any other git command reaches `answer` and fails there visibly rather than being answered with a remote.
  */
 export function answeringOrigin(remote: string, answer: Runner): Runner {
 	return (argv) => (isOriginRead(argv) ? { code: 0, stdout: originStdout(remote), stderr: "" } : answer(argv));
@@ -26,7 +25,7 @@ export function answeringOrigin(remote: string, answer: Runner): Runner {
  * `resolveOriginRemote` keeps. One definition, so a test cannot fake a shape the parser no longer reads.
  */
 export function originStdout(url: string, scope = "local"): string {
-	return `${scope}\t${url}\n`;
+	return `${scope}\0${url}\0`;
 }
 
 /**

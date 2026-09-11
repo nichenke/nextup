@@ -11,9 +11,9 @@ const READS: readonly (readonly string[])[] = [
 	["gh", "issue", "view"],
 	["gh", "api"],
 	// `reconstruct.ts` resolves the repository from the remote when `--repo` is absent. `--get-all` is part of the
-	// prefix rather than trailing detail: it is what puts `git config` in a mode that cannot write, so without it
-	// the same entry would admit `git config --local <key> <value>`.
-	["git", "config", "--show-scope", "--includes", "--get-all"],
+	// prefix rather than trailing detail: it is what puts `git config` in a mode that cannot write, so a prefix
+	// stopping before it would admit `git config -z --show-scope --includes <key> <value>`, which writes.
+	["git", "config", "-z", "--show-scope", "--includes", "--get-all"],
 ];
 
 /**
@@ -39,8 +39,6 @@ export function readOnlyRunner(runner: Runner): Runner {
 		const program = argv[0]?.split("/").at(-1);
 		// `git -C <directory>` is skipped before the prefix is matched, so a directory nobody can enumerate does
 		// not sit between the program and the subcommand that decides whether this is a read. What follows is then
-		// matched exactly as the same command without a `-C` would be — which is the whole claim: the skip admits
-		// every `-C` form of an allowed read, and no command a `-C`-less form would not have admitted.
 		const rest = program === "git" && argv[1] === "-C" ? argv.slice(3) : argv.slice(1);
 		const words = [program, ...rest];
 		const read = READS.find((prefix) => prefix.every((word, index) => words[index] === word));

@@ -8,6 +8,7 @@
 		"-C",
 		"/repo",
 		"config",
+		"-z",
 		"--show-scope",
 		"--includes",
 		"--get-all",

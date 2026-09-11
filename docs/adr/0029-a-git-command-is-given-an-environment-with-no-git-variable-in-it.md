@@ -2,10 +2,10 @@
 
 > Amended by [0041](./0041-the-origin-read-names-its-directory-and-reads-the-repositorys-own-config.md) on
 > two points. "What the prefix does not cover" leaves both config-location vectors open — 0041 closes them,
-> by a corrected form of the second option listed there: `--get-all` rather than the `--get` spelled below,
-> which answers with the wrong value where a remote carries several. And Consequences defends the origin read
-> carrying no `-C` — 0041 gives it one, so "almost every command this tool issues names the repository it
-> means" now has no exception. The argument below is otherwise unchanged.
+> though not with either option listed below: it reads every scope and keeps the ones the checkout configures
+> for itself, rather than selecting `--local`, which 0041 measures as too narrow. And Consequences defends the
+> origin read carrying no `-C` — 0041 gives it one, so "almost every command this tool issues names the
+> repository it means" now has no exception. The argument below is otherwise unchanged.
 
 Supersedes [0026](./0026-a-redirected-git-environment-is-refused-at-the-runner.md), which refused a run while
 `GIT_DIR` or `GIT_COMMON_DIR` was set. That list was incomplete, the measurement behind it was taken against
