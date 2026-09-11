@@ -11,41 +11,37 @@ export type Tracker = "github" | "gitlab" | "jira";
 export const GITHUB_HOST = "github.com";
 
 /**
- * The ports a GitHub remote may carry: SSH's and HTTPS's, either spelled out or left implicit.
+ * Every authority GitHub serves, as a git remote or a pasted URL may write it.
  *
- * A closed set rather than a pattern, because port-hosted GitHub is out of scope — so these are the whole rule
- * rather than a first approximation of one.
+ * A flat set rather than a host compared beside a port tested separately, because a port is not a thing this
+ * supports: GitHub at some other port is out of scope, so there is nothing to parse a port *for*. What is in
+ * scope is GitHub's own endpoints, and two of them spell a port — an explicit `:22`, and the `ssh.` host at
+ * `:443` that GitHub publishes as the workaround for a firewalled 22. Enumerating them says that in data, where
+ * splitting the authority and testing the halves said it in prose and invited the question of which other ports
+ * might be allowed.
  *
- * Not paired with the scheme, and that is a decision rather than an omission. A set this size admits two
- * mismatched pairs — HTTPS at 22, and SSH at 443 on the web host rather than on the `ssh.` endpoint GitHub
- * publishes for it. Both are remotes that cannot connect: 22 on the web host answers SSH and 443 answers TLS, so
- * each pair fails its own handshake rather than reaching somewhere else, and the repository the path names is the
- * one a claim would land on either way. Pairing them would mean carrying the scheme through `RemoteAddress`, which
- * every caller of the origin shares, to refuse a remote that is already broken.
- *
- * What would change that: supporting a GitHub at a port, which is out of scope. Then the port stops being a
- * channel detail and starts selecting an endpoint, and the pair has to be checked.
+ * Lower-case throughout, which both producers guarantee: `parseRemote` folds a remote's authority and
+ * `normalizeHost` folds a URL's.
  */
-const GITHUB_PORTS: ReadonlySet<string> = new Set(["22", "443"]);
+const GITHUB_AUTHORITIES: ReadonlySet<string> = new Set([
+	GITHUB_HOST,
+	`${GITHUB_HOST}:22`,
+	`${GITHUB_HOST}:443`,
+	`ssh.${GITHUB_HOST}`,
+	`ssh.${GITHUB_HOST}:22`,
+	`ssh.${GITHUB_HOST}:443`,
+]);
 
 /**
- * Whether a git remote's host is GitHub's, at a port GitHub serves.
+ * Whether a git remote's host, or a pasted URL's, is one GitHub answers on.
  *
- * GitHub's `ssh.` endpoint is accepted beside the web host, and an explicit `:22` or `:443` alongside either:
- * both are ordinary remotes — GitHub publishes the port-443 endpoint as the workaround for a firewalled 22 — and
- * comparing the authority whole refused them.
- *
- * Any other port is refused rather than dropped. Dropping every port accepted the web host at port 8443, which
- * is not an endpoint GitHub answers on, while every caller reads a pass as "this checkout is the GitHub
- * repository at that path" and writes the claim from it — ADR-0032 has why the host is the check that matters.
- * Measured before the narrowing: a named run whose origin was an SSH remote naming that port exited 0, having
- * claimed the path through GitHub's own API.
+ * Every caller reads a pass as "this checkout is the GitHub repository at that path" and writes the claim from it
+ * — ADR-0032 has why the host is the check that matters. Measured against an earlier version that dropped any
+ * port before comparing: a named run whose origin was an SSH remote at port 8443 exited 0, having claimed the
+ * path through GitHub's own API.
  */
 export function isGitHubHost(host: string): boolean {
-	const port = /:(\d+)$/.exec(host);
-	if (port !== null && !GITHUB_PORTS.has(port[1] as string)) return false;
-	const bare = host.replace(/:\d+$/, "");
-	return bare === GITHUB_HOST || bare === `ssh.${GITHUB_HOST}`;
+	return GITHUB_AUTHORITIES.has(host);
 }
 
 export interface TicketRef {
