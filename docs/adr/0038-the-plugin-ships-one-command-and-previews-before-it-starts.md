@@ -1,5 +1,12 @@
 # The plugin ships one command, and it previews before it starts
 
+> Extended, **not** superseded, by
+> [0041](./0041-the-brief-is-slotted-and-the-tool-owns-every-slot-the-graph-can-write.md): the plain
+> rendering stays what a session relays, and 0041 makes it the spine of a composed brief rather than a
+> source to paraphrase — every line of it appears unedited, and `degraded: ` and `deadlock: ` stay at
+> line-start. What 0041 adds is paragraphs no rendering can produce, because only a reading of the ticket
+> body can write them. Everything below stands until the inputs those paragraphs need exist.
+
 Two manifests made this repository look like a plugin and a store. Neither shipped anything a person
 could invoke: the tree held no `commands/`, `skills/` or `agents/` directory that Claude Code would
 load, so installing it added a manifest and no way to run the tool. The only documented invocation was

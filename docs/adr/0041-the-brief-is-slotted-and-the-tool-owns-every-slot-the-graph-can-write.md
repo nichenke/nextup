@@ -1,0 +1,211 @@
+# The brief is slotted, and the tool owns every slot the graph can write
+
+The answer a session relays becomes a **brief**: the plain rendering's lines, unedited and in order,
+with composed paragraphs around them. It is assembled from a fixed list of slots, each owned by
+exactly one half — the tool, or the session composing. The session may not write a tool-owned slot,
+reorder one, or leave one out; the tool never writes a session-owned one.
+
+The split is not facts against prose, which is where this started. It is **the graph and the ladder
+against the ticket body.** Every sentence derivable from the ticket set is the tool's, said as a
+sentence rather than as a field, deterministic and fixture-tested. The session's whole territory is
+the paragraphs that can only be written by reading a free-text body.
+
+That line falls where it does because most of what looked like judgment is arithmetic the ranking
+already does. "The wave narrows nothing; the tie-break did the work" is `decision.rung` compared
+against the ladder's last rung. Compressing twenty-two also-rans into one clause is grouping
+`ranked` by the ladder's own keys. Both are deterministic data checks, and a model asked to make
+them can get them wrong in a way no fixture would catch.
+
+## The worked example
+
+Against a real pick, taken from this repository. Repository coordinates are elided in the blocks
+below; the identifier guard's allowlist is not widened for an example
+([0006](./0006-provenance-prevents-leaks-the-guard-is-a-backstop.md)).
+
+Today's rendering, seven lines:
+
+```
+gh:<owner>/<name>#39 — ADR-0013's absolute-root promise conflicts with its symlink rule on macOS
+  <the issue URL>
+  won on reference over gh:<owner>/<name>#50
+  priority none, unblocks 0, blockers confirmed closed
+
+19 tickets: closed not asked, 2 claimed, 5 filtered out (excluding wayfinder:*, needs-triage, spec), 12 candidates (6 unblocked, 0 unknown, 6 blocked)
+claude '/implement gh:<owner>/<name>#39'
+```
+
+The brief the same pick produces:
+
+```
+Next: gh:<owner>/<name>#39 — ADR-0013's absolute-root promise conflicts with its symlink rule on macOS
+  <the issue URL>
+
+19 tickets: closed not asked, 2 claimed, 5 filtered out (excluding wayfinder:*, needs-triage, spec),
+12 candidates (6 unblocked, 0 unknown, 6 blocked) · unblocks 0 · blockers confirmed closed
+
+ADR-0013 promises a parametric absolute worktree root and, in the same decision, refuses a symlink
+anywhere along it. On macOS /tmp, /var and /etc are symlinks into /private and $TMPDIR sits under
+/var/folders, so every natural absolute root is refused, naming a path the caller never typed. The
+default .worktrees escapes only because git hands back a realpath'd primary checkout — so the guard
+is inert where it is used and total everywhere else. The suite is green because the test helper
+realpaths every temporary root it makes, which is a workaround rather than coverage.
+
+Scope — a decision between two candidates, plus a status banner: ADR-0013's body is append-only, so
+whichever wins needs a new ADR of its own.
+
+Constraints not carried by any edge
+- ADR-0013 refuses symlinks because git registers a worktree under the resolved path, so a root
+  reached through a link registers where `ensure` would not look for it (cited, from the body).
+
+Nothing separated the six. None carries a priority and none blocks anything, so the ladder fell
+through to the reference tie-break and the lowest number won.
+
+Also on the frontier: #50 is the one to weigh against this, and not because of the ranking — it is
+the only bug among the six and the only one carrying ready-for-agent, and the ladder reads neither.
+The remaining four — #58, #70, #77, #79 — are leaves with the same three signals as the pick. Six
+more candidates are blocked and were never ranked.
+
+In flight, in this repository: #80 and #53 are assigned to you.
+
+Ready to build: claude '/implement gh:<owner>/<name>#39'
+```
+
+Two things this example settles that a richer pick would have hidden.
+
+**The best move in the motivating example is unavailable here.** That brief argued its pick by a
+chain to a downstream goal. On this pick every ranked candidate has `unblocks 0`: there is no chain,
+no goal, and nothing downstream. A shape that expects the chain argument invites a model to invent
+one. So the slot is *why this one*, not *what this unblocks*, and on a tie its honest content is
+that nothing chose it.
+
+**The alternatives slot earns its place even on a tie.** The ladder reads priority, unblocks and
+reference — [0003](./0003-ranking-ladder-fixed-in-code.md) — and nothing else. Here the runner-up
+carries `bug` and `ready-for-agent` and the pick carries neither, and no rung looked. Naming the
+labels the tie-break ignored is the most useful sentence in the whole brief, and it is arithmetic.
+
+## The slots
+
+Ten, in this order. "Present" means the tool can already produce the input today.
+
+| # | Slot | Written by | Input it needs | Present |
+| - | ---- | ---------- | -------------- | ------- |
+| 1 | Identity | tool | `pick.ref`, `title`, `url` | yes |
+| 2 | Standing | tool | `counts`, `unblocks`, blocking phrase | yes |
+| 3 | Substance | session | the pick's raw body | **no** |
+| 4 | Scope | session | the same body | **no** |
+| 5 | Constraints no edge carries | session | the same body, checked against the graph | **no** |
+| 6 | Why this one | tool | `decision.rung`; a *path* to a downstream ticket | rung only |
+| 7 | Alternatives | tool | `ranked` with labels; the unranked partition's count | yes |
+| 8 | In flight | tool | the viewer's tracker identity, against claims already read | **no** |
+| 9 | Contract lines | tool | `degraded: `, `deadlock: ` | yes |
+| 10 | Action | tool | the session command | yes |
+
+The reason comes before the alternatives, which inverts the motivating example's order. "Also on the
+frontier" is not readable until you know whether the ranking decided anything: on a tie it is the
+whole argument, and after a decisive rung it is an aside. Ordering it second lets one shape carry
+both.
+
+Three inputs are missing, and that is the whole of what issue 72 has to supply: **the pick's raw
+body**, **the viewer's tracker identity**, and **a path from the pick to a downstream ticket**
+rather than the count `unblocks` already is. Every other slot reads something the selector holds.
+Slot 7 in particular needs nothing new — `ranked` already carries each candidate's labels.
+
+Slot 8 costs no extra ticket read. The adapter already parses `assignees` into a claim on every row,
+which is where `counts.claimed` comes from; what is missing is only who the viewer is.
+
+## What stays a contract
+
+[0038](./0038-the-plugin-ships-one-command-and-previews-before-it-starts.md) chose the plain
+rendering as the thing a session relays, because it is not a lossy summary of `--json`. That holds,
+and the brief is built so it keeps holding: **every line of the plain rendering appears in the
+brief, unedited.** The brief adds, it does not replace.
+
+`degraded: ` and `deadlock: ` lines stay at line-start, never wrapped in prose, never summarised,
+and never budgeted away. A composing session that cannot reach them still emits them, because they
+are slot 9 and slot 9 is the tool's.
+
+The one edit to a rendered line is that standing folds the pick's signals into the counts line
+rather than keeping them on a line above it, which is a join of two tool-owned slots and changes no
+wording. Priority disappears from the standing line only when it is absent from every candidate, and
+returns the moment one carries it — an absent priority is worth a word when it distinguishes, and
+noise when it does not.
+
+References are qualified once, on the identity line, and bare thereafter. A run reads one
+repository's tickets — checkout identity is resolved once and a foreign ticket is refused
+([0040](./0040-checkout-identity-is-resolved-once-and-a-write-cannot-happen-without-one.md)) — so
+repeating the coordinates a dozen times restates something already fixed for the whole answer.
+
+## The length budget
+
+Twenty-five content lines is the ceiling and today's seven is the floor; the blank line between
+slots is not counted, and the slots below sum to twenty-three. The budget is allocated per slot
+rather than to the brief as a whole, because slots 3 to 5 are the only ones a model writes and an
+unbudgeted brief is one where they absorb everything:
+
+| Slot | Lines |
+| ---- | ----- |
+| Identity | 2 |
+| Standing | 2 |
+| Substance | 6 |
+| Scope | 2 |
+| Constraints no edge carries | 3 |
+| Why this one | 2 |
+| Alternatives | 4 |
+| In flight | 1 |
+| Action | 1 |
+
+Contract lines are exempt. A warning is never cut to fit, and a set with four deadlock cycles prints
+four.
+
+**A slot with nothing to say is omitted, not padded.** That is what makes the floor reachable: on a
+pick with an empty body, slots 3 to 5 are absent and the brief is the plain rendering with slots 6
+to 8 around it. There is no "no acceptance criteria found" line, because a line saying
+nothing was found costs the same as one that found something and is worth less than the blank.
+
+## Thin inputs, which is the common case
+
+The worked example is the thin case, and the rules come from it.
+
+**A tie is named as a tie.** Where the deciding rung is the ladder's last, the brief says the ladder
+found nothing to separate the candidates. It does not report the tie-break as a win. This is a
+comparison against `LADDER`'s tail rather than a literal, the same way `decidingRung` already avoids
+drifting from the ladder.
+
+**Substance comes from the body or not at all.** Restating the title in longer words is the failure
+this shape exists to prevent — the title is already on line 1. A model that has read no body writes
+no slot 3.
+
+**A claim found in the body is reported as a claim.** A body saying "this is blocked on the auth
+work" is not blocking state: no edge carries it, the tracker never reported it, and folding it in
+would be the collapse `CONTEXT.md` forbids under **Unknown**. It goes in slot 5, attributed and
+citable, which is what that slot is for.
+
+**With one candidate, slot 6 is omitted.** "It was the only one" is already slot 2's job.
+
+## Consequences
+
+The shipped answer is no longer deterministic end to end, and the scenario fixtures assume it is.
+They keep working: they assert `Selection`, and every slot they cover is tool-owned. What they no
+longer cover is the whole of what a reader sees. The composed slots need their own control, and
+naming it is out of scope here — but a fixture over slots 1, 2, 6, 7, 9 and 10 is the deterministic
+half and should stay exact.
+
+Nothing here ships yet. `skills/nextup/SKILL.md` still describes relaying the plain rendering, which
+is correct until the three missing inputs exist: a skill told to compose slot 3 today would compose
+it from the title. [0038](./0038-the-plugin-ships-one-command-and-previews-before-it-starts.md)'s
+relay instruction stands until then.
+
+Slot 8 is scoped to the ticket set already read, and says so — "in this repository" — so an empty
+slot is not read as "you are holding nothing anywhere". The wider query the motivating example
+implied, assigned-to-me across every repository, is refused for the reason
+[0040](./0040-checkout-identity-is-resolved-once-and-a-write-cannot-happen-without-one.md) refuses a
+foreign ticket: the tool's world is the checkout it stands in, and it would be reporting on ticket
+sets it has not read and cannot say anything true about. The cost is real — in-flight work
+elsewhere is invisible, and that is the case where the line would have mattered most. If the narrow
+form proves useless, widening it is a decision of its own with a scope binding and a limit attached.
+
+Two sentences now live in TypeScript that a model would otherwise have written: the tie-break
+wording and the compression of the alternatives. That grows `selection-output.ts`, which is already more comment
+than code about exactly this kind of wording. It is the same trade the repository has already taken
+for `degraded: ` and `blockingPhrase` — a sentence a fixture can assert is a sentence that cannot
+drift — and the alternative is a model deciding whether six tied candidates were separated.

@@ -102,6 +102,19 @@ One check an override failed, and the reason reported for it. Every failed check
 so fixing one does not reveal the next.
 _Avoid_: error, rejection, validation failure
 
+### Reporting the pick
+
+**Brief**:
+The whole answer a session puts in front of a person: every line of the plain rendering, unedited, with the
+paragraphs only a reading of the ticket body can write composed around them. ADR-0041 fixes its shape.
+_Avoid_: summary, digest, report, explanation
+
+**Slot**:
+One position in the brief, owned by exactly one half — the tool, or the session composing. Ownership is what
+the shape is made of: a tool-owned slot is deterministic and fixture-testable, and a session-owned one exists
+only because a free-text body cannot be read any other way.
+_Avoid_: field, section, block
+
 ### Claiming and launching
 
 **Claim**:
