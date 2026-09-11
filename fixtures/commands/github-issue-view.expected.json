@@ -1,0 +1,18 @@
+{
+	"description": "One read of a single named GitHub ticket, asking the projection the set read asks for.",
+	"input": {
+		"repo": "example/repo",
+		"key": "1"
+	},
+	"argv": [
+		"gh",
+		"issue",
+		"view",
+		"--repo",
+		"example/repo",
+		"--json",
+		"number,title,state,assignees,labels,url,blockedBy",
+		"--",
+		"1"
+	]
+}

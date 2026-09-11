@@ -1,3 +1,4 @@
+import type { BlockedState } from "./effective-blockedness";
 import type { LabelFilterSpec } from "./label-filter";
 import { type NonEmpty, mapNonEmpty } from "./non-empty";
 import type { Candidate, Deadlock, Degrade, Rung, Selection, SelectionCounts } from "./selector";
@@ -97,7 +98,16 @@ export interface AnswerJson {
 }
 
 export function answerJson(answer: Answer): AnswerJson {
-	return { selection: selectionJson(answer.selection), readDegraded: answer.readDegraded.map(readDegradeJson) };
+	return { selection: selectionJson(answer.selection), readDegraded: readDegradedJson(answer.readDegraded) };
+}
+
+/**
+ * One read's degrades with every reference in its short form. Exported for the override path, which carries
+ * them at the same key without a selection to put them in — so a consumer reads `readDegraded` the same way
+ * whichever path answered.
+ */
+export function readDegradedJson(degraded: readonly ReadDegrade[]): readonly ReadDegradeJson[] {
+	return degraded.map(readDegradeJson);
 }
 
 function readDegradeJson(degrade: ReadDegrade): ReadDegradeJson {
@@ -120,9 +130,22 @@ export function renderAnswer(answer: Answer): string {
  * One reason line. Whitespace inside the reason is collapsed because a reason can carry a tracker's own
  * message and `gh` writes those over several lines: left alone, the second line reaches the caller with no
  * prefix on it, which is the one thing `DEGRADED_PREFIX` promises cannot happen.
+ *
+ * Exported for the override path, whose read degrades the same ways and must report them under the same
+ * sentinel — a second prefixing would be a second promise about the same contract.
  */
-function degradedLine(reason: string): string {
+export function degradedLine(reason: string): string {
 	return `${DEGRADED_PREFIX}${reason.replace(/\s+/g, " ").trim()}`;
+}
+
+/**
+ * One read's degrades as the reasons they are reported by, unprefixed and one to an entry.
+ *
+ * The override path renders these and asks them at its gate, exactly as `answerCaveats` does for a ranked
+ * answer — so the wording stays in one place whichever path did the reading.
+ */
+export function readCaveats(degraded: readonly ReadDegrade[]): readonly string[] {
+	return degraded.map(readDegradeReason);
 }
 
 /**
@@ -153,10 +176,7 @@ const DEGRADE_REASON: Record<Degrade["kind"], string> = {
  * `approved` in `cli.ts` why the gate does not want them.
  */
 export function answerCaveats(answer: Answer): readonly string[] {
-	return [
-		...answer.selection.degraded.map((degrade) => DEGRADE_REASON[degrade.kind]),
-		...answer.readDegraded.map(readDegradeReason),
-	];
+	return [...answer.selection.degraded.map((degrade) => DEGRADE_REASON[degrade.kind]), ...readCaveats(answer.readDegraded)];
 }
 
 /**
@@ -221,16 +241,27 @@ function heldBackCount(selection: Selection): number {
 }
 
 /**
- * How a candidate's blocking state reads. Exported because the confirmation gate has to say it too, and
+ * How a ticket's blocking state reads. Exported because the confirmation gate has to say it too, and
  * `CONTEXT.md` forbids `Unknown` being collapsed into either of the other two states — a gate that phrased
  * an unknown pick like a confirmed one would be that collapse, at the one place a person decides. Shared
  * rather than written twice, so the two cannot come to describe one ticket differently.
  *
  * Not "blocking confirmed", the only string here a reader could take to mean confirmed *blocked* — on the
  * line recommending the ticket, above a counts line that says how many are.
+ *
+ * All three states, though a `Candidate` carries only two: the override path can start a ticket that is
+ * confirmed blocked, and wording that one here is what keeps the gate's line from being written twice. The
+ * parameter is structural for the same reason — a `Candidate` satisfies it without the narrower type widening.
  */
-export function blockingPhrase(candidate: Pick<Candidate, "blocked">): string {
-	return candidate.blocked === "unblocked" ? "blockers confirmed closed" : "blockers unknown";
+export function blockingPhrase(what: { readonly blocked: BlockedState }): string {
+	switch (what.blocked) {
+		case "unblocked":
+			return "blockers confirmed closed";
+		case "unknown":
+			return "blockers unknown";
+		case "blocked":
+			return "a blocker is open";
+	}
 }
 
 function renderSignals(candidate: Candidate): string {

@@ -1,5 +1,6 @@
 import { type Argv, DEFAULT_SLASH_COMMAND, WORKSPACE_HOST, formatCommand, isSlashCommand } from "./command-builders";
-import { GitHubAdapterError, isReadableLimit, readGitHubTicketSet } from "./github-adapter";
+import type { BlockedState } from "./effective-blockedness";
+import { GitHubAdapterError, isReadableLimit, readGitHubTicket, readGitHubTicketSet } from "./github-adapter";
 import { GitHubClaimError, claimGitHubTicket } from "./github-claim";
 import {
 	DEFAULT_LABEL_FILTER,
@@ -9,10 +10,21 @@ import {
 	compileLabelFilter,
 } from "./label-filter";
 import { LaunchError, launch, planLaunch, requireSessionBinary, requireWorkspaceHost } from "./launcher";
+import { decideOverride } from "./override";
+import { type OverrideAnswer, forcedCaveats, overrideJson, renderOverride, renderRefusal } from "./override-output";
 import type { Runner } from "./runner";
-import { type Answer, answerCaveats, answerJson, blockingPhrase, renderAnswer } from "./selection-output";
-import { type Candidate, SelectionError, select } from "./selector";
-import { type TicketRef, formatTicketRef } from "./ticket-ref";
+import {
+	type Answer,
+	answerCaveats,
+	answerJson,
+	blockingPhrase,
+	readCaveats,
+	readDegradedJson,
+	renderAnswer,
+} from "./selection-output";
+import { SelectionError, select } from "./selector";
+import type { Ticket } from "./ticket";
+import { type TicketRef, TicketRefError, formatTicketRef, resolveTicketRef } from "./ticket-ref";
 import { WorktreeError, type WorktreeOutcome, ensure } from "./worktree";
 import { renderWorktree } from "./worktree-output";
 
@@ -56,11 +68,15 @@ const USAGE = `nextup — picks the ticket to start next, claims it, and starts 
 
 A run reads the GitHub repository the working directory's origin points at, ranks what is startable, and
 shows you the pick. Once you agree, it makes the ticket's worktree, claims the ticket, and asks the workspace
-host to run a session in that worktree.
+host to run a session in that worktree. Name a ticket instead and it starts that one.
 
 usage: nextup [--include <label>]... [--exclude <label>]... [--limit <n>] [--slash-command </verb>]
               [--yes] [--json] [--print-command]
+       nextup <ticket> [--force] [--slash-command </verb>] [--yes] [--json] [--print-command]
 
+  <ticket>                 start this ticket rather than the ranking's pick: a short form like gh:12 or
+                           gh:<owner>/<name>#12, or an issue URL pasted from a browser
+  --force                  start the named ticket past the blocked and claimed checks, loudly
   --include <label>        consider only tickets carrying one of these labels; repeatable
   --exclude <label>        never consider a ticket carrying one of these labels; repeatable
   --limit <n>              how many open tickets to consider; ${DEFAULT_LIMIT} by default
@@ -70,6 +86,18 @@ usage: nextup [--include <label>]... [--exclude <label>]... [--limit <n>] [--sla
   --print-command          print the session command, and start, claim and create nothing
   --json                   emit the answer as JSON rather than the human rendering
   --help, -h               print this
+
+Naming a ticket skips the ranking and the label filter, which both decide only what may be recommended.
+The checks about whether work can start on it stay: a closed, claimed or confirmed-blocked ticket is
+refused, with every failed check named. --force starts past a claimed or blocked one, says so on a
+"forced: " line, and claims it anyway, so the work stays visible to everyone else. It does not reach a
+closed ticket — reopen that instead. A ticket whose blocking state the tracker could not report is not
+blocked and needs no flag; the pick's own line says which of the three it is.
+
+The flags that describe a ticket set — --include, --exclude, --limit — are refused beside a named ticket
+rather than ignored, since no set is read. --force without one is refused for the same reason. With a
+named ticket, --print-command reads no tracker at all: it writes nothing, so there is nothing to check,
+and it stays usable with no credentials.
 
 A label may end in "*" to match a prefix. These exclusions always apply and --exclude adds to them
 rather than replacing them: 'wayfinder:*', so the planning and delivery tracks cannot compete for
@@ -115,6 +143,10 @@ is not running, a worktree that cannot be made, a claim that would not land, or 
 started. A tracker that could not be reached is reported as a degraded answer with nothing to recommend,
 which is 1.
 
+A named ticket is never 1: there was no recommendation to be absent. One that a check refused is 2, and so is
+one that could not be read — including a tracker that could not be reached, because the one ticket was the
+whole answer and there is no degraded version of it to hand back.
+
 Declining is 0 rather than a status of its own. A script that needs to know what happened passes --yes, which
 never declines, and reads the "start" object under --json — whose "requested" is the furthest this reports,
 because nothing it can see says the session itself came up.
@@ -133,6 +165,16 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 	} catch (cause) {
 		return usageError(cause);
 	}
+
+	let named: TicketRef | null;
+	try {
+		// Resolved here rather than in `parse`, which is handed no runner: a bare `gh:12` is resolved against the
+		// working directory's remote, and a pasted URL against the tracker CLIs' authenticated hosts.
+		named = options.named === null ? null : resolveTicketRef(options.named, { runner: deps.runner });
+	} catch (cause) {
+		return usageError(cause);
+	}
+	if (named !== null) return runNamed(named, options, deps);
 
 	let filter: LabelFilter;
 	try {
@@ -170,6 +212,76 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 		stdout: options.json
 			? `${JSON.stringify({ ...answerJson(answer), start: startJson(start) }, null, "\t")}\n`
 			: `${renderAnswer(answer)}${renderStart(start)}`,
+		stderr: "",
+	};
+}
+
+/**
+ * A run on the ticket the operator named: read that ticket, apply the checks, and start it. The ranking is not
+ * consulted and neither is the label filter, because both decide what may be *recommended* — ADR-0037.
+ *
+ * The refusal is exit 2 rather than the 1 that means nothing to recommend: a named ticket that cannot be started
+ * is a thing for a person to act on, and there was never a recommendation to be absent. A read that failed is
+ * the same status for the same reason — the one ticket was the whole answer, so there is no degraded one to give.
+ */
+function runNamed(ref: TicketRef, options: Options, deps: CliDeps): CliResult {
+	if (options.printCommand) {
+		// Starts nothing, creates nothing and claims nothing, and the command follows from the reference alone, so
+		// this reads no tracker and cannot refuse — ADR-0037, which is also why that costs nothing worth having.
+		try {
+			return namedResult({ kind: "printed", command: planLaunch({ ref, slashCommand: options.slashCommand }).command }, null, options);
+		} catch (cause) {
+			return failedStart(cause);
+		}
+	}
+
+	let answer: OverrideAnswer;
+	try {
+		const read = readGitHubTicket({ runner: deps.runner, ref });
+		answer = { override: decideOverride({ read, force: options.force }), readDegraded: read.degraded };
+	} catch (cause) {
+		return failedAnswer(cause);
+	}
+
+	const override = answer.override;
+	if (override.kind === "refused") {
+		return { code: 2, stdout: "", stderr: renderRefusal(override.refusals, override.target) };
+	}
+
+	let start: StartOutcome;
+	try {
+		start = startPick(
+			{
+				ticket: override.target.ticket,
+				blocked: override.target.blocked,
+				caveats: [...forcedCaveats(override), ...readCaveats(answer.readDegraded)],
+			},
+			options,
+			deps,
+		);
+	} catch (cause) {
+		return failedStart(cause);
+	}
+	return namedResult(start, answer, options);
+}
+
+/**
+ * What a named run wrote, and what it did about the ticket — `null` where `--print-command` answered before
+ * anything was read, so the override block is absent rather than reported empty.
+ *
+ * `readDegraded` sits at the same key the ranked answer puts it at, so one consumer reads both paths.
+ */
+function namedResult(start: StartOutcome, answer: OverrideAnswer | null, options: Options): CliResult {
+	const json = {
+		override: answer === null ? null : overrideJson(answer.override),
+		readDegraded: answer === null ? [] : readDegradedJson(answer.readDegraded),
+		start: startJson(start),
+	};
+	return {
+		code: 0,
+		stdout: options.json
+			? `${JSON.stringify(json, null, "\t")}\n`
+			: `${answer === null ? "" : renderOverride(answer)}${renderStart(start)}`,
 		stderr: "",
 	};
 }
@@ -216,20 +328,39 @@ export type StartOutcome =
 function startWork(answer: Answer, options: Options, deps: CliDeps): StartOutcome {
 	const pick = answer.selection.pick;
 	if (pick === null) return { kind: "nothing-to-start" };
+	return startPick({ ticket: pick, blocked: pick.blocked, caveats: answerCaveats(answer) }, options, deps);
+}
+
+/**
+ * The ticket a run is about to start, reduced to what starting it needs — whichever path chose it. The ranking
+ * path's pick and the override path's target have nothing else in common: one carries a runner-up and a rung,
+ * the other the checks a `--force` cleared, and neither belongs in the write sequence below.
+ */
+interface StartPick {
+	readonly ticket: Pick<Ticket, "ref" | "title" | "labels">;
+	/** The whole tri-state, which a `Candidate` cannot carry: a forced start's target can be confirmed blocked. */
+	readonly blocked: BlockedState;
+	/** The lines the gate has to carry, because nothing has printed them when it is asked. */
+	readonly caveats: readonly string[];
+}
+
+/** The refusals, the gate, and then the three writes. `startWork`'s own comment is the contract for all of it. */
+function startPick(pick: StartPick, options: Options, deps: CliDeps): StartOutcome {
+	const ref = pick.ticket.ref;
 	// Built first, so the one input that can fail without touching anything fails while that is still true.
-	const { command } = planLaunch({ ref: pick.ref, slashCommand: options.slashCommand });
+	const { command } = planLaunch({ ref, slashCommand: options.slashCommand });
 	if (options.printCommand) return { kind: "printed", command };
 
 	requireSomeoneToAsk(options, deps);
 	requireWorkspaceHost(deps.runner);
 	requireSessionBinary(deps.runner);
-	if (!approved(answer, pick, options, deps)) return { kind: "declined", ref: pick.ref };
+	if (!approved(pick, options, deps)) return { kind: "declined", ref };
 
-	const worktree = ensure({ runner: deps.runner, repo: deps.cwd, ticket: pick });
+	const worktree = ensure({ runner: deps.runner, repo: deps.cwd, ticket: pick.ticket });
 	try {
-		claimGitHubTicket({ runner: deps.runner, ref: pick.ref });
-		launch({ runner: deps.runner, ref: pick.ref, command, worktree: worktree.path });
-		return { kind: "requested", ref: pick.ref, worktree, command };
+		claimGitHubTicket({ runner: deps.runner, ref });
+		launch({ runner: deps.runner, ref, command, worktree: worktree.path });
+		return { kind: "requested", ref, worktree, command };
 	} catch (cause) {
 		throw startedNothing(cause, worktree, command);
 	}
@@ -255,26 +386,26 @@ function requireSomeoneToAsk(options: Options, deps: CliDeps): void {
 /**
  * Whether to go ahead. `--yes` answers in advance; otherwise the person at the terminal is asked.
  *
- * The question restates the pick, for the reason `Confirm` gives, and carries the answer's degrades, because
- * none of them have been printed when it is asked. `blockingPhrase` is why the blocking state is one of them;
- * the rest follow the same reasoning, since a pick from a truncated read is one a better candidate may beat and
- * the operator would learn that only after claiming it. Both wordings come from the rendering rather than
- * being restated here.
+ * The question restates the pick, for the reason `Confirm` gives, and carries `StartPick.caveats`, because none
+ * of them have been printed when it is asked. `blockingPhrase` is why the blocking state is one of them; the
+ * rest follow the same reasoning, since a pick from a truncated read is one a better candidate may beat — and a
+ * named ticket started past an open blocker is one the operator has to be asked about while that is still
+ * news. Every wording comes from the rendering rather than being restated here.
  *
  * A deadlock is deliberately not among them, though it is reported beside the answer: it names tickets that
  * block each other, which is a fact about that cycle rather than about whether this pick can be started, and
  * `USAGE` says why it never decides the exit status either.
  */
-function approved(answer: Answer, pick: Candidate, options: Options, deps: CliDeps): boolean {
+function approved(pick: StartPick, options: Options, deps: CliDeps): boolean {
 	if (options.yes) return true;
 	if (deps.confirm === null) {
 		// `requireSomeoneToAsk` already refused this, so reaching it means the two disagree about the same inputs.
 		throw new StartError("there is no terminal to confirm on, so nothing was started");
 	}
 	const lines = [
-		`start ${formatTicketRef(pick.ref)} — ${pick.title}`,
+		`start ${formatTicketRef(pick.ticket.ref)} — ${pick.ticket.title}`,
 		`  ${blockingPhrase(pick)}`,
-		...answerCaveats(answer).map((caveat) => `  ${caveat}`),
+		...pick.caveats.map((caveat) => `  ${caveat}`),
 		"claim it and start a session in its own worktree? [y/N]",
 	];
 	return deps.confirm(lines.join("\n"));
@@ -384,9 +515,15 @@ interface Options {
 	readonly json: boolean;
 	readonly yes: boolean;
 	readonly printCommand: boolean;
+	readonly force: boolean;
 	readonly limit: number;
 	readonly slashCommand: string;
 	readonly filter: LabelFilterSpec;
+	/**
+	 * The ticket named on the command line, as written — unresolved, because resolving one reads a git remote or
+	 * a CLI's authenticated hosts and `parse` is handed nothing to read with.
+	 */
+	readonly named: string | null;
 }
 
 /**
@@ -436,13 +573,17 @@ function parse(argv: readonly string[]): Options {
 	let json = false;
 	let yes = false;
 	let printCommand = false;
+	let force = false;
 	let limit = DEFAULT_LIMIT;
 	let slashCommand = DEFAULT_SLASH_COMMAND;
+	let named: string | null = null;
 	const include: string[] = [];
 	const exclude: string[] = [];
+	const given = new Set<string>();
 
 	for (let i = 0; i < argv.length; i++) {
 		const flag = argv[i]!;
+		given.add(flag);
 		switch (flag) {
 			case "--json":
 				json = true;
@@ -452,6 +593,9 @@ function parse(argv: readonly string[]): Options {
 				break;
 			case "--print-command":
 				printCommand = true;
+				break;
+			case "--force":
+				force = true;
 				break;
 			case "--limit":
 				limit = tickets(value(argv, ++i, flag), flag);
@@ -466,19 +610,49 @@ function parse(argv: readonly string[]): Options {
 				exclude.push(value(argv, ++i, flag));
 				break;
 			default:
-				throw new CliError(`${flag} is not a flag this command takes`);
+				if (flag.startsWith("-")) throw new CliError(`${flag} is not a flag this command takes`);
+				if (named !== null) throw new CliError(`${named} and ${flag} are two tickets, and a run starts one`);
+				named = flag;
 		}
 	}
+	requireFlagsThatApply(named, given);
 
 	// Prepended rather than replaced, so the defaults are a floor a filter flag cannot lift; ADR-0031 has why.
 	return {
 		json,
 		yes,
 		printCommand,
+		force,
 		limit,
 		slashCommand,
+		named,
 		filter: { include, exclude: [...DEFAULT_LABEL_FILTER.exclude, ...exclude] },
 	};
+}
+
+/** The flags each path has no use for, which every one of the three describes a ticket set or the override. */
+const ABOUT_THE_SET: readonly string[] = ["--limit", "--include", "--exclude"];
+
+/**
+ * Refuses a line whose flags and ticket disagree about which path is being run.
+ *
+ * Refused rather than ignored, because each of these flags describes work the run will not do: a set read that
+ * never happens, or checks there is no named ticket to clear. Accepting one silently is how an operator comes to
+ * believe a filter narrowed something — the failure `renderFilter` exists to prevent on the other path.
+ */
+function requireFlagsThatApply(named: string | null, given: ReadonlySet<string>): void {
+	if (named === null) {
+		if (given.has("--force")) {
+			throw new CliError("--force starts a named ticket past the blocked and claimed checks, and this run names none");
+		}
+		return;
+	}
+	const aboutTheSet = ABOUT_THE_SET.filter((flag) => given.has(flag));
+	if (aboutTheSet.length > 0) {
+		throw new CliError(
+			`${aboutTheSet.join(" and ")} describe the ticket set a run ranks, and naming ${named} reads no set at all`,
+		);
+	}
 }
 
 /** @throws CliError where the value is not a slash command a session could be given. */
@@ -514,7 +688,9 @@ function value(argv: readonly string[], index: number, flag: string): string {
 }
 
 function usageError(cause: unknown): CliResult {
-	if (cause instanceof CliError || cause instanceof LabelFilterError) {
+	// A reference that will not resolve is among them: what the command line said cannot be used, which is the
+	// same thing a bad flag is, and the usage beside it is where the accepted forms are written down.
+	if (cause instanceof CliError || cause instanceof LabelFilterError || cause instanceof TicketRefError) {
 		return { code: 2, stdout: "", stderr: `${cause.message}\n\n${USAGE}` };
 	}
 	throw cause;

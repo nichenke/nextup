@@ -113,6 +113,44 @@ function compareNumerals(a: string, b: string): number {
 	return left.length - right.length || compareText(left, right);
 }
 
+/**
+ * The repository and issue a reference names on GitHub, or why it names none.
+ *
+ * A union rather than a nullable pair, so a caller cannot reach the repository without having dealt with the
+ * refusal — the three checks below are the ones that decide whether a command acts on the ticket it names.
+ */
+export type GitHubTicketTarget =
+	| { readonly kind: "ticket"; readonly repo: string; readonly key: string }
+	| { readonly kind: "refused"; readonly reason: string };
+
+/**
+ * Whether a reference names a GitHub ticket a command can act on, and what to act on.
+ *
+ * Shared by both commands that act on one — the claim's write and the override path's single-ticket read — so
+ * that a reference one of them refuses cannot be accepted by the other. The host check is the one that matters
+ * and ADR-0032 has why: neither command sends a hostname, so `owner/repo` from a reference on another host
+ * resolves to whatever sits at that path on GitHub, which is a different repository of the same name.
+ *
+ * The reason comes back rather than being thrown, because each caller raises its own class: `cli.ts` decides
+ * which recovery a failure leaves open from that class, and one shared error would collapse the two.
+ */
+export function githubTicketTarget(ref: TicketRef): GitHubTicketTarget {
+	const what = formatTicketRef(ref);
+	if (ref.tracker !== "github") {
+		return { kind: "refused", reason: `${what} is not a GitHub ticket, and GitHub is the only tracker this has an adapter for` };
+	}
+	if (ref.repo === null || !isValidRepoPath("github", ref.repo)) {
+		return { kind: "refused", reason: `${what} names no GitHub owner and repository` };
+	}
+	if (ref.host !== null && !isGitHubHost(ref.host)) {
+		return {
+			kind: "refused",
+			reason: `${what} is on ${ref.host}, and this works on ${GITHUB_HOST} only — the same path on another host is a different repository`,
+		};
+	}
+	return { kind: "ticket", repo: ref.repo, key: ref.key };
+}
+
 export interface ResolveDeps {
 	runner?: Runner;
 }

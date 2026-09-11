@@ -11,6 +11,7 @@ import {
 	gitCommonDirCommand,
 	githubClaimCommand,
 	githubIssueListCommand,
+	githubIssueViewCommand,
 	jiraIdentityCommand,
 	originRemoteCommand,
 	remoteBranchesCommand,
@@ -143,6 +144,12 @@ const CASES: readonly Case[] = [
 		build: () => githubIssueListCommand({ repo: "example/repo", rows: 31 }),
 	},
 	{
+		name: "github-issue-view",
+		description: "One read of a single named GitHub ticket, asking the projection the set read asks for.",
+		input: { repo: "example/repo", key: "1" },
+		build: () => githubIssueViewCommand({ repo: "example/repo", key: "1" }),
+	},
+	{
 		name: "github-claim",
 		description: "The one write that claims a GitHub ticket, assigning whoever the CLI is authenticated as.",
 		input: { repo: "example/repo", key: "1" },
@@ -243,6 +250,27 @@ describe("withoutBlockingField", () => {
 		expect(() => withoutBlockingField(["gh", "issue", "list", "--json", "number", "--json", "blockedBy"])).toThrow(
 			/does not spell the issue-list projection/,
 		);
+	});
+});
+
+describe("githubIssueViewCommand", () => {
+	test("asks the projection the set read asks for, so one row reader parses both", () => {
+		const argv = githubIssueViewCommand({ repo: "example/repo", key: "7" });
+		expect(argv[argv.indexOf("--json") + 1]).toBe(GITHUB_TICKET_FIELDS.join(","));
+	});
+
+	test("names the issue after a separator, so no spelling of a key is read as a flag", () => {
+		const argv = githubIssueViewCommand({ repo: "example/repo", key: "7" });
+		expect(argv.slice(argv.indexOf("--"))).toEqual(["--", "7"]);
+	});
+
+	// Measured on gh 2.100.0: `gh issue view --json number -- 012` answers `{"number":12}`, so a padded key
+	// reads one issue under a reference naming another, exactly as ADR-0032 measured for the claim.
+	test("refuses a key the CLI would resolve to a different issue, or read as a flag", () => {
+		expect(() => githubIssueViewCommand({ repo: "example/repo", key: "012" })).toThrow(/canonical/);
+		expect(() => githubIssueViewCommand({ repo: "example/repo", key: "0" })).toThrow(/canonical/);
+		expect(() => githubIssueViewCommand({ repo: "example/repo", key: "-h" })).toThrow(/issue number/);
+		expect(() => githubIssueViewCommand({ repo: "example/repo", key: "ABC-7" })).toThrow(/issue number/);
 	});
 });
 

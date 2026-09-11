@@ -75,3 +75,17 @@ export function respondingRunner(recording: Recording): Runner {
 function responseOf(recording: Recording): CommandResult {
 	return { code: recording.code, stdout: recording.stdout, stderr: recording.stderr };
 }
+
+/**
+ * The issue a single-ticket recording answered about, read off the row it carries rather than written down here:
+ * a rebuilt tree renumbers, per ADR-0023.
+ *
+ * Deliberately not taken from the recording's own argv, for the reason `github-claim.test.ts` gives about the
+ * claim — `replayRunner` answers only the argv it captured, so a key read off that argv would match by
+ * construction and assert nothing about what the read asks for.
+ */
+export function recordedIssue(recording: Recording): string {
+	const number = (JSON.parse(recording.stdout) as { number?: unknown }).number;
+	if (typeof number !== "number") throw new RecordingError(`${recording.description} answered about no issue number`);
+	return String(number);
+}

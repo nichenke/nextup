@@ -80,6 +80,18 @@ _Avoid_: scoring, priority algorithm, heuristic
 One key in the ladder.
 _Avoid_: tier, weight, criterion
 
+**Override**:
+A ticket named on the command line, which skips the ranking ladder and the candidate filter — both of which
+decide only what may be *recommended* — and starts that ticket. The checks about whether work can start on it
+stay: closed, claimed, and confirmed blocked.
+_Avoid_: manual pick, bypass, direct start
+
+**Force**:
+The instruction to start an override past the claimed and blocked checks, reported loudly and claiming the
+ticket regardless. It never reaches a closed ticket. Names the flag and the decision, not the path — the path
+is **Override**, which exists with or without it.
+_Avoid_: skip checks, unsafe mode
+
 ### Claiming and launching
 
 **Claim**:

@@ -23,8 +23,27 @@ bun bin/nextup.ts --json                # the selection, and what the run did ab
 bun bin/nextup.ts --yes                 # start without asking, for an unattended run
 bun bin/nextup.ts --slash-command /triage   # start a triage session rather than an implementation
 bun bin/nextup.ts --print-command       # print the session command, starting nothing
+bun bin/nextup.ts gh:12                 # start this ticket instead, skipping the ranking
+bun bin/nextup.ts gh:12 --force         # start it past the blocked and claimed checks, loudly
 bun bin/nextup.ts --help                # every flag
 ```
+
+Naming a ticket — `gh:12`, `gh:<owner>/<name>#12`, or an issue URL pasted from a browser — starts that one. It
+skips the ranking ladder and the label filter, because both decide only what may be *recommended* and
+nothing is being recommended. What it does not skip is the checks about whether work can start: a closed,
+claimed or confirmed-blocked ticket is refused, with every failed check named and exit 2. Naming a ticket by
+hand is exactly the path where the frontier query is bypassed, so those are the checks that matter most here.
+
+`--force` starts past a claimed or blocked one, names what it cleared on a `forced: ` line, asks at the gate
+before writing anything, and claims the ticket anyway — skipping the block check is a judgment you are
+entitled to make, while skipping the claim would only make your work invisible to the next session. It does
+not reach a closed ticket: that is the tracker saying the work is done, so the repair is to reopen it.
+[ADR-0037](./docs/adr/0037-naming-a-ticket-skips-the-ranking-and-nothing-else.md) has all of it, including why
+the named ticket is read by its own single-issue call rather than looked up inside the set read, and why
+`--print-command` on a named ticket reads no tracker at all.
+
+A ticket whose blocking state the tracker could not report is not blocked and needs no flag. The line under
+the pick says which of the three it is, in the same words the ranking path uses.
 
 The session runs in a cmux workspace, and cmux is required rather than optional: a host that does not answer
 fails the run, with no fallback. Starting writes in three places — the worktree, the claim, then the session —
@@ -62,6 +81,10 @@ the request was fine, so a retry is the response. Exit 2 is for what needs a per
 origin that is not GitHub, a request the tracker rejects, a response that cannot be read, no way to confirm
 and no `--yes`, a workspace host that is not running, a worktree that cannot be made, a claim that will not
 land, and any failure nothing classified.
+
+A named ticket is never exit 1, because there was no recommendation to be absent: a check refusing it is 2,
+and so is a read that failed — the one ticket was the whole answer, including when the tracker could not be
+reached, so there is no degraded version of it to hand back.
 
 `--json` carries the reasons as two lists, and a consumer has to read both: `selection.degraded` is what the
 selector concluded about the ticket set, and `readDegraded` is what the read itself could not do. An outage

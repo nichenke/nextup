@@ -22,6 +22,26 @@ export type ReadDegrade =
 	| { readonly kind: "contradicted-blocker"; readonly refs: readonly TicketRef[] };
 
 /**
+ * One read of a single named ticket, for the override path — where the ticket was chosen rather than found, so
+ * there is no set to account for and nothing to rank.
+ *
+ * Beside `TicketSetRead` for the reason that type gives, and with no `truncated` or `openOnly` of its own:
+ * one named ticket is never a page of a larger answer, and the read carries whatever state the ticket is in
+ * because a closed one is a refusal to word rather than a row to drop.
+ *
+ * The ticket is always here, whatever its blocking field said. A set read holds a ticket out of the answer
+ * when only a page of its blockers arrived; doing that here would refuse the one ticket the operator named,
+ * so the graph is seeded unknown and `degraded` says a page is what came back — ADR-0037.
+ */
+export interface TicketRead {
+	readonly ticket: Ticket;
+	/** Spans the ticket and every blocker its edges named, each on the openness its own edge carried. */
+	readonly graph: DependencyGraph;
+	/** Every way this read answered with less than it was asked, already reflected in `ticket` or in `graph`. */
+	readonly degraded: readonly ReadDegrade[];
+}
+
+/**
  * One read of a ticket set: the tickets, the blocking graph over them, and what the read could not answer.
  *
  * Here rather than beside an adapter, because the render boundary and the command both read this shape: with

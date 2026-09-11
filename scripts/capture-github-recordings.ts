@@ -5,7 +5,7 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { githubClaimCommand, githubIssueListCommand, withoutBlockingField } from "../src/command-builders";
+import { githubClaimCommand, githubIssueListCommand, githubIssueViewCommand, withoutBlockingField } from "../src/command-builders";
 import { collapseFailure } from "../src/failure-class";
 import { GITHUB_PLACEHOLDER_HOST, redactRecordingIdentifiers } from "../src/recording-identifiers";
 import { type Recording, recordingsDir } from "../src/recording";
@@ -25,11 +25,39 @@ const UNRESOLVABLE = `${["nextup-outage", "invalid"].join(".")}/nichenke/unreach
 const ABSENT_REPO = "nichenke/nextup-nope-does-not-exist";
 
 /**
- * Far above anything the tree will hold, for the failing write. A number inside the tree's own repository
- * rather than a second absent repository, because a write aimed at a name nobody has taken yet lands the
- * moment somebody takes it — see `Capture.succeeds` for why that timing matters.
+ * Far above anything the tree will hold, for the read that names an absent issue and the write that does. A number inside the
+ * tree's own repository rather than a second absent repository, because a write aimed at a name nobody has
+ * taken yet lands the moment somebody takes it — see `Capture.succeeds` for why that timing matters.
  */
 const ABSENT_ISSUE = "999999";
+
+/**
+ * The single-ticket reads, one per verdict the override path can reach: startable, refused for each of the
+ * three reasons. Named by the tree shape each comes from rather than by a number, per ADR-0023, and the
+ * lookup re-asserts that the tree still matches the spec in the state this recording claims it was in.
+ */
+const VIEWS: readonly { readonly name: string; readonly shape: string; readonly description: string }[] = [
+	{
+		name: "ticket-view",
+		shape: "every-blocker-closed",
+		description: "A named ticket whose blockers are all closed, which is the one shape the override path starts without a flag.",
+	},
+	{
+		name: "ticket-view-blocked",
+		shape: "chain-tip",
+		description: "A named ticket with a confirmed open blocker, which the override path refuses without --force.",
+	},
+	{
+		name: "ticket-view-claimed",
+		shape: "claimed",
+		description: "A named ticket somebody already holds, refused for a reason the assignees field carries.",
+	},
+	{
+		name: "ticket-view-closed",
+		shape: "closed-blocker",
+		description: "A named ticket that is closed, which the list read cannot answer with at all since it asks for open tickets only.",
+	},
+];
 
 interface Capture {
 	readonly name: string;
@@ -82,6 +110,18 @@ function captures(writeTarget: string): readonly Capture[] {
 			name: "read-defect",
 			description: "A repository that does not exist, for the wording of a request that is itself wrong.",
 			argv: githubIssueListCommand({ repo: ABSENT_REPO, rows: WHOLE_TREE_ROWS }),
+			succeeds: false,
+		},
+		...VIEWS.map(({ name, shape, description }) => ({
+			name,
+			description,
+			argv: githubIssueViewCommand({ repo: GITHUB_TEST_TREE.repo, key: String(issueNumber(GITHUB_TEST_TREE, shape, defaultRunner)) }),
+			succeeds: true,
+		})),
+		{
+			name: "ticket-view-defect",
+			description: "A view of an issue the tree does not have, which is what naming a ticket that is not there looks like.",
+			argv: githubIssueViewCommand({ repo: GITHUB_TEST_TREE.repo, key: ABSENT_ISSUE }),
 			succeeds: false,
 		},
 		{

@@ -3,8 +3,17 @@ import { type CliDeps, DEFAULT_LIMIT, run } from "./cli";
 import { DEFAULT_SLASH_COMMAND } from "./command-builders";
 import { DEFAULT_LABEL_FILTER, compileLabelFilter } from "./label-filter";
 import type { CommandResult, Runner } from "./runner";
+import { FORCED_PREFIX } from "./override-output";
 import { DEADLOCK_PREFIX } from "./selection-output";
-import { answeringOrigin, deadlockLines, githubRecording, replayRunner, respondingRunner, sentinelLines } from "./test-support";
+import {
+	answeringOrigin,
+	deadlockLines,
+	githubRecording,
+	recordedIssue,
+	replayRunner,
+	respondingRunner,
+	sentinelLines,
+} from "./test-support";
 import { GITHUB_TEST_TREE, type TestTreeSpec, openIssues, shapeTitle } from "./test-tree";
 import { GITHUB_HOST } from "./ticket-ref";
 
@@ -527,10 +536,32 @@ describe("the command line itself", () => {
 		expect(result.stderr).toContain("--include");
 	});
 
-	test("refuses a bare argument, which no flag takes yet", () => {
-		const result = run(["gh:1"], deps());
+	test("refuses a bare argument that is not a ticket reference", () => {
+		const result = run(["ticket-12"], deps());
 		expect(result.code).toBe(2);
-		expect(result.stderr).toContain("gh:1");
+		expect(result.stderr).toContain("ticket-12");
+	});
+
+	test("refuses two tickets, since a run starts one", () => {
+		const result = run(["gh:1", "gh:2"], deps());
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("gh:2");
+	});
+
+	// Each describes work the run will not do, and accepting one silently is how an operator comes to believe a
+	// filter narrowed something.
+	test("refuses the ticket-set flags beside a named ticket, rather than ignoring them", () => {
+		for (const flag of [["--limit", "5"], ["--include", "bug"], ["--exclude", "spec"]]) {
+			const result = run([...flag, "gh:example/repo#1"], deps());
+			expect(result.code).toBe(2);
+			expect(result.stderr).toContain(flag[0]!);
+		}
+	});
+
+	test("refuses --force with no ticket to apply it to", () => {
+		const result = run(["--force"], deps());
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("--force");
 	});
 
 	test("answers a help request even when another flag on the line is wrong", () => {
@@ -580,5 +611,143 @@ describe("the command line itself", () => {
 		const result = run(["--exclude", "way*er"], deps());
 		expect(result.code).toBe(2);
 		expect(result.stderr).toContain("way*er");
+	});
+});
+
+describe("starting a ticket named on the command line", () => {
+	/** The named form for one view recording's issue, which has to be the issue that recording answers about. */
+	function named(recording = "ticket-view"): string {
+		return `gh:${GITHUB_TEST_TREE.repo}#${recordedIssue(githubRecording(recording))}`;
+	}
+
+	function starting(recording: string, over: (argv: string[]) => CommandResult | null = () => null) {
+		return startSequence(over, recording);
+	}
+
+	test("starts the named ticket, reading one ticket rather than ranking a set", () => {
+		const { runner, of } = starting("ticket-view");
+		const result = run([named(), "--yes"], deps(runner));
+
+		expect(result.stderr).toBe("");
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain(shapeTitle(GITHUB_TEST_TREE, "every-blocker-closed"));
+		expect(result.stdout).toContain("named directly");
+		// The ranking is not merely unused: no set is read at all, which is what naming a ticket buys.
+		expect(of("issue", "list")).toEqual([]);
+		expect(of("issue", "view")).toHaveLength(1);
+		expect(of("worktree", "add")).toHaveLength(1);
+		expect(of("issue", "edit")).toHaveLength(1);
+	});
+
+	test("refuses a ticket with an open blocker, naming it, and writes nothing", () => {
+		const { runner, of } = starting("ticket-view-blocked");
+		const result = run([named("ticket-view-blocked"), "--yes"], deps(runner));
+
+		expect(result.code).toBe(2);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("blocked by");
+		expect(result.stderr).toContain("--force");
+		expect(of("worktree", "add")).toEqual([]);
+		expect(of("issue", "edit")).toEqual([]);
+	});
+
+	test("refuses a ticket somebody else holds, and writes nothing", () => {
+		const { runner, of } = starting("ticket-view-claimed");
+		const result = run([named("ticket-view-claimed"), "--yes"], deps(runner));
+
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("claimed by");
+		expect(of("issue", "edit")).toEqual([]);
+	});
+
+	// The checklist's fourth line: skipping the block check is a judgment, and skipping the claim would only
+	// make the work invisible to the next session.
+	test("--force starts a blocked ticket, says so loudly, and claims it anyway", () => {
+		const { runner, of } = starting("ticket-view-blocked");
+		const result = run([named("ticket-view-blocked"), "--force", "--yes"], deps(runner));
+
+		expect(result.code).toBe(0);
+		const forced = result.stdout.split("\n").filter((line) => line.startsWith(FORCED_PREFIX));
+		expect(forced).toHaveLength(1);
+		expect(forced[0]).toContain("blocked by");
+		expect(of("issue", "edit")).toHaveLength(1);
+	});
+
+	test("--force starts a claimed ticket, and the claim it writes does not replace the existing one", () => {
+		const { runner, of } = starting("ticket-view-claimed");
+		const result = run([named("ticket-view-claimed"), "--force", "--yes"], deps(runner));
+
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain(`${FORCED_PREFIX}`);
+		expect(of("issue", "edit")[0]).toContain("--add-assignee");
+	});
+
+	// ADR-0037: the other two checks are judgments about somebody else's state, and this one is the tracker
+	// saying the work is done.
+	test("refuses a closed ticket, and --force does not reach it", () => {
+		const { runner, of } = starting("ticket-view-closed");
+		for (const argv of [[named("ticket-view-closed"), "--yes"], [named("ticket-view-closed"), "--force", "--yes"]]) {
+			const result = run(argv, deps(runner));
+			expect(result.code).toBe(2);
+			expect(result.stderr).toContain("closed");
+		}
+		expect(writes(of)).toEqual([]);
+	});
+
+	/** Both writes, asserted together: a refusal has to leave the tracker and the repository as they were. */
+	function writes(of: (...words: string[]) => string[][]): string[][] {
+		return [...of("worktree", "add"), ...of("issue", "edit")];
+	}
+
+	test("asks before a forced start, so the warning is read before the claim rather than after", () => {
+		const asked = terminal(false);
+		const { runner, of } = starting("ticket-view-blocked");
+		const outcome = run([named("ticket-view-blocked"), "--force"], deps(runner, asked.confirm));
+
+		expect(outcome.code).toBe(0);
+		expect(asked.questions).toHaveLength(1);
+		expect(asked.questions[0]).toContain("starting past it being");
+		expect(outcome.stdout).toContain("was not started");
+		expect(of("issue", "edit")).toEqual([]);
+	});
+
+	test("prints the session command for a named ticket without reading any tracker", () => {
+		const result = run([named(), "--print-command"], deps(refuseToRun));
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain(`${DEFAULT_SLASH_COMMAND} ${named()}`);
+		expect(result.stderr).toBe("");
+	});
+
+	test("carries the override and what the run did about it under --json", () => {
+		const { runner } = starting("ticket-view");
+		const result = run([named(), "--force", "--yes", "--json"], deps(runner));
+		const answer = JSON.parse(result.stdout) as {
+			override: { kind: string; target: { ticket: { ref: string }; blocked: string }; forced: unknown[] };
+			readDegraded: unknown[];
+			start: { kind: string };
+		};
+
+		expect(answer.override.kind).toBe("startable");
+		expect(answer.override.target.ticket.ref).toBe(named());
+		expect(answer.override.target.blocked).toBe("unblocked");
+		// Nothing needed clearing, so --force reports nothing: the warning is never spurious.
+		expect(answer.override.forced).toEqual([]);
+		expect(answer.readDegraded).toEqual([]);
+		expect(answer.start.kind).toBe("requested");
+	});
+
+	test("reports a ticket the tracker does not have as something for a person, not as a quiet day", () => {
+		const { runner } = starting("ticket-view-defect");
+		const result = run([`gh:${GITHUB_TEST_TREE.repo}#999999`, "--yes"], deps(runner));
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("retry will not fix");
+	});
+
+	test("resolves a bare short form against the working directory's remote", () => {
+		const { runner, of } = starting("ticket-view");
+		const result = run([`gh:${recordedIssue(githubRecording("ticket-view"))}`, "--yes"], deps(runner));
+		expect(result.code).toBe(0);
+		expect(of("get-url")).toHaveLength(1);
+		expect(of("issue", "view")).toHaveLength(1);
 	});
 });
