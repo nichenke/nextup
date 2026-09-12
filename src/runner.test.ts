@@ -283,7 +283,7 @@ describe("refuseRedirectedGitHub", () => {
 /**
  * The two doors the runner cannot close: neither name carries a `GIT_` prefix, so both survive the scrub and
  * reach git as a place to look for a global config. What refuses them is the scope the origin read keeps —
- * ADR-0041.
+ * ADR-0042.
  *
  * Real git in a child process, for the reason the block above gives.
  */
@@ -318,7 +318,7 @@ describe("a config location redirected by a variable the scrub cannot name", () 
  * shape is a repository that does *not* spell the URL in `.git/config`.
  *
  * Real git because the claim is about a git default: `--includes` is off once a scope is named, so `--local`
- * alone reports nothing here and the run would refuse a checkout `git remote get-url` resolves. ADR-0041.
+ * alone reports nothing here and the run would refuse a checkout `git remote get-url` resolves. ADR-0042.
  */
 describe("an origin the repository configures somewhere other than .git/config", () => {
 	test("is read, because naming a file is the repository stating its identity as much as writing the url is", () => {

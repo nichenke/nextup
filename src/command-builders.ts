@@ -151,7 +151,7 @@ export function jiraIdentityCommand(): readonly string[] {
  * The remote a repository-scoped reference is resolved against: the URL this checkout itself configures.
  *
  * `config` rather than `remote get-url`, which reads merged configuration — so a global file answers for a
- * repository this checkout is not, at exit 0, with no `GIT_` variable for the runner to strip. ADR-0041 has the
+ * repository this checkout is not, at exit 0, with no `GIT_` variable for the runner to strip. ADR-0042 has the
  * measurements, the scopes this keeps, and what the choice costs.
  *
  * `-z` is load-bearing rather than tidiness: a config value may contain a newline, and in the line-oriented
