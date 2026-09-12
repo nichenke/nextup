@@ -17,7 +17,8 @@ const adrDir = join(import.meta.dir, "..", "docs", "adr");
  * spent when an ADR is drafted, and one that never lands leaves a hole rather than a renumbering.
  *
  * The shape that caused the collision this exists to prevent -- two branches each adding one number,
- * each passing its own run -- is closed by the repository rather than by this file. `main` requires the
+ * each passing its own run -- is closed by the repository rather than by this file. Read as of writing
+ * rather than as a guarantee, since it is external state nothing here asserts: `main` requires the
  * `check` context with `strict: true`, so a branch behind `main` cannot merge until it is updated and
  * re-run, and that re-run reads the combined tree. The collision got in because no check existed, not
  * because the branch was stale. What remains open is that `enforce_admins` is false, so an admin merge
