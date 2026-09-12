@@ -69,6 +69,12 @@ allocated per part rather than to the whole, because the parts a model writes ar
 can run long, and an unbudgeted brief is one where they absorb everything. The numbers are on issue
 72.
 
+**Contract lines sit outside the ceiling**, and this is a decision rather than an oversight: the two
+would otherwise contradict each other. `renderSelection` emits one line per cycle, a ticket set can
+hold more disjoint cycles than the whole budget allows, and the promise above is that such a line is
+never dropped to save room. A ceiling that could bite a warning is a ceiling that decides, once a
+day is bad enough, to stop telling you why.
+
 Four rules make the thin case honest, and they are decisions rather than mechanism:
 
 - **A part with nothing to say is omitted, not padded.** A line reporting that nothing was found
