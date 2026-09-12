@@ -1,5 +1,10 @@
 # What each ranking rung reads
 
+> One sentence below will be contradicted once [0043](./0043-the-tool-writes-what-the-graph-knows-and-the-session-writes-only-the-body.md)
+> ships: a losing candidate's labels stop being a `--json` question and appear on the human surface.
+> Nothing has shipped yet, so the sentence still describes what the tool does today, and nothing about
+> what a rung *reads* changes either way.
+
 ADR-0003 fixes the ladder — priority, then unblocks-count, then reference — and the reference rung is
 fully specified there. The other two name a signal without saying how it is read, and each has a
 reading that looks obvious and is wrong.
