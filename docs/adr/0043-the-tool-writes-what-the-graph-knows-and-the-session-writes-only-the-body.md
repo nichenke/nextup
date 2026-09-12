@@ -24,10 +24,11 @@ cannot be written without reading a free-text body — what the ticket makes tru
 criteria, and the constraints its body names that no edge carries.
 
 The cost is that the shipped answer is no longer deterministic end to end, which the scenario
-fixtures assume. They keep working, because they assert the selection and five pin the plain
-rendering byte-for-byte. That holds only while the brief is composed *beside* the plain rendering
-rather than by editing it, which is a constraint on the implementation rather than an observation
-about it.
+fixtures assume. Composition cannot reach them — they call `select` and `renderSelection` directly,
+with no CLI and no session in the loop. What they do enforce is the constraint that matters here:
+five of them pin `renderSelection` byte-for-byte, so an implementation that folds the standing line
+by editing that function breaks them, while one that composes *beside* the plain rendering does not.
+The fixtures are the guard on that choice rather than evidence for it.
 
 ## Ownership is not a mechanism
 
@@ -97,10 +98,19 @@ defeats arbitration. It does not defeat reporting, because the line makes no cla
 session wrote the assignee; it says only that the ticket is held by the identity the reader
 authenticates as.
 
-Two consequences follow that the line has to be honest about. It cannot distinguish the reader from
-a sibling agent on the same credential, so its wording must not promise a person. And it is not
-free: the assignees are already on every row, so no second pass over the ticket set is needed, but
-the reader's own identity is a call the tool does not make today.
+Three consequences follow that the line has to be honest about. It cannot distinguish the reader
+from a sibling agent on the same credential, so its wording must not promise a person. Its cost is
+an identity call rather than a second pass, since the assignees ride on every row already. And a
+ticket the reader shares does not reach it at all as things stand: `readClaim` keeps `assignees[0]`
+and `Claim` holds one name, so the line needs the adapter widened rather than only the identity
+resolved.
+
+[0037](./0037-naming-a-ticket-skips-the-ranking-and-nothing-else.md) reads 0018 the same way and is
+unaffected, which is worth saying so the two are not left worded differently. It requires `--force`
+to resume a ticket you already claimed, and its refusal names the claimant rather than asserting it
+is somebody else. Both need the distinction that stays impossible — this session against a sibling
+on the same credential. The in-flight line needs only the weaker fact that our identity holds the
+ticket, so it clears a bar 0037's checks do not.
 
 Scoped to the ticket set already read, and it says so. The wider query the motivating example
 implied — assigned to me across every repository — is refused for the reason
