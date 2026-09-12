@@ -50,7 +50,7 @@ export interface CliDeps {
 	 * worktree step resolves the primary checkout from.
 	 *
 	 * One value for both. The origin read is given this directory too —
-	 * ADR-0041 — so a `cwd` naming somewhere else moves the whole run there instead of claiming a ticket in one
+	 * ADR-0042 — so a `cwd` naming somewhere else moves the whole run there instead of claiming a ticket in one
 	 * repository and building the worktree in another.
 	 */
 	readonly cwd: string;

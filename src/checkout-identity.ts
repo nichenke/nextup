@@ -68,9 +68,9 @@ function checkoutIdentityOf(repo: string): CheckoutIdentity {
  *
  * The one shape whose answer is a host nobody configured: a remote URL that a `url.<base>.insteadOf` rule is
  * what expands, in whichever scope that rule sits. The refusal is right either way — an alias is not evidence of a GitHub checkout — but without
- * this it reports a tracker at that host. ADR-0041 has the other shapes the two commands differ over.
+ * this it reports a tracker at that host. ADR-0042 has the other shapes the two commands differ over.
  *
- * Nothing here decides on the dot: a miss leaves the refusal as it would have been. ADR-0041 has what the
+ * Nothing here decides on the dot: a miss leaves the refusal as it would have been. ADR-0042 has what the
  * test misses and why that is affordable.
  */
 function aliasNote(host: string): string {
@@ -87,7 +87,7 @@ function aliasNote(host: string): string {
  * has why leaving GitLab's case semantics undecided is safe, and ADR-0040 why this is not an identity.
  *
  * Having no host test also means this is the one path where a `url.<base>.insteadOf` alias cannot be refused —
- * nothing distinguishes one from a short hostname. ADR-0041 bounds what that can cost.
+ * nothing distinguishes one from a short hostname. ADR-0042 bounds what that can cost.
  *
  * @throws whatever `refuse` builds, when the remote cannot be resolved.
  */

@@ -84,7 +84,7 @@ describe("resolveCheckoutRepoPath", () => {
 	});
 
 	// The pair this cannot tell apart, pinned together because keeping the first is the reason it cannot refuse
-	// the second. ADR-0041 has what the second can cost and why it is bounded.
+	// the second. ADR-0042 has what the second can cost and why it is bounded.
 	test("keeps a short hostname, which a refusal on a dotless host would have taken with the aliases", () => {
 		expect(resolveCheckoutRepoPath(routedRunner(remote("git@gitlab:group/project.git")), HERE, refuse)).toBe("group/project");
 	});

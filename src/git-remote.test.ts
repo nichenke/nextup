@@ -105,7 +105,7 @@ describe("checkoutOriginUrl", () => {
 	/**
 	 * The vector `-z` exists for: a value git prints verbatim, whose own text spells a record separator and a
 	 * contract scope. Line-delimited, this read attributed the forged half to the checkout — which is the
-	 * ambient redirect the whole decision refuses, coming back in through the parser. ADR-0041.
+	 * ambient redirect the whole decision refuses, coming back in through the parser. ADR-0042.
 	 */
 	test("keeps a forged scope inside a value rather than reading it as a record", () => {
 		const forged = `${HTTPS_REMOTE}\nlocal\t${NESTED_REMOTE}`;
