@@ -1,5 +1,11 @@
 # The plugin ships one command, and it previews before it starts
 
+> Extended, **not** superseded, by [0043](./0043-the-tool-writes-what-the-graph-knows-and-the-session-writes-only-the-body.md): the plain rendering stays what a
+> session relays, and 0043 restates the relay contract as two promises rather than one — no fact
+> dropped, and the greppable lines byte-identical. It also decides that a tool-owned part must not be
+> retyped by a composing session, which the relay shape below does not satisfy. Everything here stands
+> until issue 72 supplies what 0043 names.
+
 Two manifests made this repository look like a plugin and a store. Neither shipped anything a person
 could invoke: the tree held no `commands/`, `skills/` or `agents/` directory that Claude Code would
 load, so installing it added a manifest and no way to run the tool. The only documented invocation was
