@@ -20,7 +20,7 @@ export function parseRemote(remote: string): RemoteAddress | null {
 	return repo === "" ? null : { host: host.toLowerCase(), repo };
 }
 
-/** The scopes ADR-0041 puts in contract: what this checkout configures, rather than what it inherits. */
+/** The scopes ADR-0042 puts in contract: what this checkout configures, rather than what it inherits. */
 const CHECKOUT_SCOPES: ReadonlySet<string> = new Set(["local", "worktree"]);
 
 /**

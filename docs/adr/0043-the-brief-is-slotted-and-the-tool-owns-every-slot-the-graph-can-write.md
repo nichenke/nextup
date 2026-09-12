@@ -107,7 +107,7 @@ Ten, in this order. "Present" means the tool can already produce the input today
 | 2 | Standing | tool | `counts`; with a pick, also `unblocks` and the blocking phrase | yes |
 | 3 | Substance | session | the pick's raw body | **no** |
 | 4 | Scope | session | the same body | **no** |
-| 5 | Constraints no edge carries | session | the same body, checked against the graph | **no** |
+| 5 | Constraints no edge carries | session | the same body, and the pick's own blocker edges | **no** |
 | 6 | Why this one | tool | `decision.rung`; a *path*, and its endpoint's open blockers | rung only |
 | 7 | Alternatives | tool | `ranked` with labels; the unranked partition's count | yes |
 | 8 | In flight | tool | the viewer's identity; the claimed tickets' references; every assignee | **no** |
@@ -185,10 +185,17 @@ frontier" is not readable until you know whether the ranking decided anything: o
 whole argument, and after a decisive rung it is an aside. Ordering it second lets one shape carry
 both.
 
-Three inputs are missing, and that is the whole of what issue 72 has to supply: **the pick's raw
-body**, **enough to say what the viewer is holding**, and **a path to a downstream ticket carrying
-that endpoint's remaining open blockers** — neither the count `unblocks` already is, nor the path on
-its own. Every other slot reads something the selector
+Four inputs are missing, and that is the whole of what issue 72 has to supply: **the pick's raw
+body**; **the pick's own blocker edges**; **enough to say what the viewer is holding**; and **a path
+to a downstream ticket carrying that endpoint's remaining open blockers** — neither the count
+`unblocks` already is, nor the path on its own.
+
+The edges are slot 5's, and they are what makes it a check rather than a transcription. The slot
+reports a constraint *no edge carries*, so deciding that requires the edges; `Selection` keeps the
+pick's aggregate `blocked` state and discards both the graph and the blocker references behind it.
+Without them a composer cannot tell a genuinely untracked constraint from one the tracker already
+records, and the failure is the bad direction — presenting a tracked blocker as something nobody
+has noticed. Every other slot reads something the selector
 holds. Slot 7 in particular needs nothing new — `ranked` already carries each candidate's labels.
 
 Slot 8 needs three things, not one, and all three are plumbing over rows already fetched rather than
@@ -318,7 +325,10 @@ tests", or the worked example's "a decision between two candidates, plus a statu
 body carrying neither has no scope to state. Counting the paragraphs, or calling the whole body the
 scope, produces a line that is true of every ticket and therefore says nothing.
 
-**With one candidate, slot 6 is omitted.** "It was the only one" is already slot 2's job.
+**With one candidate and nothing downstream, slot 6 is omitted.** "It was the only one" is already
+slot 2's job. The omission is about the *rung* form having nothing to compare against — it does not
+reach the goal form, which needs no runner-up. A lone candidate that other tickets wait on still
+gets its chain, and that is the case where a reader most needs it.
 
 ## Consequences
 
@@ -332,7 +342,7 @@ fixture, slot 8 included: what it lacks is an identity, not a judgement. Control
 composed slots is out of scope here.
 
 Nothing here ships yet. `skills/nextup/SKILL.md` still describes relaying the plain rendering, which
-is correct until the three missing inputs exist: a skill told to compose slot 3 today would compose
+is correct until the four missing inputs exist: a skill told to compose slot 3 today would compose
 it from the title. [0038](./0038-the-plugin-ships-one-command-and-previews-before-it-starts.md)'s
 relay instruction stands until then.
 
