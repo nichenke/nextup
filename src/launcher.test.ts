@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_SLASH_COMMAND, formatCommand, sessionBinaryAliveCommand, workspaceHostAliveCommand } from "./command-builders";
-import { LaunchError, launch, planLaunch, requireSessionBinary, requireWorkspaceHost } from "./launcher";
+import { parseCommandTemplate } from "./command-template";
+import { LaunchError, type SessionSpec, launch, planLaunch, requireSessionBinary, requireWorkspaceHost } from "./launcher";
 import type { CommandResult, Runner } from "./runner";
 import { fakeRunner } from "./test-support";
 import type { TicketRef } from "./ticket-ref";
@@ -10,6 +11,9 @@ const TICKET = { ref: REF, title: "The reader drops a row it cannot parse" };
 const WORKTREE = "/repo/.worktrees/reader-1";
 
 const OK: CommandResult = { code: 0, stdout: "PONG\n", stderr: "" };
+
+const DEFAULT_SESSION: SessionSpec = { kind: "slash-command", slashCommand: DEFAULT_SLASH_COMMAND };
+const TEMPLATE_SESSION: SessionSpec = { kind: "template", template: parseCommandTemplate("phase-worker --ticket {ref}") };
 
 /** Every call the runner was asked to make, so a test asserts the sequence rather than one argv. */
 function recording(result: CommandResult = OK): { runner: Runner; calls: string[][] } {
@@ -25,14 +29,25 @@ function recording(result: CommandResult = OK): { runner: Runner; calls: string[
 
 describe("planLaunch", () => {
 	test("produces the command without touching the tracker, which is the sandbox-safe path", () => {
-		expect(planLaunch({ ref: REF, slashCommand: DEFAULT_SLASH_COMMAND }).command).toEqual([
-			"claude",
-			"/implement gh:example/repo#1",
-		]);
+		expect(planLaunch({ ref: REF, session: DEFAULT_SESSION }).command).toEqual(["claude", "/implement gh:example/repo#1"]);
 	});
 
 	test("carries the reason a plan could not be made rather than a bare failure", () => {
-		expect(() => planLaunch({ ref: REF, slashCommand: "nope" })).toThrow(/slash command/);
+		expect(() => planLaunch({ ref: REF, session: { kind: "slash-command", slashCommand: "nope" } })).toThrow(
+			/slash command/,
+		);
+	});
+
+	test("plans a template session as the template's own program, with the reference substituted", () => {
+		expect(planLaunch({ ref: REF, session: TEMPLATE_SESSION }).command).toEqual([
+			"phase-worker",
+			"--ticket",
+			"gh:example/repo#1",
+		]);
+	});
+
+	test("does not start a template session with the session binary", () => {
+		expect(planLaunch({ ref: REF, session: TEMPLATE_SESSION }).command).not.toContain("claude");
 	});
 });
 
@@ -57,7 +72,7 @@ describe("requireWorkspaceHost", () => {
 describe("requireSessionBinary", () => {
 	test("asks the session binary whether it runs, and is satisfied by an answer", () => {
 		const { runner, calls } = recording();
-		expect(() => requireSessionBinary(runner)).not.toThrow();
+		expect(() => requireSessionBinary(runner, DEFAULT_SESSION)).not.toThrow();
 		expect(calls).toEqual([[...sessionBinaryAliveCommand()]]);
 	});
 
@@ -67,13 +82,30 @@ describe("requireSessionBinary", () => {
 	 */
 	test("refuses a binary that will not run, so nothing is claimed on its behalf", () => {
 		const missing = fakeRunner({ code: 127, stdout: "", stderr: "command not found: claude" });
-		expect(() => requireSessionBinary(missing)).toThrow(LaunchError);
-		expect(() => requireSessionBinary(missing)).toThrow(/command not found/);
+		expect(() => requireSessionBinary(missing, DEFAULT_SESSION)).toThrow(LaunchError);
+		expect(() => requireSessionBinary(missing, DEFAULT_SESSION)).toThrow(/command not found/);
+	});
+
+	test("probes the session binary for a slash-command session that is not the default", () => {
+		const { runner, calls } = recording();
+		requireSessionBinary(runner, { kind: "slash-command", slashCommand: "/triage" });
+		expect(calls).toEqual([[...sessionBinaryAliveCommand()]]);
+	});
+
+	test("runs nothing for a template session, neither the session binary nor the template's program", () => {
+		const { runner, calls } = recording();
+		expect(() => requireSessionBinary(runner, TEMPLATE_SESSION)).not.toThrow();
+		expect(calls).toEqual([]);
+	});
+
+	test("lets a template session through where the session binary is missing", () => {
+		const missing = fakeRunner({ code: 127, stdout: "", stderr: "command not found: claude" });
+		expect(() => requireSessionBinary(missing, TEMPLATE_SESSION)).not.toThrow();
 	});
 });
 
 describe("launch", () => {
-	const SESSION = planLaunch({ ref: REF, slashCommand: DEFAULT_SLASH_COMMAND }).command;
+	const SESSION = planLaunch({ ref: REF, session: DEFAULT_SESSION }).command;
 
 	test("creates one workspace running the given session in the ticket's worktree", () => {
 		const { runner, calls } = recording();
@@ -114,9 +146,16 @@ describe("launch", () => {
 
 	test("runs whatever session argv it was handed, rather than building one of its own", () => {
 		const { runner, calls } = recording();
-		const triage = planLaunch({ ref: REF, slashCommand: "/triage" }).command;
+		const triage = planLaunch({ ref: REF, session: { kind: "slash-command", slashCommand: "/triage" } }).command;
 		launch({ runner, ticket: TICKET, command: triage, worktree: WORKTREE });
 		expect(calls[0]![calls[0]!.indexOf("--command") + 1]).toContain("/triage");
+	});
+
+	test("hands the host a templated session as one shell line, with the reference quoted", () => {
+		const { runner, calls } = recording();
+		const templated = planLaunch({ ref: REF, session: TEMPLATE_SESSION }).command;
+		launch({ runner, ticket: TICKET, command: templated, worktree: WORKTREE });
+		expect(calls[0]![calls[0]!.indexOf("--command") + 1]).toBe("phase-worker --ticket 'gh:example/repo#1'");
 	});
 
 	test("aborts on a workspace that could not be created, having tried nothing else", () => {

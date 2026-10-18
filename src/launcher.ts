@@ -7,6 +7,7 @@ import {
 	workspaceHostAliveCommand,
 	workspaceName,
 } from "./command-builders";
+import { type CommandTemplate, templatedCommand } from "./command-template";
 import { failureDetail } from "./failure-class";
 import type { Runner } from "./runner";
 import type { Ticket } from "./ticket";
@@ -15,9 +16,17 @@ import { type TicketRef, formatTicketRef } from "./ticket-ref";
 /** Why no session was started. One class rather than an outage-and-defect pair — ADR-0035. */
 export class LaunchError extends Error {}
 
+/**
+ * What the session runs: the session binary with a slash command, or a template the operator wrote, which names
+ * its own program.
+ */
+export type SessionSpec =
+	| { readonly kind: "slash-command"; readonly slashCommand: string }
+	| { readonly kind: "template"; readonly template: CommandTemplate };
+
 export interface LaunchPlanInput {
 	readonly ref: TicketRef;
-	readonly slashCommand: string;
+	readonly session: SessionSpec;
 }
 
 /** Everything the launcher would do, worked out without doing any of it. */
@@ -30,7 +39,13 @@ export interface LaunchPlan {
  * writes anything outside the process — ADR-0002 has why the tool is split this way.
  */
 export function planLaunch(input: LaunchPlanInput): LaunchPlan {
-	return { command: sessionCommand(input) };
+	const { ref, session } = input;
+	switch (session.kind) {
+		case "slash-command":
+			return { command: sessionCommand({ ref, slashCommand: session.slashCommand }) };
+		case "template":
+			return { command: templatedCommand(session.template, ref) };
+	}
 }
 
 /**
@@ -64,9 +79,13 @@ function requireAlive(runner: Runner, argv: Argv): void {
  * Asked before the worktree and the claim, for the same reason as the host. Why it exists at all is a different
  * reason, and ADR-0036 has it.
  *
+ * Runs nothing for a template session, because its program is not the session binary and `--version` is no
+ * contract an arbitrary program honours. ADR-0044 records the decision.
+ *
  * @throws LaunchError when the binary does not run.
  */
-export function requireSessionBinary(runner: Runner): void {
+export function requireSessionBinary(runner: Runner, session: SessionSpec): void {
+	if (session.kind === "template") return;
 	requireAlive(runner, sessionBinaryAliveCommand());
 }
 
