@@ -27,6 +27,7 @@ import {
 	worktreeListCommand,
 	withoutBlockingField,
 } from "./command-builders";
+import { parseCommandTemplate, templatedCommand } from "./command-template";
 import type { TicketRef } from "./ticket-ref";
 
 const GOLDENS = join(dirname(import.meta.dir), "fixtures", "commands");
@@ -50,6 +51,8 @@ const WORKTREE_PATH = "/repo/.worktrees/reader-8";
 const SESSION = sessionCommand({ ref: github, slashCommand: DEFAULT_SLASH_COMMAND });
 const TICKET_TITLE = "The reader drops a row it cannot parse";
 const BASE_COMMIT = "0123456789abcdef0123456789abcdef01234567";
+const TEMPLATE = "phase-worker --ticket {ref} --log=run-{ref}.log";
+const TEMPLATED = templatedCommand(parseCommandTemplate(TEMPLATE), github);
 
 const CASES: readonly Case[] = [
 	{
@@ -189,6 +192,13 @@ const CASES: readonly Case[] = [
 		description: "The workspace that runs one session in one worktree, its session argv rendered as a shell line.",
 		input: { name: "repo#1", description: TICKET_TITLE, cwd: WORKTREE_PATH, command: SESSION },
 		build: () => workspaceCommand({ name: "repo#1", description: TICKET_TITLE, cwd: WORKTREE_PATH, command: SESSION }),
+	},
+	{
+		name: "workspace-on-a-command-template",
+		description:
+			"The workspace running a --command template in place of the session binary, the reference substituted at {ref} and each word quoted on its own.",
+		input: { name: "repo#1", description: TICKET_TITLE, cwd: WORKTREE_PATH, template: TEMPLATE, ref: github, command: TEMPLATED },
+		build: () => workspaceCommand({ name: "repo#1", description: TICKET_TITLE, cwd: WORKTREE_PATH, command: TEMPLATED }),
 	},
 ];
 

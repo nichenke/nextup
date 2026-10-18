@@ -1,0 +1,34 @@
+{
+	"description": "The workspace running a --command template in place of the session binary, the reference substituted at {ref} and each word quoted on its own.",
+	"input": {
+		"name": "repo#1",
+		"description": "The reader drops a row it cannot parse",
+		"cwd": "/repo/.worktrees/reader-8",
+		"template": "phase-worker --ticket {ref} --log=run-{ref}.log",
+		"ref": {
+			"tracker": "github",
+			"repo": "example/repo",
+			"key": "1"
+		},
+		"command": [
+			"phase-worker",
+			"--ticket",
+			"gh:example/repo#1",
+			"--log=run-gh:example/repo#1.log"
+		]
+	},
+	"argv": [
+		"cmux",
+		"new-workspace",
+		"--name",
+		"repo#1",
+		"--description",
+		"The reader drops a row it cannot parse",
+		"--cwd",
+		"/repo/.worktrees/reader-8",
+		"--command",
+		"phase-worker --ticket 'gh:example/repo#1' '--log=run-gh:example/repo#1.log'",
+		"--focus",
+		"true"
+	]
+}

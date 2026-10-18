@@ -53,6 +53,8 @@ bun bin/nextup.ts --slash-command /triage   # start a triage session rather than
 bun bin/nextup.ts --print-command       # print the session command, starting nothing
 bun bin/nextup.ts gh:12                 # start this ticket instead, skipping the ranking
 bun bin/nextup.ts gh:12 --force         # start it past the blocked and claimed checks, loudly
+bun bin/nextup.ts gh:12 --base feature/phase-1     # cut its new branch from another branch
+bun bin/nextup.ts gh:12 --command 'phase-worker {ref}'   # run this in the workspace instead of claude
 bun bin/nextup.ts --help                # every flag
 ```
 
@@ -74,6 +76,21 @@ not reach a closed ticket: that is the tracker saying the work is done, so the r
 [ADR-0037](./docs/adr/0037-naming-a-ticket-skips-the-ranking-and-nothing-else.md) has all of it, including why
 the named ticket is read by its own single-issue call rather than looked up inside the set read, and why
 `--print-command` on a named ticket reads no tracker at all.
+
+`--base <ref>` cuts the ticket's new branch from that ref rather than from the primary checkout's HEAD. The ref
+is resolved in the directory you typed the command in and pinned to the commit it names before anything is
+asked or written, so one that names no commit is refused with nothing done, `--print-command` included. A
+branch or worktree that already exists is attached to where it is and never moved, and the run says the base
+was not applied, on a `warning: ` line and as `start.worktree.base` with `kind: "not-applied"` under `--json`.
+
+`--command <template>` runs the template in the workspace in place of `claude` and a slash command, with every
+`{ref}` replaced by the ticket's reference. The template is split on whitespace and each word quoted on its
+own, so a word carrying a quote or a backslash is refused rather than passed on literally, and so is a
+template with no `{ref}` or one given beside `--slash-command`. The session binary is not checked for a
+template, whose program is something else. Both flags work for a ranked pick and a named ticket alike, with
+`--force`, and with `--print-command`.
+[ADR-0044](./docs/adr/0044-the-start-point-and-the-session-command-can-be-named-and-neither-is-silently-ignored.md)
+has the reasoning.
 
 A ticket whose blocking state the tracker could not report is not blocked and needs no flag. The line under the
 pick says which of the three it is, sharing its wording with the ranking path — which has only two of the three
