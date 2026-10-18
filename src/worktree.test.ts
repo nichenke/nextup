@@ -1006,18 +1006,12 @@ function realRepo(): string {
 
 interface Diverged {
 	readonly repo: string;
-	/** `main`'s tip, which is where the primary checkout is. */
 	readonly main: string;
-	/** `side`'s tip, two commits past the root, so its parent is on `side` alone. */
 	readonly side: string;
 	readonly sideParent: string;
 	readonly git: (...argv: string[]) => string;
 }
 
-/**
- * `realRepo` with `main` and `side` each past the root, so a branch cut from `side` is told from one cut from
- * `main` by its parent as well as its tip.
- */
 function divergedRepo(): Diverged {
 	const repo = realRepo();
 	const git = (...argv: string[]): string => {

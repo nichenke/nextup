@@ -1094,10 +1094,6 @@ describe("the recovery a failure after the worktree leaves open", () => {
 	});
 });
 
-/**
- * `--base` and `--command` on both paths, and every refusal they add, ordered against the steps they must precede.
- * ADR-0044 has the reasoning for each.
- */
 describe("--base and --command", () => {
 	const LIMIT = ["--limit", String(openIssues(GITHUB_TEST_TREE).length)];
 	const BASE = "feature/phase-1";
@@ -1108,7 +1104,6 @@ describe("--base and --command", () => {
 		return `gh:${GITHUB_TEST_TREE.repo}#${recordedIssue(githubRecording(recording))}`;
 	}
 
-	/** Git's answer about a base: `BASE` names `BASE_COMMIT`, and anything else names no commit, exit 1. */
 	function resolving(over: (argv: string[]) => CommandResult | null = () => null) {
 		return (argv: string[]): CommandResult | null => {
 			if (!(argv.includes("rev-parse") && argv.includes("--end-of-options"))) return over(argv);
@@ -1118,20 +1113,17 @@ describe("--base and --command", () => {
 		};
 	}
 
-	/** The ticket's own branch already exists locally, so Ensure checks it out rather than cutting it. */
 	const branchAlreadyThere = (argv: string[]): CommandResult | null =>
 		argv.includes("show-ref") && argv.some((word) => word.startsWith("refs/heads/")) ? { code: 0, stdout: "", stderr: "" } : null;
 
 	const WORKSPACE_FAILS = (argv: string[]): CommandResult | null =>
 		argv[1] === "new-workspace" ? { code: 1, stdout: "", stderr: "no window" } : null;
 
-	/** The line the workspace host was asked to type, which is the template's whole effect. */
 	function typed(of: (...words: string[]) => string[][]): string | undefined {
 		const [workspace] = of("new-workspace");
 		return workspace?.[workspace.indexOf("--command") + 1];
 	}
 
-	/** Every write and every question a refused base must not reach, gathered so each test asserts all of them. */
 	function nothingReached(of: (...words: string[]) => string[][], questions: readonly string[]): void {
 		expect(questions).toEqual([]);
 		expect(of("ping")).toEqual([]);
@@ -1152,7 +1144,6 @@ describe("--base and --command", () => {
 			expect(resolve!.slice(0, 3)).toEqual(["git", "-C", PRIMARY]);
 			const [added] = of("worktree", "add");
 			expect(added!.slice(added!.indexOf("-b") + 2)).toEqual([BASE_COMMIT]);
-			// Resolved before the host is pinged, which is the first thing a start asks of the world.
 			expect(indexOf("rev-parse", "--end-of-options")).toBeLessThan(indexOf("ping"));
 			expect(result.stdout).toContain(`a new branch from ${BASE} at ${BASE_COMMIT.slice(0, 7)}`);
 		});
@@ -1179,13 +1170,10 @@ describe("--base and --command", () => {
 			expect(result.code).toBe(2);
 			expect(result.stdout).toBe("");
 			expect(result.stderr).toContain("nosuch");
-			// A ref that is wrong where it was typed is fixed by running somewhere else or spelling it again, and the
-			// usage would bury which.
 			expect(result.stderr).not.toContain("usage: nextup");
 			nothingReached(of, asked.questions);
 		});
 
-		// The other kind resolution can fail with, where the checkout could not answer at all; it takes the same path.
 		test("refuses a checkout that could not say what the base names, before anything is asked or written", () => {
 			const asked = terminal(true);
 			const broken = (argv: string[]): CommandResult | null =>
@@ -1199,8 +1187,6 @@ describe("--base and --command", () => {
 			nothingReached(of, asked.questions);
 		});
 
-		// A ref spelled like an option is still a ref to ask git about, which refuses it, rather than a flag this
-		// command does not take.
 		test("asks git about a base spelled like an option, and refuses it as naming no commit", () => {
 			const { runner, of } = startSequence(resolving());
 			const result = run([...LIMIT, "--base", "-x", "--yes"], deps(runner));
@@ -1251,7 +1237,6 @@ describe("--base and --command", () => {
 			expect(result.code).toBe(0);
 			expect(result.stdout).toMatch(/\nphase-worker --ticket 'gh:[^']+#\d+'\n$/);
 			expect(of("rev-parse", "--end-of-options")).toHaveLength(1);
-			// The ticket-set read is the one call that is not git; nothing was pinged, probed or written.
 			expect(calls.filter((argv) => argv[0] !== "git")).toHaveLength(1);
 		});
 
@@ -1316,7 +1301,6 @@ describe("--base and --command", () => {
 			expect(of("issue", "edit")).toHaveLength(1);
 		});
 
-		/** Answers the origin read and the base, and refuses everything else, so a test using it proves nothing else ran. */
 		const gitAndBase: Runner = (argv) => {
 			if (isOriginRead(argv)) return { code: 0, stdout: originStdout(`git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo}.git`), stderr: "" };
 			const answered = resolving()(argv);
@@ -1353,7 +1337,6 @@ describe("--base and --command", () => {
 	});
 
 	describe("refused on the command line, before anything runs", () => {
-		/** Each line on both paths and beside --print-command, since none of these refusals depends on the path. */
 		function onEveryPath(flags: readonly string[]): (readonly string[])[] {
 			return [
 				[...flags],

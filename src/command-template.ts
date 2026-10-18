@@ -4,21 +4,14 @@ import { type TicketRef, formatTicketRef } from "./ticket-ref";
 /** The word, or part of a word, that a template's ticket reference is substituted into. */
 export const REF_PLACEHOLDER = "{ref}";
 
-/** Why a command template was refused. */
 export class CommandTemplateError extends Error {}
 
-/** Assigned by `CommandTemplate`'s static block, which is the only code that can reach its constructor and field. */
 let construct: (words: Argv) => CommandTemplate;
 let wordsOf: (template: CommandTemplate) => Argv;
 
 /**
  * A session command with a place for the ticket reference, already refused every shape `parseCommandTemplate`
  * refuses, and buildable nowhere else.
- *
- * A class with a `#` field rather than a symbol-branded interface like `CheckoutIdentity`, because a spread copies
- * a symbol brand, so `{ ...template, words }` would type-check as a template carrying words nothing checked. A
- * spread copies no `#` field, and reading one off anything this class did not build throws, so a forged template
- * fails the type check and, behind a cast, fails `templatedCommand` too.
  */
 export class CommandTemplate {
 	static {
@@ -26,7 +19,6 @@ export class CommandTemplate {
 		wordsOf = (template) => template.#words;
 	}
 
-	/** At least one of these contains `REF_PLACEHOLDER`. */
 	readonly #words: Argv;
 
 	private constructor(words: Argv) {

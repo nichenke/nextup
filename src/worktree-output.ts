@@ -13,7 +13,6 @@ const DID: Record<WorktreeOutcome["kind"], string> = {
 	attached: "attached to",
 };
 
-/** How much of an applied base's commit is shown beside the ref, for a reader rather than for a lookup. */
 const SHORT_COMMIT = 7;
 
 /**

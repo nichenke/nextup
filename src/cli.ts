@@ -471,8 +471,6 @@ function startPick(pick: StartPick, options: Options, deps: CliDeps, checkout: C
 	const ref = pick.ticket.ref;
 	// Built first, so the one input that can fail without touching anything fails while that is still true.
 	const { command } = planLaunch({ ref, session: options.session });
-	// Before the print return, so a preview refuses a base the start would refuse, and before the host, the gate
-	// and the writes, so a base naming no commit has asked nobody and written nothing. ADR-0044.
 	const base = givenBase(options, deps);
 	if (options.printCommand) return { kind: "printed", command };
 
@@ -505,14 +503,6 @@ function startPick(pick: StartPick, options: Options, deps: CliDeps, checkout: C
 	}
 }
 
-/**
- * The `--base` the line gave, pinned to the commit it names in the directory it was typed in, or null where none
- * was given. Both print branches reach this as well as the start, which is what keeps a preview from accepting a
- * base the start would refuse.
- *
- * @throws WorktreeError `"unresolvable-base"` for a ref that names no commit there, and `"git"` where the checkout
- * could not answer; `resolveBase` has the cases.
- */
 function givenBase(options: Options, deps: CliDeps): Base | null {
 	return options.base === null ? null : resolveBase(deps.runner, deps.cwd, options.base);
 }
@@ -691,7 +681,6 @@ interface Options {
 	readonly force: boolean;
 	readonly limit: number;
 	readonly session: SessionSpec;
-	/** The `--base` ref as typed, unresolved for the reason `named` gives, since resolving it runs git. */
 	readonly base: string | null;
 	readonly filter: LabelFilterSpec;
 	/**
@@ -802,8 +791,6 @@ function parse(argv: readonly string[]): Options {
 				named = flag;
 		}
 	}
-	// Refused rather than letting one win, because the slash command is read only inside the default command, so
-	// beside a template it would be dropped with nothing saying so. ADR-0044.
 	if (given.has("--command") && given.has("--slash-command")) {
 		throw new CliError("--command and --slash-command both say what the session runs, so give one of them");
 	}
@@ -898,12 +885,6 @@ function requireFlagsThatApply(named: string | null, given: ReadonlySet<string>)
 	}
 }
 
-/**
- * A `--base` ref, refused here only when blank, so that the refusal carries the usage. Everything else about the
- * ref is for git to judge where the line was typed, and `parse` has no runner to ask it with.
- *
- * @throws CliError for a blank ref.
- */
 function startPoint(given: string, flag: string): string {
 	if (given.trim() === "") throw new CliError(`${flag} was given a blank ref, which names no commit`);
 	return given;
