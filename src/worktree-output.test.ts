@@ -97,8 +97,11 @@ describe("renderWorktree", () => {
 		const createdNotApplied: WorktreeOutcome = { ...CREATED, kind: "created", base: notApplied };
 		// @ts-expect-error only resolveBase makes a Base, so its commit is one git named
 		const forged: Base = { given: "side", commit: SIDE_COMMIT };
+		// @ts-expect-error nor does a spread of one that was resolved, which would keep the ref and swap the commit
+		const respelled: Base = { ...SIDE, commit: "0".repeat(40) };
 
-		expect([attachedApplied, checkedOutApplied, createdNotApplied, forged]).toHaveLength(4);
+		expect([attachedApplied, checkedOutApplied, createdNotApplied, forged, respelled]).toHaveLength(5);
+		expect(JSON.parse(JSON.stringify(SIDE))).toEqual({ given: "side", commit: SIDE_COMMIT });
 	});
 
 	test("ends in exactly one newline, as renderSelection does", () => {

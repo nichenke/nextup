@@ -779,7 +779,7 @@ function parse(argv: readonly string[]): Options {
 				break;
 			case "--base":
 				if (base !== null) throw new CliError(`${flag} was given twice, and a new branch starts at one commit`);
-				base = startPoint(value(argv, ++i, flag), flag);
+				base = nonBlankRef(value(argv, ++i, flag), flag);
 				break;
 			case "--include":
 				include.push(value(argv, ++i, flag));
@@ -889,7 +889,7 @@ function requireFlagsThatApply(named: string | null, given: ReadonlySet<string>)
 	}
 }
 
-function startPoint(given: string, flag: string): string {
+function nonBlankRef(given: string, flag: string): string {
 	if (given.trim() === "") throw new CliError(`${flag} was given a blank ref, which names no commit`);
 	return given;
 }

@@ -1104,7 +1104,7 @@ describe("--base and --command", () => {
 		return `gh:${GITHUB_TEST_TREE.repo}#${recordedIssue(githubRecording(recording))}`;
 	}
 
-	function resolving(over: (argv: string[]) => CommandResult | null = () => null) {
+	function answeringBase(over: (argv: string[]) => CommandResult | null = () => null) {
 		return (argv: string[]): CommandResult | null => {
 			if (!(argv.includes("rev-parse") && argv.includes("--end-of-options"))) return over(argv);
 			return argv.at(-1) === `${BASE}^{commit}`
@@ -1135,7 +1135,7 @@ describe("--base and --command", () => {
 
 	describe("on the ranked path", () => {
 		test("cuts the new branch at the commit the base resolved to, asked where the command was typed", () => {
-			const { runner, of, indexOf } = startSequence(resolving());
+			const { runner, of, indexOf } = startSequence(answeringBase());
 			const result = run([...LIMIT, "--base", BASE, "--yes"], deps(runner));
 
 			expect(result.stderr).toBe("");
@@ -1149,7 +1149,7 @@ describe("--base and --command", () => {
 		});
 
 		test("carries the applied base under --json as the ref typed and the commit it named", () => {
-			const { runner } = startSequence(resolving());
+			const { runner } = startSequence(answeringBase());
 			const document = JSON.parse(run([...LIMIT, "--base", BASE, "--yes", "--json"], deps(runner)).stdout);
 			expect(document.start.worktree.kind).toBe("created");
 			expect(document.start.worktree.base).toEqual({ kind: "applied", base: { given: BASE, commit: BASE_COMMIT } });
@@ -1164,7 +1164,7 @@ describe("--base and --command", () => {
 
 		test("refuses a base naming no commit before the host, the question and every write", () => {
 			const asked = terminal(true);
-			const { runner, of } = startSequence(resolving());
+			const { runner, of } = startSequence(answeringBase());
 			const result = run([...LIMIT, "--base", "nosuch"], deps(runner, asked.confirm));
 
 			expect(result.code).toBe(2);
@@ -1188,7 +1188,7 @@ describe("--base and --command", () => {
 		});
 
 		test("asks git about a base spelled like an option, and refuses it as naming no commit", () => {
-			const { runner, of } = startSequence(resolving());
+			const { runner, of } = startSequence(answeringBase());
 			const result = run([...LIMIT, "--base", "-x", "--yes"], deps(runner));
 
 			expect(result.code).toBe(2);
@@ -1198,7 +1198,7 @@ describe("--base and --command", () => {
 		});
 
 		test("attaches to a branch that already exists, leaves it, and says the base was not applied", () => {
-			const { runner, of } = startSequence(resolving(branchAlreadyThere));
+			const { runner, of } = startSequence(answeringBase(branchAlreadyThere));
 			const human = run([...LIMIT, "--base", BASE, "--yes"], deps(runner));
 
 			expect(human.code).toBe(0);
@@ -1208,7 +1208,7 @@ describe("--base and --command", () => {
 			expect(human.stdout).toMatch(new RegExp(`^warning: .*--base ${BASE} was not applied`, "m"));
 
 			const document = JSON.parse(
-				run([...LIMIT, "--base", BASE, "--yes", "--json"], deps(startSequence(resolving(branchAlreadyThere)).runner)).stdout,
+				run([...LIMIT, "--base", BASE, "--yes", "--json"], deps(startSequence(answeringBase(branchAlreadyThere)).runner)).stdout,
 			);
 			expect(document.start.worktree.kind).toBe("checked-out");
 			expect(document.start.worktree.base).toEqual({ kind: "not-applied", base: { given: BASE, commit: BASE_COMMIT } });
@@ -1231,7 +1231,7 @@ describe("--base and --command", () => {
 		});
 
 		test("prints the templated command under --print-command, and checks the base it would start from", () => {
-			const { runner, of, calls } = startSequence(resolving());
+			const { runner, of, calls } = startSequence(answeringBase());
 			const result = run([...LIMIT, "--command", TEMPLATE, "--base", BASE, "--print-command"], deps(runner));
 
 			expect(result.code).toBe(0);
@@ -1241,7 +1241,7 @@ describe("--base and --command", () => {
 		});
 
 		test("refuses under --print-command the base a start would refuse", () => {
-			const { runner, of } = startSequence(resolving());
+			const { runner, of } = startSequence(answeringBase());
 			const result = run([...LIMIT, "--base", "nosuch", "--print-command"], deps(runner));
 			expect(result.code).toBe(2);
 			expect(result.stdout).toBe("");
@@ -1260,7 +1260,7 @@ describe("--base and --command", () => {
 
 	describe("on the named path", () => {
 		test("cuts the named ticket's branch at the base", () => {
-			const { runner, of } = startSequence(resolving(), "ticket-view");
+			const { runner, of } = startSequence(answeringBase(), "ticket-view");
 			const result = run([namedTicket(), "--base", BASE, "--yes"], deps(runner));
 
 			expect(result.code).toBe(0);
@@ -1274,7 +1274,7 @@ describe("--base and --command", () => {
 				["ticket-view-blocked", ["--force"]],
 			] as const) {
 				const asked = terminal(true);
-				const { runner, of } = startSequence(resolving(), recording);
+				const { runner, of } = startSequence(answeringBase(), recording);
 				const result = run([namedTicket(recording), ...flags, "--base", "nosuch"], deps(runner, asked.confirm));
 
 				expect(result.code).toBe(2);
@@ -1285,7 +1285,7 @@ describe("--base and --command", () => {
 		});
 
 		test("--force starts a blocked ticket from the base and runs the template, still saying it forced", () => {
-			const { runner, of } = startSequence(resolving(), "ticket-view-blocked");
+			const { runner, of } = startSequence(answeringBase(), "ticket-view-blocked");
 			const result = run(
 				[namedTicket("ticket-view-blocked"), "--force", "--base", BASE, "--command", "w {ref}", "--yes"],
 				deps(runner),
@@ -1301,27 +1301,27 @@ describe("--base and --command", () => {
 			expect(of("issue", "edit")).toHaveLength(1);
 		});
 
-		const gitAndBase: Runner = (argv) => {
+		const onlyOriginAndBase: Runner = (argv) => {
 			if (isOriginRead(argv)) return { code: 0, stdout: originStdout(`git@${GITHUB_HOST}:${GITHUB_TEST_TREE.repo}.git`), stderr: "" };
-			const answered = resolving()(argv);
+			const answered = answeringBase()(argv);
 			if (answered !== null) return answered;
 			throw new Error(`nothing may run ${argv.join(" ")} for a command that only prints`);
 		};
 
 		test("prints the templated command without contacting any tracker", () => {
-			const result = run([namedTicket(), "--command", "w {ref}", "--base", BASE, "--print-command"], deps(gitAndBase));
+			const result = run([namedTicket(), "--command", "w {ref}", "--base", BASE, "--print-command"], deps(onlyOriginAndBase));
 			expect(result.stderr).toBe("");
 			expect(result.code).toBe(0);
 			expect(result.stdout).toBe(`w '${namedTicket()}'\n`);
 		});
 
 		test("carries the templated argv as start.command when it prints under --json", () => {
-			const document = JSON.parse(run([namedTicket(), "--command", "w {ref}", "--print-command", "--json"], deps(gitAndBase)).stdout);
+			const document = JSON.parse(run([namedTicket(), "--command", "w {ref}", "--print-command", "--json"], deps(onlyOriginAndBase)).stdout);
 			expect(document.start).toEqual({ kind: "printed", command: ["w", namedTicket()] });
 		});
 
 		test("refuses under --print-command the base a start would refuse", () => {
-			const result = run([namedTicket(), "--base", "nosuch", "--print-command"], deps(gitAndBase));
+			const result = run([namedTicket(), "--base", "nosuch", "--print-command"], deps(onlyOriginAndBase));
 			expect(result.code).toBe(2);
 			expect(result.stdout).toBe("");
 			expect(result.stderr).toContain("nosuch");

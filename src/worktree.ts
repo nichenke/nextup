@@ -132,18 +132,30 @@ function slugify(text: string): string {
 	return kept.replace(/-+$/, "");
 }
 
-const resolvedBase: unique symbol = Symbol("resolved-base");
+let pin: (given: string, commit: string) => Base;
 
 /**
  * A ref a new branch is to start from, pinned to the commit it named when it was resolved, so the branch
  * starts there however the ref moves before `git worktree add` runs. ADR-0044.
+ *
+ * Made only by `resolveBase`. A class with a `#` field, for the reason `CommandTemplate` gives: a symbol brand
+ * survives a spread, so `{ ...base, commit }` would pass for a base carrying a commit git never named.
  */
-export interface Base {
-	readonly [resolvedBase]: true;
+export class Base {
+	static {
+		pin = (given, commit) => new Base(given, commit);
+	}
+
+	readonly #resolved = true;
 	/** The ref as typed, which is what a report of the base names. */
 	readonly given: string;
 	/** The full object id `given` named. */
 	readonly commit: string;
+
+	private constructor(given: string, commit: string) {
+		this.given = given;
+		this.commit = commit;
+	}
 }
 
 /** An object id as git prints one in full: SHA-1, or SHA-256 in a repository using it. */
@@ -183,7 +195,7 @@ export function resolveBase(runner: Runner, directory: string, given: string): B
 	if (!OBJECT_ID.test(commit)) {
 		throw new WorktreeError(`--base ${given} names ${commit} in ${directory}, which is not one commit`, "unresolvable-base");
 	}
-	return { [resolvedBase]: true, given, commit };
+	return pin(given, commit);
 }
 
 export interface EnsureInput {

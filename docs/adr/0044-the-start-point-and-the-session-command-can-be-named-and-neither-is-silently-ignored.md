@@ -133,9 +133,10 @@ cannot tell.
 ## Consequences
 
 `--json` carries `start.command` as the templated argv and `start.worktree.base` as the `BaseOutcome`. A
-`Base` carries a module-private symbol brand, so an object literal cannot pass for one, and
-`JSON.stringify` drops symbol keys, so JSON shows the base as `{ given, commit }`. The brand does not stop a
-spread of a resolved `Base` from overriding its commit, the same limit `CheckoutIdentity`'s brand has.
+`Base` and `CommandTemplate` are classes with a private constructor and a `#` field, so only
+`resolveBase` and `parseCommandTemplate` make them. A symbol brand, the pattern `CheckoutIdentity` uses, was
+rejected for both, because a spread copies it, so `{ ...base, commit }` would pass for a base carrying a commit
+git never named. JSON shows a base as `{ given, commit }`.
 
 `--print-command` with a named ticket runs one local git command when `--base` is given.
 [0037](./0037-naming-a-ticket-skips-the-ranking-and-nothing-else.md)'s sandbox-safe property holds, since
