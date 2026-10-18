@@ -13,6 +13,7 @@ import {
 	githubClaimCommand,
 	githubIssueListCommand,
 	githubIssueViewCommand,
+	isBareWord,
 	jiraIdentityCommand,
 	originRemoteCommand,
 	remoteBranchesCommand,
@@ -417,6 +418,14 @@ describe("formatCommand", () => {
 
 	test("quotes a leading word a shell would read as an assignment rather than a command", () => {
 		expect(formatCommand(["a=b", "--flag=value"])).toBe("'a=b' --flag=value");
+	});
+
+	test("leaves bare exactly the words isBareWord accepts, in first position and after it", () => {
+		const words = ["w", "a=b", "--x=y", "", "~", "$HOME", "a b", "#", "{ref}", "café", "A-z_0.9/@%+:,"];
+		for (const word of words) {
+			expect([word, formatCommand([word]) === word]).toEqual([word, isBareWord(word, true)]);
+			expect([word, formatCommand(["w", word]) === `w ${word}`]).toEqual([word, isBareWord(word, false)]);
+		}
 	});
 
 	/**

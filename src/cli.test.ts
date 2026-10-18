@@ -1357,7 +1357,8 @@ describe("--base and --command", () => {
 		});
 
 		test("refuses a template it would not run as written", () => {
-			for (const template of ["", "   ", "phase-worker", "sh -c 'x {ref}'", 'w "{ref}"', "w \\{ref}"]) {
+			const templates = ["", "   ", "phase-worker", "sh -c 'x {ref}'", 'w "{ref}"', "w \\{ref}", "w $HOME {ref}", "FOO=1 w {ref}", "w {ref} > log"];
+			for (const template of templates) {
 				for (const argv of onEveryPath(["--command", template])) {
 					const result = run(argv, deps());
 					expect(result.code).toBe(2);

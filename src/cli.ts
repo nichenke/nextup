@@ -127,12 +127,12 @@ where it is and never moved, and a "warning: " line says the base was not applie
 without a word is how a branch ends up on the wrong parent.
 
 --command runs a template in the workspace instead of claude and a slash command. The template is split on
-whitespace into words, every {ref} is replaced by the ticket's reference, even inside a longer word, and each
-word is quoted on its own, so $ and ; reach the program as written. A template with no {ref} is refused,
-since the session would not know its ticket, and so is a word carrying a quote or a backslash, which would
-arrive as a literal character; anything needing a shell belongs in a script the template runs. The session
-binary is not checked for a template, whose program is something else. --command is refused beside
---slash-command, which only the default command reads.
+whitespace into words, and every {ref} is replaced by the ticket's reference, even inside a longer word. The
+template is not shell. Apart from {ref}, a word may hold only letters, digits and _@%+=:,./- and the first
+word no =, so the line the workspace types is the template as written; anything needing a shell belongs in a
+script the template runs. A template with no {ref} is refused, since the session would not know its ticket.
+The session binary is not checked for a template, whose program is something else. --command is refused
+beside --slash-command, which only the default command reads.
 
 A label may end in "*" to match a prefix. These exclusions always apply and --exclude adds to them
 rather than replacing them: 'wayfinder:*', so the planning and delivery tracks cannot compete for

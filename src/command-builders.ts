@@ -424,9 +424,17 @@ export function formatCommand(argv: readonly string[]): string {
 // not: an escape list has to stay complete as shells add syntax, and an allowlist that falls behind
 // only over-quotes.
 function quote(word: string, first: boolean): string {
+	if (isBareWord(word, first)) return word;
+	return `'${word.replaceAll("'", `'\\''`)}'`;
+}
+
+/**
+ * Whether `formatCommand` leaves `word` unquoted, as the line's first word or as a later one. Exported so that
+ * `parseCommandTemplate` refuses by this rule rather than by a copy of it: a template word this rule leaves
+ * bare reaches the shell exactly as written, and a copy that drifted would let one reach it as syntax.
+ */
+export function isBareWord(word: string, first: boolean): boolean {
 	// `=` is safe in every word but the first, where a shell reads `name=value` as an assignment and
 	// runs whatever follows instead.
-	const safe = /^[A-Za-z0-9_@%+=:,./-]+$/.test(word) && !(first && word.includes("="));
-	if (word !== "" && safe) return word;
-	return `'${word.replaceAll("'", `'\\''`)}'`;
+	return /^[A-Za-z0-9_@%+=:,./-]+$/.test(word) && !(first && word.includes("="));
 }

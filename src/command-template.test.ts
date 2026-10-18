@@ -47,19 +47,49 @@ describe("parseCommandTemplate", () => {
 		expect(refusal(text).message).toContain("blank");
 	});
 
-	test.each([
-		["a single quote", "sh -c 'x {ref}'"],
-		["a double quote", 'w "{ref}"'],
-		["a backslash", "w a\\ b {ref}"],
-		["a quote in the middle of a word", "w --name=it's {ref}"],
-		["a quote in the program word", "'w' {ref}"],
-		["a backslash in the placeholder's own word", "w \\{ref}"],
-	])("refuses %s, which would reach the program as literal characters", (_, text) => {
-		expect(refusal(text).message).toContain("quoting");
+	test("accepts every character formatCommand leaves bare, and = in any word but the first", () => {
+		expect(run("bin/w_2.sh --log=run-{ref}.log x,y:z@1 a%b+c {ref}")).toEqual([
+			"bin/w_2.sh",
+			"--log=run-gh:example/repo#1.log",
+			"x,y:z@1",
+			"a%b+c",
+			"gh:example/repo#1",
+		]);
 	});
 
-	test("names the word it refused for quoting, so the operator can find it", () => {
-		expect(refusal("w --name=it's {ref}").message).toContain("--name=it's");
+	test("accepts a word that is only placeholders, in any position", () => {
+		expect(run("{ref}{ref} {ref}")).toEqual(["gh:example/repo#1gh:example/repo#1", "gh:example/repo#1"]);
+	});
+
+	test.each([
+		["a single quote", "sh -c 'x {ref}'", "'x"],
+		["a double quote", 'w "{ref}"', '"{ref}"'],
+		["a backslash", "w a\\ b {ref}", "a\\"],
+		["a backslash in the placeholder's own word", "w \\{ref}", "\\{ref}"],
+		["a quote in the program word", "'w' {ref}", "'w'"],
+		["command substitution", "w $(x) {ref}", "$(x)"],
+		["a variable", "w $HOME {ref}", "$HOME"],
+		["a variable around the placeholder", "w ${ref}", "${ref}"],
+		["a tilde in the program word", "~/bin/w {ref}", "~/bin/w"],
+		["a tilde before the placeholder", "w ~/{ref}", "~/{ref}"],
+		["an assignment in the program word", "FOO=1 w {ref}", "FOO=1"],
+		["an assignment around a placeholder in the program word", "{ref}=1 w", "{ref}=1"],
+		["a redirection", "w {ref} > log", ">"],
+		["a redirection inside a word", "w {ref} 2>&1", "2>&1"],
+		["a command separator", "w {ref}; x", "{ref};"],
+		["a pipe", "w {ref} | tee", "|"],
+		["a glob", "w * {ref}", "*"],
+		["a single-character glob", "w ? {ref}", "?"],
+		["a bracket glob", "w [ab] {ref}", "[ab]"],
+		["a backtick", "w `id` {ref}", "`id`"],
+		["a comment", "w {ref} #x", "#x"],
+		["a background", "w {ref} &", "&"],
+		["braces left over around a placeholder", "w {{ref}}", "{{ref}}"],
+		["a letter outside ASCII", "w café {ref}", "café"],
+	])("refuses %s, naming the word and saying the template is not shell", (_, text, word) => {
+		const { message } = refusal(text);
+		expect(message).toContain(`word ${word} `);
+		expect(message).toContain("not shell");
 	});
 
 	test.each([
@@ -71,8 +101,8 @@ describe("parseCommandTemplate", () => {
 		expect(refusal(text).message).toContain(REF_PLACEHOLDER);
 	});
 
-	test("refuses quoting in a template that also lacks the placeholder", () => {
-		expect(refusal("sh -c 'x'").message).toContain("quoting");
+	test("refuses a word it would not pass as written before a template that also lacks the placeholder", () => {
+		expect(refusal("sh -c 'x'").message).toContain("not shell");
 	});
 });
 
@@ -118,15 +148,23 @@ describe("a templated command through formatCommand", () => {
 		expect(formatCommand(run("phase-worker {ref}"))).toBe("phase-worker 'gh:example/repo#1'");
 	});
 
-	test.each([
-		["command substitution", "w $(id) {ref}", "w '$(id)' 'gh:example/repo#1'"],
-		["a variable", "w $HOME {ref}", "w '$HOME' 'gh:example/repo#1'"],
-		["a command separator", "w ; rm {ref}", "w ';' rm 'gh:example/repo#1'"],
-		["a backtick", "w `id` {ref}", "w '`id`' 'gh:example/repo#1'"],
-		["a glob", "w * {ref}", "w '*' 'gh:example/repo#1'"],
-		["an assignment in the program word", "A=1 w {ref}", "'A=1' w 'gh:example/repo#1'"],
-	])("passes %s through as a literal word rather than shell syntax", (_, text, line) => {
-		expect(formatCommand(run(text))).toBe(line);
+	test("types every word without a placeholder exactly as the template wrote it", () => {
+		const text = "bin/w --log=run-{ref}.log x,y:z@1 --ticket {ref}";
+		expect(formatCommand(run(text))).toBe("bin/w '--log=run-gh:example/repo#1.log' x,y:z@1 --ticket 'gh:example/repo#1'");
+	});
+
+	/**
+	 * Against a real shell, because the host types the line into one. Each word the shell parsed comes back on its
+	 * own line from the function the line is handed to, so the comparison is against what a shell produced.
+	 */
+	test("reaches a real shell as the very words the template and the reference make", () => {
+		const ref: TicketRef = { tracker: "jira", host: null, key: "it's $HOME" };
+		const words = run("w_1 --a=b,c:d@e%f+g ./x/{ref}.log {ref}", ref);
+		const line = `f() { for word in "$@"; do printf '%s\\n' "$word"; done; }; f ${formatCommand(words)}`;
+		const shell = Bun.spawnSync({ cmd: ["sh", "-c", line], stdout: "pipe", stderr: "pipe" });
+
+		expect(shell.exitCode).toBe(0);
+		expect(shell.stdout.toString().split("\n").slice(0, -1)).toEqual([...words]);
 	});
 });
 

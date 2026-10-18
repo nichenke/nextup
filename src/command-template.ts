@@ -1,4 +1,4 @@
-import type { Argv } from "./command-builders";
+import { type Argv, isBareWord } from "./command-builders";
 import { type TicketRef, formatTicketRef } from "./ticket-ref";
 
 /** The word, or part of a word, that a template's ticket reference is substituted into. */
@@ -34,24 +34,28 @@ export class CommandTemplate {
 /**
  * The template `text` spells, or a refusal.
  *
- * Split on runs of whitespace, and nothing more: the words are argv, and each is quoted by `formatCommand` on its
- * way to the workspace host's shell. Shell syntax in a word therefore reaches the program as literal text, which is
- * the point for `$` and `;` and the reason for the quoting refusal below. ADR-0044 has why a template is argv
- * rather than a shell line.
+ * Split on runs of whitespace, and nothing more: the words are argv, each passed through `formatCommand` on its way
+ * to the workspace host's shell. Every word must be one `formatCommand` leaves bare once its `REF_PLACEHOLDER`s are
+ * taken out, so the line the host types is the template exactly as written, with only the substituted reference
+ * quoted. ADR-0044 has why a template is argv rather than a shell line.
  *
- * @throws CommandTemplateError when `text` is blank; when a word contains `'`, `"` or `\`, which `formatCommand`
- * would quote along with the rest of the word, so that the program receives the quoting itself; and when no word
- * contains `REF_PLACEHOLDER`, because the reference is the session's whole task.
+ * @throws CommandTemplateError when `text` is blank; when a word without its placeholders is not one
+ * `isBareWord` accepts in that position, since `formatCommand` would quote it and the program would receive
+ * something other than what was written; and when no word contains `REF_PLACEHOLDER`, because the reference is
+ * the session's whole task.
  */
 export function parseCommandTemplate(text: string): CommandTemplate {
 	const trimmed = text.trim();
 	if (trimmed === "") throw new CommandTemplateError("the command template is blank, so there is nothing to run");
 	const [first, ...rest] = trimmed.split(/\s+/);
 	const words: Argv = [first!, ...rest];
-	const quoted = words.find((word) => /['"\\]/.test(word));
-	if (quoted !== undefined) {
+	const unwritten = words.find((word, index) => {
+		const written = word.split(REF_PLACEHOLDER).join("");
+		return written !== "" && !isBareWord(written, index === 0);
+	});
+	if (unwritten !== undefined) {
 		throw new CommandTemplateError(
-			`the command template word ${quoted} contains a quote or a backslash, which would reach the program as a literal character because each word is passed exactly as written, so leave the quoting out`,
+			`the command template word ${unwritten} would not reach the program as written, because the template is not shell. A word may hold only letters, digits, ${REF_PLACEHOLDER} and the characters _@%+=:,./- with no = in the first word, so put anything needing a shell in a script the template runs`,
 		);
 	}
 	if (!words.some((word) => word.includes(REF_PLACEHOLDER))) {
