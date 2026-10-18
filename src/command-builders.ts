@@ -258,6 +258,9 @@ export function resolveCommitCommand(directory: string, ref: string): Argv {
 	return ["git", "-C", directory, "rev-parse", "--verify", "--quiet", "--end-of-options", `${ref}^{commit}`];
 }
 
+/** An object id as git prints one in full: SHA-1, or SHA-256 in a repository using it. */
+export const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
 /**
  * The worktree for one branch, at one path. `create` picks between cutting a new branch and checking out
  * one that already exists; `-b` against an existing branch is a fatal error rather than an attach, so the
@@ -268,6 +271,9 @@ export function resolveCommitCommand(directory: string, ref: string): Argv {
  * @throws CommandBuilderError for a `startPoint` without `create`. An existing branch is checked out where
  * it is, never moved, and git has no such form anyway: `git worktree add <path> <branch> <commit>` exits
  * 129 with its usage text, measured on git 2.56.
+ *
+ * @throws CommandBuilderError for a `startPoint` that is not a full object id. git reads anything else as a
+ * ref, which can name another commit by the time this runs, or be spelled as an option.
  */
 export function worktreeAddCommand(repo: string, path: string, branch: string, create: boolean, startPoint?: string): Argv {
 	const add = ["git", "-C", repo, "worktree", "add", path] as const;
@@ -277,7 +283,11 @@ export function worktreeAddCommand(repo: string, path: string, branch: string, c
 		}
 		return [...add, branch];
 	}
-	return startPoint === undefined ? [...add, "-b", branch] : [...add, "-b", branch, startPoint];
+	if (startPoint === undefined) return [...add, "-b", branch];
+	if (!OBJECT_ID.test(startPoint)) {
+		throw new CommandBuilderError(`${startPoint} is not a full object id, so ${branch} cannot be cut at it`);
+	}
+	return [...add, "-b", branch, startPoint];
 }
 
 /**

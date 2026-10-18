@@ -2,6 +2,7 @@ import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from "node
 import { dirname, isAbsolute, join, parse, sep } from "node:path";
 import {
 	type Argv,
+	OBJECT_ID,
 	refExistsCommand,
 	defaultBranchCommand,
 	gitCommonDirCommand,
@@ -157,9 +158,6 @@ export class Base {
 		this.commit = commit;
 	}
 }
-
-/** An object id as git prints one in full: SHA-1, or SHA-256 in a repository using it. */
-const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 /**
  * `given` pinned to the commit it names in `directory`, which is the checkout the command was invoked in,

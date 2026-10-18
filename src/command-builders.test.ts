@@ -248,6 +248,32 @@ describe("worktreeAddCommand", () => {
 	test("refuses a start point for a branch that already exists, which a checkout would not move", () => {
 		expect(() => worktreeAddCommand("/repo", WORKTREE_PATH, BRANCH, false, BASE_COMMIT)).toThrow(CommandBuilderError);
 	});
+
+	test("takes a full SHA-1 or SHA-256 object id as the start point", () => {
+		for (const id of [BASE_COMMIT, "a".repeat(64)]) {
+			expect(worktreeAddCommand("/repo", WORKTREE_PATH, BRANCH, true, id).at(-1)).toBe(id);
+		}
+	});
+
+	test("refuses a start point that is not a full object id, which git would read as a ref", () => {
+		const notIds = [
+			"",
+			"main",
+			"-x",
+			BASE_COMMIT.slice(0, 7),
+			BASE_COMMIT.slice(0, 39),
+			`${BASE_COMMIT}0`,
+			BASE_COMMIT.toUpperCase(),
+			`^${BASE_COMMIT}`,
+			`${BASE_COMMIT}\n`,
+			"g".repeat(40),
+			"a".repeat(63),
+			"a".repeat(65),
+		];
+		for (const startPoint of notIds) {
+			expect(() => worktreeAddCommand("/repo", WORKTREE_PATH, BRANCH, true, startPoint)).toThrow(CommandBuilderError);
+		}
+	});
 });
 
 describe("resolveCommitCommand", () => {
