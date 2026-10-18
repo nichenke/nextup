@@ -12,6 +12,11 @@ let wordsOf: (template: CommandTemplate) => Argv;
 /**
  * A session command with a place for the ticket reference, already refused every shape `parseCommandTemplate`
  * refuses, and buildable nowhere else.
+ *
+ * A class with a `#` field rather than a symbol-branded interface like `CheckoutIdentity`, because a spread copies
+ * a symbol brand, so `{ ...template, words }` would type-check as a template carrying words nothing checked. A
+ * spread copies no `#` field, and reading one off anything this class did not build throws, so a forged template
+ * fails the type check and, behind a cast, fails `templatedCommand` too.
  */
 export class CommandTemplate {
 	static {

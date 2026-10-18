@@ -471,6 +471,8 @@ function startPick(pick: StartPick, options: Options, deps: CliDeps, checkout: C
 	const ref = pick.ticket.ref;
 	// Built first, so the one input that can fail without touching anything fails while that is still true.
 	const { command } = planLaunch({ ref, session: options.session });
+	// Before the print return, so a preview refuses a base the start would refuse, and before the host, the gate
+	// and the writes, so a base naming no commit has asked nobody and written nothing. ADR-0044.
 	const base = givenBase(options, deps);
 	if (options.printCommand) return { kind: "printed", command };
 
@@ -791,6 +793,8 @@ function parse(argv: readonly string[]): Options {
 				named = flag;
 		}
 	}
+	// Refused rather than letting one win, because the slash command is read only inside the default command, so
+	// beside a template it would be dropped with nothing saying so. ADR-0044.
 	if (given.has("--command") && given.has("--slash-command")) {
 		throw new CliError("--command and --slash-command both say what the session runs, so give one of them");
 	}

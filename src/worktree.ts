@@ -316,6 +316,8 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 	// checked out nowhere. The remotes are asked too, for the reason `remoteBranchesCommand` gives.
 	const create =
 		!branchExists(input.runner, primary, branch) && !adoptableFromOrigin(input.runner, primary, branch);
+	// Not asked where a base is applied: the warning is about a new branch inheriting the primary's HEAD,
+	// and a base is what stops it inheriting anything. ADR-0044.
 	const warnings = create && base !== null ? [] : driftWarnings(input.runner, primary, main.head);
 	// primary, not input.repo — see `driftWarnings`.
 	const command = create
@@ -710,7 +712,8 @@ function resolvedIfThere(path: string): string | undefined {
 }
 
 /**
- * Whether the primary checkout has drifted off the default branch.
+ * Whether the primary checkout has drifted off the default branch, which is worth saying because a new
+ * branch given no base is cut from that checkout's HEAD, so a worktree stacked on drift inherits it.
  *
  * A default branch that cannot be determined is itself reported. Saying nothing would drop the check
  * silently in exactly the repositories that have no `origin/HEAD` to read, and a caller would have no
