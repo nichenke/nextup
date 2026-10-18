@@ -188,7 +188,8 @@ export function refExistsCommand(repo: string, ref: string): readonly string[] {
  *
  * The whole list rather than `show-ref` on `origin` alone, because the count is the other half of the
  * answer. `git worktree add <path> <branch>` resolves a remote-only branch by guessing, and it refuses to
- * guess when more than one remote offers the name — `fatal: invalid reference` rather than a worktree.
+ * guess when more than one remote offers the name, failing with a fatal rather than making a worktree:
+ * `invalid reference` from older git, `matched multiple (2) remote tracking branches` from git 2.56.
  * Asking this way costs no extra command and tells us both whether `origin` has it and whether anything
  * else does.
  */
@@ -245,13 +246,38 @@ export function defaultBranchCommand(repo: string): readonly string[] {
 }
 
 /**
- * The worktree for one branch, at one path. `create` picks between cutting a new branch from `repo`'s
- * HEAD and checking out one that already exists; `-b` against an existing branch is a fatal error
- * rather than an attach, so the two cannot share an invocation.
+ * The commit a ref names where it was typed, as a full object id.
+ *
+ * `--end-of-options` so a ref spelled like an option is read as a ref, and `^{commit}` so a ref naming a tag
+ * peels to its commit while one naming a tree or a blob is refused rather than answered. `--verify --quiet`
+ * makes a ref that names no commit exit 1 rather than 128, which is what separates a mistyped ref from the
+ * repository failing. Measured on git 2.56, where `nosuch`, `-x`, `""`, `main:`, `main..side` and a tree
+ * all exit 1, and a directory outside any repository exits 128.
  */
-export function worktreeAddCommand(repo: string, path: string, branch: string, create: boolean): Argv {
+export function resolveCommitCommand(directory: string, ref: string): Argv {
+	return ["git", "-C", directory, "rev-parse", "--verify", "--quiet", "--end-of-options", `${ref}^{commit}`];
+}
+
+/**
+ * The worktree for one branch, at one path. `create` picks between cutting a new branch and checking out
+ * one that already exists; `-b` against an existing branch is a fatal error rather than an attach, so the
+ * two cannot share an invocation.
+ *
+ * A new branch starts at `startPoint` where one is given, and at `repo`'s HEAD where it is not.
+ *
+ * @throws CommandBuilderError for a `startPoint` without `create`. An existing branch is checked out where
+ * it is, never moved, and git has no such form anyway: `git worktree add <path> <branch> <commit>` exits
+ * 129 with its usage text, measured on git 2.56.
+ */
+export function worktreeAddCommand(repo: string, path: string, branch: string, create: boolean, startPoint?: string): Argv {
 	const add = ["git", "-C", repo, "worktree", "add", path] as const;
-	return create ? [...add, "-b", branch] : [...add, branch];
+	if (!create) {
+		if (startPoint !== undefined) {
+			throw new CommandBuilderError(`${branch} already exists, so it takes no start point (${startPoint} was given)`);
+		}
+		return [...add, branch];
+	}
+	return startPoint === undefined ? [...add, "-b", branch] : [...add, "-b", branch, startPoint];
 }
 
 /**

@@ -13,6 +13,9 @@ const DID: Record<WorktreeOutcome["kind"], string> = {
 	attached: "attached to",
 };
 
+/** How much of an applied base's commit is shown beside the ref, for a reader rather than for a lookup. */
+const SHORT_COMMIT = 7;
+
 /**
  * What ensuring the worktree did, as a person reads it.
  *
@@ -20,15 +23,27 @@ const DID: Record<WorktreeOutcome["kind"], string> = {
  * `checked-out` both made a worktree at a path that was not there, and only the branch tells them apart
  * — so a run that cut a new branch and one that adopted a branch somebody else pushed must not print
  * the same sentence.
+ *
+ * A base that was not applied is a warning line, because the run did something other than what was asked
+ * and still succeeded. ADR-0044.
  */
 export function renderWorktree(outcome: WorktreeOutcome): string {
 	const lines = [`${DID[outcome.kind]} ${outcome.path}`, `  on ${branchPhrase(outcome)}`];
+	if (outcome.base.kind === "not-applied") {
+		lines.push(
+			`${WARNING_PREFIX}--base ${outcome.base.base.given} was not applied: ${outcome.branch} already existed, so it was left where it was`,
+		);
+	}
 	for (const warning of outcome.warnings) lines.push(`${WARNING_PREFIX}${warning}`);
 	return `${lines.join("\n")}\n`;
 }
 
 function branchPhrase(outcome: WorktreeOutcome): string {
-	if (outcome.kind === "created") return `${outcome.branch}, a new branch`;
+	if (outcome.kind === "created") {
+		if (outcome.base.kind === "none") return `${outcome.branch}, a new branch`;
+		const { given, commit } = outcome.base.base;
+		return `${outcome.branch}, a new branch from ${given} at ${commit.slice(0, SHORT_COMMIT)}`;
+	}
 	if (outcome.kind === "checked-out") return `${outcome.branch}, which already existed`;
 	return `${outcome.branch}, where it already was`;
 }

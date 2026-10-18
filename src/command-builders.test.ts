@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
+	CommandBuilderError,
 	DEFAULT_SLASH_COMMAND,
 	GITHUB_TICKET_FIELDS,
 	authStatusCommand,
@@ -15,6 +16,7 @@ import {
 	jiraIdentityCommand,
 	originRemoteCommand,
 	remoteBranchesCommand,
+	resolveCommitCommand,
 	sessionBinaryAliveCommand,
 	sessionCommand,
 	workspaceCommand,
@@ -47,6 +49,7 @@ const BRANCH = "feature/reader-8";
 const WORKTREE_PATH = "/repo/.worktrees/reader-8";
 const SESSION = sessionCommand({ ref: github, slashCommand: DEFAULT_SLASH_COMMAND });
 const TICKET_TITLE = "The reader drops a row it cannot parse";
+const BASE_COMMIT = "0123456789abcdef0123456789abcdef01234567";
 
 const CASES: readonly Case[] = [
 	{
@@ -140,6 +143,18 @@ const CASES: readonly Case[] = [
 		build: () => worktreeAddCommand("/repo", WORKTREE_PATH, BRANCH, false),
 	},
 	{
+		name: "resolve-commit",
+		description: "The commit a --base ref names where it was typed, peeled so a tag answers with its commit and a tree is refused.",
+		input: { directory: "/repo", ref: "feature/phase-1" },
+		build: () => resolveCommitCommand("/repo", "feature/phase-1"),
+	},
+	{
+		name: "worktree-add-new-branch-from-a-base",
+		description: "A worktree for a branch that does not exist yet, cut from the commit a --base resolved to rather than from the primary checkout's HEAD.",
+		input: { repo: "/repo", path: WORKTREE_PATH, branch: BRANCH, create: true, startPoint: BASE_COMMIT },
+		build: () => worktreeAddCommand("/repo", WORKTREE_PATH, BRANCH, true, BASE_COMMIT),
+	},
+	{
 		name: "github-issue-list",
 		description: "One read of a GitHub ticket set, asking for one row more than the adapter's limit.",
 		input: { repo: "example/repo", rows: 31 },
@@ -211,6 +226,24 @@ describe("sessionCommand", () => {
 
 	test("refuses a slash command carrying a space, which would make the reference a separate word", () => {
 		expect(() => sessionCommand({ ref: github, slashCommand: "/implement now" })).toThrow(/slash command/);
+	});
+});
+
+describe("worktreeAddCommand", () => {
+	test("puts the start point after the new branch, where git reads it as where the branch begins", () => {
+		const argv = worktreeAddCommand("/repo", WORKTREE_PATH, BRANCH, true, BASE_COMMIT);
+		expect(argv.slice(argv.indexOf("-b"))).toEqual(["-b", BRANCH, BASE_COMMIT]);
+	});
+
+	test("refuses a start point for a branch that already exists, which a checkout would not move", () => {
+		expect(() => worktreeAddCommand("/repo", WORKTREE_PATH, BRANCH, false, BASE_COMMIT)).toThrow(CommandBuilderError);
+	});
+});
+
+describe("resolveCommitCommand", () => {
+	test("ends options before the ref, so a ref spelled like an option is still read as a ref", () => {
+		const argv = resolveCommitCommand("/repo", "-x");
+		expect(argv.slice(argv.indexOf("--end-of-options"))).toEqual(["--end-of-options", "-x^{commit}"]);
 	});
 });
 

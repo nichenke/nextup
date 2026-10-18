@@ -1,0 +1,17 @@
+{
+	"description": "The commit a --base ref names where it was typed, peeled so a tag answers with its commit and a tree is refused.",
+	"input": {
+		"directory": "/repo",
+		"ref": "feature/phase-1"
+	},
+	"argv": [
+		"git",
+		"-C",
+		"/repo",
+		"rev-parse",
+		"--verify",
+		"--quiet",
+		"--end-of-options",
+		"feature/phase-1^{commit}"
+	]
+}

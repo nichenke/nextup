@@ -6,6 +6,7 @@ import {
 	defaultBranchCommand,
 	gitCommonDirCommand,
 	remoteBranchesCommand,
+	resolveCommitCommand,
 	worktreeAddCommand,
 	worktreeIdentityCommand,
 	worktreeListCommand,
@@ -25,11 +26,18 @@ import type { Ticket } from "./ticket";
  * compute the same path, so they collide inside `git worktree add` instead. `"unnameable-ticket"` says the ticket
  * cannot name a branch at all — an absent key, or one no branch name can spell — so
  * no waiting fixes it. `"unsupported-repository"` is a repository laid out in a way this does not work
- * in at all, which no root or ticket changes. `"git"` is a git question this could not get a usable
- * answer to, which includes a command that succeeded and said nothing.
+ * in at all, which no root or ticket changes. `"unresolvable-base"` is a base that names no commit where
+ * it was typed, a blank one included, which a corrected ref fixes. `"git"` is a git question this could
+ * not get a usable answer to, which includes a command that succeeded and said nothing.
  */
 export class WorktreeError extends Error {
-	readonly kind: "stale-directory" | "branch-elsewhere" | "unnameable-ticket" | "unsupported-repository" | "git";
+	readonly kind:
+		| "stale-directory"
+		| "branch-elsewhere"
+		| "unnameable-ticket"
+		| "unsupported-repository"
+		| "unresolvable-base"
+		| "git";
 
 	constructor(message: string, kind: WorktreeError["kind"]) {
 		super(message);
@@ -124,6 +132,64 @@ function slugify(text: string): string {
 	return kept.replace(/-+$/, "");
 }
 
+/**
+ * The brand's key, a real symbol for the reason `checkoutIdentity` in `checkout-identity.ts` gives. Not
+ * exported, so `resolveBase` is the only way to make a `Base`.
+ */
+const resolvedBase: unique symbol = Symbol("resolved-base");
+
+/**
+ * A ref a new branch is to start from, pinned to the commit it named when it was resolved, so the branch
+ * starts there however the ref moves before `git worktree add` runs. ADR-0044.
+ */
+export interface Base {
+	readonly [resolvedBase]: true;
+	/** The ref as typed, which is what a report of the base names. */
+	readonly given: string;
+	/** The full object id `given` named. */
+	readonly commit: string;
+}
+
+/** An object id as git prints one in full: SHA-1, or SHA-256 in a repository using it. */
+const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
+/**
+ * `given` pinned to the commit it names in `directory`, which is the checkout the command was invoked in,
+ * because a ref means what it means where it was typed: `HEAD` in a linked worktree is that worktree's HEAD.
+ * ADR-0044.
+ *
+ * Blankness is tested by trimming and git is then asked about `given` untrimmed, as `resolveContainer`
+ * reads a root, so a padded ref is refused by git rather than quietly corrected here.
+ *
+ * @throws WorktreeError `"unresolvable-base"` for a blank `given`; for exit 1, which is git saying the ref
+ * names no commit (`resolveCommitCommand` has the shapes measured); and for an exit 0 whose answer is not
+ * one object id, which `^side` produces: git reads it as an exclusion and prints `^<id>`.
+ *
+ * @throws WorktreeError `"git"` for any other exit and for an exit 0 that printed nothing, the repository
+ * failing rather than answering. A reflog entry past the log's end, such as `main@{99}`, also exits 128
+ * under `--quiet`, so it reads as this kind though the ref is what is wrong.
+ */
+export function resolveBase(runner: Runner, directory: string, given: string): Base {
+	if (given.trim() === "") {
+		throw new WorktreeError("--base was given a blank ref, which names no commit", "unresolvable-base");
+	}
+	const result = runner([...resolveCommitCommand(directory, given)]);
+	if (result.code === 1) {
+		throw new WorktreeError(`--base ${given} names no commit in ${directory}`, "unresolvable-base");
+	}
+	const commit = result.stdout.trim();
+	if (result.code !== 0 || commit === "") {
+		throw new WorktreeError(
+			`${directory} could not be asked which commit ${given} names: ${gitFailure(result.stderr, result.code)}`,
+			"git",
+		);
+	}
+	if (!OBJECT_ID.test(commit)) {
+		throw new WorktreeError(`--base ${given} names ${commit} in ${directory}, which is not one commit`, "unresolvable-base");
+	}
+	return { [resolvedBase]: true, given, commit };
+}
+
 export interface EnsureInput {
 	readonly runner: Runner;
 	/** The checkout this tool was invoked in, which is only sometimes the primary one. */
@@ -131,9 +197,28 @@ export interface EnsureInput {
 	readonly ticket: Pick<Ticket, "ref" | "title" | "labels">;
 	/** Absolute, or relative to the primary checkout. Defaults to `DEFAULT_WORKTREE_ROOT`. */
 	readonly root?: string | null;
+	/** Where a new branch starts in place of the primary checkout's HEAD. Changes nothing about a branch that exists. */
+	readonly base?: Base | null;
 }
 
-interface WorktreeBase {
+/**
+ * What became of a base, on every outcome, so one that changed nothing is reported rather than dropped.
+ *
+ * Only cutting a new branch can apply one, so `created` carries `none` or `applied` and the two routes onto
+ * an existing branch carry `none` or `not-applied`: an outcome claiming a base moved a branch that was already
+ * there cannot be built. ADR-0044 has why a base that was not applied is reported rather than ignored.
+ */
+export type BaseOutcome =
+	| { readonly kind: "none" }
+	| { readonly kind: "applied"; readonly base: Base }
+	| { readonly kind: "not-applied"; readonly base: Base };
+
+type OntoExistingBranch = Exclude<BaseOutcome, { kind: "applied" }>;
+type OntoNewBranch = Exclude<BaseOutcome, { kind: "not-applied" }>;
+
+const NO_BASE = { kind: "none" } as const;
+
+interface OutcomeFacts {
 	readonly path: string;
 	readonly branch: string;
 	/** The primary checkout, so a caller can ask what of it a session in the worktree would see. */
@@ -150,8 +235,9 @@ interface WorktreeBase {
  * the shape nichenke/nextup pull request 31 shipped and which reported `created` over an empty path.
  */
 export type WorktreeOutcome =
-	| (WorktreeBase & { readonly kind: "attached"; readonly command: null })
-	| (WorktreeBase & { readonly kind: "created" | "checked-out"; readonly command: Argv });
+	| (OutcomeFacts & { readonly kind: "attached"; readonly command: null; readonly base: OntoExistingBranch })
+	| (OutcomeFacts & { readonly kind: "checked-out"; readonly command: Argv; readonly base: OntoExistingBranch })
+	| (OutcomeFacts & { readonly kind: "created"; readonly command: Argv; readonly base: OntoNewBranch });
 
 /**
  * What a registration's HEAD is, in the shapes the porcelain listing reports.
@@ -190,6 +276,9 @@ export interface Registration {
  * any failure attaches to whatever is already there and carries on, so recovery is the ordinary path.
  * ADR-0016 has why nothing here needs unwinding.
  *
+ * A `base` is where a new branch starts. A branch that already exists is attached to or checked out where it
+ * is, and the outcome says the base was not applied, so a re-run with a base moves nothing.
+ *
  * @throws WorktreeError — `"branch-elsewhere"` where the branch is checked out at another path,
  * `"stale-directory"` where the expected path holds anything else, `"unnameable-ticket"` from `branchName`,
  * `"unsupported-repository"` where the repository keeps its git directory somewhere this cannot work,
@@ -197,6 +286,7 @@ export interface Registration {
  */
 export function ensure(input: EnsureInput): WorktreeOutcome {
 	const branch = branchName(input.ticket);
+	const base = input.base ?? null;
 	const registrations = readRegistrations(input.runner, input.repo);
 	// The main worktree is what the porcelain listing puts first, whichever worktree the listing was
 	// asked from — which is the whole reason `repo` and `primary` are separate values here.
@@ -220,7 +310,8 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 		refuseUnlessAttachable(input.runner, atPath, path, branch);
 		// Asked only on the routes that return, since it spawns a process whose answer every refusal above
 		// would discard — and re-running onto an existing worktree is the ordinary path here, not the rare one.
-		return { kind: "attached", path, branch, command: null, primary, warnings: driftWarnings(input.runner, primary, main.head) };
+		const warnings = driftWarnings(input.runner, primary, main.head);
+		return { kind: "attached", path, branch, command: null, primary, warnings, base: notApplied(base) };
 	}
 
 	refuseIfOccupied(path);
@@ -229,14 +320,25 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 	// checked out nowhere. The remotes are asked too, for the reason `remoteBranchesCommand` gives.
 	const create =
 		!branchExists(input.runner, primary, branch) && !adoptableFromOrigin(input.runner, primary, branch);
-	const warnings = driftWarnings(input.runner, primary, main.head);
+	// Not asked where a base is applied: the warning is about a new branch inheriting the primary's HEAD,
+	// and a base is what stops it inheriting anything. ADR-0044.
+	const warnings = create && base !== null ? [] : driftWarnings(input.runner, primary, main.head);
 	// primary, not input.repo — see `driftWarnings`.
-	const command = worktreeAddCommand(primary, path, branch, create);
+	const command = create
+		? worktreeAddCommand(primary, path, branch, true, base?.commit)
+		: worktreeAddCommand(primary, path, branch, false);
 	const result = input.runner([...command]);
 	if (result.code !== 0) {
 		throw new WorktreeError(`${path} could not be created: ${gitFailure(result.stderr, result.code)}`, "git");
 	}
-	return { kind: create ? "created" : "checked-out", path, branch, command, primary, warnings };
+	if (create) {
+		return { kind: "created", path, branch, command, primary, warnings, base: base === null ? NO_BASE : { kind: "applied", base } };
+	}
+	return { kind: "checked-out", path, branch, command, primary, warnings, base: notApplied(base) };
+}
+
+function notApplied(base: Base | null): OntoExistingBranch {
+	return base === null ? NO_BASE : { kind: "not-applied", base };
 }
 
 /**
@@ -516,9 +618,10 @@ function branchExists(runner: Runner, repo: string, branch: string): boolean {
  *
  * @throws WorktreeError `"unsupported-repository"` where more than one remote offers the name. Adopting a
  * remote-only branch leaves git to resolve the name, and git refuses to resolve an ambiguous one — so the
- * argv would fail with `fatal: invalid reference` after the guards had passed. One remote is what this
- * expects; the ambiguity is detected and refused rather than engineered around, because naming the start
- * point explicitly would commit this to picking a winner among remotes it has no basis to rank.
+ * argv would fail with a fatal after the guards had passed, in either wording `remoteBranchesCommand`
+ * records. One remote is what this expects; the ambiguity is detected and refused rather than engineered
+ * around, because naming the start point explicitly would commit this to picking a winner among remotes it
+ * has no basis to rank.
  *
  * @throws WorktreeError `"git"` where the repository could not answer.
  */
@@ -613,8 +716,8 @@ function resolvedIfThere(path: string): string | undefined {
 }
 
 /**
- * Whether the primary checkout has drifted off the default branch, which is worth saying because the
- * new branch is cut from that checkout's HEAD — a worktree stacked on drift inherits it.
+ * Whether the primary checkout has drifted off the default branch, which is worth saying because a new
+ * branch given no base is cut from that checkout's HEAD, so a worktree stacked on drift inherits it.
  *
  * A default branch that cannot be determined is itself reported. Saying nothing would drop the check
  * silently in exactly the repositories that have no `origin/HEAD` to read, and a caller would have no
