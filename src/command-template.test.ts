@@ -74,6 +74,9 @@ describe("parseCommandTemplate", () => {
 		["a tilde before the placeholder", "w ~/{ref}", "~/{ref}"],
 		["an assignment in the program word", "FOO=1 w {ref}", "FOO=1"],
 		["an assignment around a placeholder in the program word", "{ref}=1 w", "{ref}=1"],
+		["a word zsh would expand as a command path", "w {ref} =ls", "=ls"],
+		["a placeholder after a leading =", "w ={ref}", "={ref}"],
+		["a program word bash and zsh would read as a job spec", "%w {ref}", "%w"],
 		["a redirection", "w {ref} > log", ">"],
 		["a redirection inside a word", "w {ref} 2>&1", "2>&1"],
 		["a command separator", "w {ref}; x", "{ref};"],
@@ -157,11 +160,12 @@ describe("a templated command through formatCommand", () => {
 	 * Against a real shell, because the host types the line into one. Each word the shell parsed comes back on its
 	 * own line from the function the line is handed to, so the comparison is against what a shell produced.
 	 */
-	test("reaches a real shell as the very words the template and the reference make", () => {
-		const ref: TicketRef = { tracker: "jira", host: null, key: "it's $HOME" };
+	test.each(["sh", "bash", "zsh"])("reaches %s as the very words the template and the reference make", (name) => {
+		if (Bun.which(name) === null) return;
+		const ref: TicketRef = { tracker: "jira", host: null, key: "it's $HOME =ls" };
 		const words = run("w_1 --a=b,c:d@e%f+g ./x/{ref}.log {ref}", ref);
 		const line = `f() { for word in "$@"; do printf '%s\\n' "$word"; done; }; f ${formatCommand(words)}`;
-		const shell = Bun.spawnSync({ cmd: ["sh", "-c", line], stdout: "pipe", stderr: "pipe" });
+		const shell = Bun.spawnSync({ cmd: [name, "-c", line], stdout: "pipe", stderr: "pipe" });
 
 		expect(shell.exitCode).toBe(0);
 		expect(shell.stdout.toString().split("\n").slice(0, -1)).toEqual([...words]);

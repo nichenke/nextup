@@ -427,8 +427,18 @@ describe("formatCommand", () => {
 		expect(formatCommand(["a=b", "--flag=value"])).toBe("'a=b' --flag=value");
 	});
 
+	test("quotes a word starting with = and a first word starting with %, which a shell expands", () => {
+		expect(formatCommand(["w", "=ls"])).toBe("w '=ls'");
+		expect(formatCommand(["%1", "x"])).toBe("'%1' x");
+		expect(formatCommand(["w", "%1"])).toBe("w %1");
+	});
+
+	test("leaves = and % bare inside a word", () => {
+		expect(formatCommand(["w", "--x=y", "a%b"])).toBe("w --x=y a%b");
+	});
+
 	test("leaves bare exactly the words isBareWord accepts, in first position and after it", () => {
-		const words = ["w", "a=b", "--x=y", "", "~", "$HOME", "a b", "#", "{ref}", "café", "A-z_0.9/@%+:,"];
+		const words = ["w", "a=b", "--x=y", "=ls", "%1", "a%b", "", "~", "$HOME", "a b", "#", "{ref}", "café", "A-z_0.9/@%+:,"];
 		for (const word of words) {
 			expect([word, formatCommand([word]) === word]).toEqual([word, isBareWord(word, true)]);
 			expect([word, formatCommand(["w", word]) === `w ${word}`]).toEqual([word, isBareWord(word, false)]);

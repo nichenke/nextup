@@ -432,7 +432,7 @@ export function formatCommand(argv: readonly string[]): string {
 // Single quotes, which a POSIX shell leaves entirely literal, so only the closing quote itself needs
 // handling. Deciding a word is safe by an allowlist rather than by escaping the characters that are
 // not: an escape list has to stay complete as shells add syntax, and an allowlist that falls behind
-// only over-quotes.
+// only over-quotes. `isBareWord` has the positions where an allowed character is still syntax.
 function quote(word: string, first: boolean): string {
 	if (isBareWord(word, first)) return word;
 	return `'${word.replaceAll("'", `'\\''`)}'`;
@@ -440,11 +440,17 @@ function quote(word: string, first: boolean): string {
 
 /**
  * Whether `formatCommand` leaves `word` unquoted, as the line's first word or as a later one. Exported so that
- * `parseCommandTemplate` refuses by this rule rather than by a copy of it. A template word this rule leaves bare
- * reaches the shell exactly as written, and a copy that drifted would let one reach it as syntax.
+ * `parseCommandTemplate` refuses by this rule rather than by a copy of it. A word this rule leaves bare reaches
+ * the program as written, measured in sh, bash and zsh, and a copy that drifted would let one reach a shell as
+ * syntax.
+ *
+ * An allowed character is still syntax in three positions. A first word holding `=` is read as an assignment
+ * and runs whatever follows instead. A word starting with `=` is expanded to a command's path by zsh's default
+ * EQUALS option, so `=ls` becomes `/bin/ls`. A first word starting with `%` is a job spec to bash and zsh.
+ * Inside a word, `=` and `%` stay literal.
  */
 export function isBareWord(word: string, first: boolean): boolean {
-	// `=` is safe in every word but the first, where a shell reads `name=value` as an assignment and
-	// runs whatever follows instead.
-	return /^[A-Za-z0-9_@%+=:,./-]+$/.test(word) && !(first && word.includes("="));
+	if (!/^[A-Za-z0-9_@%+=:,./-]+$/.test(word)) return false;
+	if (word.startsWith("=")) return false;
+	return !(first && (word.includes("=") || word.startsWith("%")));
 }
