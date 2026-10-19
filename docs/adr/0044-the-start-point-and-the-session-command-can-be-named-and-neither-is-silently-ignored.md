@@ -125,7 +125,9 @@ warning: --base <given> was not applied: <branch> already existed, so it was lef
 ```
 
 A start that fails after the worktree was made, at the claim or at the session, carries the worktree's warning
-lines on stderr ahead of its recovery, so a base that was not applied is not dropped by the failure.
+lines on stderr ahead of its recovery, so a base that was not applied is not dropped by the failure. A failure
+of the base question itself, after the add, carries no drift warning. Nothing was claimed, and its recovery is
+the re-run that attaches, which prints them.
 
 `--json` carries the same facts as `start.worktree.base`, with `kind: "already-on-base"` or
 `kind: "not-applied"`, so the orchestrator can stop on a field rather than on a string match.
@@ -149,7 +151,8 @@ takes a line rather than argv and types it into a shell, so since
 `formatCommand` applies is what stands between a word and shell syntax. A template takes the path the
 default command takes. Each word, with every `{ref}` taken out, must be one `formatCommand` leaves bare, and
 `isBareWord` holds that rule and the positions where an allowed character is still shell syntax. A word that is
-only `{ref}` passes. A word without the reference then reaches the program as written, measured in sh, bash and
+only `{ref}` passes anywhere but first. The first word is the program, and a ticket's reference names none, so
+a first word holding `{ref}` is refused rather than claiming the ticket for a session that cannot start. A word without the reference then reaches the program as written, measured in sh, bash and
 zsh, and a word carrying it is quoted whole, so a reference substituted into a word stays inside it.
 The rule is `formatCommand`'s own predicate, so the two cannot drift apart. Accepting the
 template verbatim as a shell string was rejected, because it would splice the reference into shell code and
@@ -170,10 +173,11 @@ argument containing a space or expand a variable. Anything needing the shell bel
 template runs.
 
 The guarantee that a word reaches the program as written holds for a shell with no aliases, measured
-non-interactively. The workspace host types the line into the user's interactive shell, where an alias
-(including a zsh global alias on any word), a reserved word in first position such as `if`, `time` or
-`select`, or zsh's assignment-style `A==cmd` expansion after `export` or `typeset` can still rewrite a word.
-These are out of scope, and a template that needs certainty should name a script.
+non-interactively, and not for a reserved word in first position such as `if`, `time` or `select`, which sh,
+bash and zsh all parse as syntax even then. The workspace host types the line into the user's interactive
+shell, where an alias (including a zsh global alias on any word) or zsh's assignment-style `A==cmd` expansion
+after `export` or `typeset` can also rewrite a word. These are out of scope, and a template that needs
+certainty should name a script.
 
 **`{ref}` is required.** The session's whole task is the reference. A template without it would start a
 session that does not know its ticket, in a worktree made for that ticket, with the ticket claimed.

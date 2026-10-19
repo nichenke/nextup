@@ -30,15 +30,13 @@ export class CommandTemplate {
  * The template `text` spells, or a refusal.
  *
  * Split on runs of whitespace and nothing more, because the words are argv, each passed through `formatCommand` on
- * its way to the workspace host's shell. Every word must be one `formatCommand` leaves bare once its
- * `REF_PLACEHOLDER`s are taken out, so a word without the reference reaches the program as written, measured in
- * sh, bash and zsh, and a word carrying it is quoted whole. ADR-0044 has why a template is argv rather than a
- * shell line.
+ * its way to the workspace host's shell. ADR-0044 has why a template is argv rather than a shell line.
  *
  * @throws CommandTemplateError when `text` is blank; when a word without its placeholders is not one
  * `isBareWord` accepts in that position, since `formatCommand` would quote it and the program would receive
- * something other than what was written; and when no word contains `REF_PLACEHOLDER`, because the reference is
- * the session's whole task.
+ * something other than what was written; when the first word contains `REF_PLACEHOLDER`, which would make the
+ * ticket's reference the program; and when no word contains it, because the reference is the session's whole
+ * task.
  */
 export function parseCommandTemplate(text: string): CommandTemplate {
 	const trimmed = text.trim();
@@ -52,6 +50,11 @@ export function parseCommandTemplate(text: string): CommandTemplate {
 	if (unwritten !== undefined) {
 		throw new CommandTemplateError(
 			`the command template word ${unwritten} would not reach the program as written, because the template is not shell. Run nextup --help for the characters a word may hold besides ${REF_PLACEHOLDER}, and put anything needing a shell in a script the template runs`,
+		);
+	}
+	if (first!.includes(REF_PLACEHOLDER)) {
+		throw new CommandTemplateError(
+			`the command template's first word ${first} is the program to run, so it cannot hold ${REF_PLACEHOLDER}; put the reference in a later word`,
 		);
 	}
 	if (!words.some((word) => word.includes(REF_PLACEHOLDER))) {

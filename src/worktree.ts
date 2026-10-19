@@ -137,8 +137,7 @@ function slugify(text: string): string {
 let pin: (given: string, commit: string) => Base;
 
 /**
- * A ref a new branch is to start from, pinned to the commit it named when it was resolved, so the branch
- * starts there however the ref moves before `git worktree add` runs. ADR-0044.
+ * A ref a new branch is to start from, pinned to the commit it named when it was resolved. ADR-0044.
  */
 export class Base {
 	static {
@@ -158,8 +157,7 @@ export class Base {
 }
 
 /**
- * `given` pinned to the commit it names in `directory`, which is the checkout the command was invoked in,
- * because a ref means what it means where it was typed. `HEAD` in a linked worktree is that worktree's HEAD.
+ * `given` pinned to the commit it names in `directory`, which is the checkout the command was invoked in.
  * ADR-0044.
  *
  * Blankness is tested by trimming and git is then asked about `given` untrimmed, as `resolveContainer`
@@ -274,9 +272,6 @@ export interface Registration {
  * Idempotent, which is what makes it the whole step rather than a plan and a commit: a re-run after
  * any failure attaches to whatever is already there and carries on, so recovery is the ordinary path.
  * ADR-0016 has why nothing here needs unwinding.
- *
- * A `base` is where a new branch starts. A branch that already exists is checked out or attached where it is,
- * so a re-run with a base moves nothing, and the outcome says whether that branch already contains the base.
  *
  * @throws WorktreeError — `"branch-elsewhere"` where the branch is checked out at another path,
  * `"stale-directory"` where the expected path holds anything else, `"unnameable-ticket"` from `branchName`,
@@ -622,6 +617,8 @@ function branchExists(runner: Runner, repo: string, branch: string): boolean {
 }
 
 /**
+ * Whether `origin` has a branch this can adopt by checking it out rather than cutting a new one.
+ *
  * @throws WorktreeError `"unsupported-repository"` where more than one remote offers the name. Adopting a
  * remote-only branch leaves git to resolve the name, and git refuses to resolve an ambiguous one — so the
  * argv would fail with a fatal after the guards had passed, in either wording `remoteBranchesCommand`
@@ -722,6 +719,9 @@ function resolvedIfThere(path: string): string | undefined {
 }
 
 /**
+ * Whether the primary checkout has drifted off the default branch, which is worth saying because a new
+ * branch given no base is cut from that checkout's HEAD, so a worktree stacked on drift inherits it.
+ *
  * A default branch that cannot be determined is itself reported. Saying nothing would drop the check
  * silently in exactly the repositories that have no `origin/HEAD` to read, and a caller would have no
  * way to tell that from a checkout sitting on the default branch.

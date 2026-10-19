@@ -120,17 +120,18 @@ the host alone and asks the glab CLI about anything else.
 --base and --command apply to a ranked pick and a named ticket alike, with --force, and with --print-command.
 
 --base names the ref a new branch is cut from. It is resolved in the directory you typed the command in and
-pinned to the commit it names before anything is asked or written, so a ref naming no commit is refused with
-nothing done, and --print-command refuses it too. A branch or worktree that already exists is checked out or
-attached where it is and never moved. Where that branch already contains the base, the line naming the branch
+pinned to the commit it names before any tracker is read or anything is written, so a ref naming no commit
+is refused with nothing done, and --print-command refuses it too. A branch or worktree that already exists
+is checked out or attached where it is and never moved. Where that branch already contains the base, the line naming the branch
 says so; where it does not, a "warning: " line says the base was not applied.
 
 --command runs a template in the workspace instead of claude and a slash command. The template is split on
 whitespace into words, and every {ref} is replaced by the ticket's reference, even inside a longer word. The
 template is not shell. Apart from {ref}, a word may hold only letters, digits and _@%+=:,./- and no word may
-start with =, nor the first word with % or hold =. A word without {ref} then reaches the program as written
-(measured in sh, bash and zsh) and a word with it is quoted whole; anything needing a shell belongs in a
-script the template runs. A template with no {ref} is refused, since the session would not know its ticket.
+start with =, nor the first word with % or hold = or {ref}. A word without {ref} then reaches the program as
+written in sh, bash and zsh, unless it is a reserved word such as if or time in first place or an alias in
+your interactive shell, and a word with it is quoted whole; anything needing a shell belongs in a script the
+template runs. A template with no {ref} is refused, since the session would not know its ticket.
 The session binary is not checked for a template, whose program is something else. --command is refused
 beside --slash-command, which only the default command reads.
 
@@ -426,7 +427,7 @@ export type StartOutcome =
  * @throws StartError where there is nobody to confirm with, and where the claim or the session failed —
  * carrying the worktree, and saying which recovery the failure actually leaves open.
  * @throws WorktreeError from the worktree step, and LaunchError from the host check.
- * Not from the session itself: `startedNothing` has why that one arrives as a `StartError` instead.
+ * Not from the session itself, which `startedNothing` turns into a `StartError` for the reason it gives.
  * @throws CommandBuilderError unwrapped, from `--slash-command` naming something `sessionCommand` will not
  * build — which parsing already refused and this backstops, before anything is written. The claim's own
  * canonical-key assertion raises `TicketRefError` and is unreachable: `githubTicketRef` refuses a padded key at
@@ -629,8 +630,7 @@ function renderStart(start: StartOutcome): string {
 }
 
 /**
- * `StartOutcome` with every reference in the short form `CandidateJson` uses, and every base as the `BaseJson` a
- * parsed document holds rather than the `Base` class.
+ * `StartOutcome` with every reference in the short form `CandidateJson` uses.
  */
 export type StartOutcomeJson =
 	| Extract<StartOutcome, { readonly kind: "nothing-to-start" }>

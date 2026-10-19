@@ -39,9 +39,12 @@ describe("parseCommandTemplate", () => {
 		expect(run("phase-worker {ref}")).toEqual(["phase-worker", "gh:example/repo#1"]);
 	});
 
-	test("accepts a template that is only the placeholder, which then names the program", () => {
-		expect(run("{ref}")).toEqual(["gh:example/repo#1"]);
-	});
+	test.each(["{ref}", "{ref} --verbose", "w{ref} x", "{ref}{ref} {ref}"])(
+		"refuses %j, whose first word would make the ticket's reference the program",
+		(text) => {
+			expect(refusal(text).message).toContain("first word");
+		},
+	);
 
 	test.each(["", "   ", "\t\n"])("refuses a blank template %j", (text) => {
 		expect(refusal(text).message).toContain("blank");
@@ -57,8 +60,8 @@ describe("parseCommandTemplate", () => {
 		]);
 	});
 
-	test("accepts a word that is only placeholders, in any position", () => {
-		expect(run("{ref}{ref} {ref}")).toEqual(["gh:example/repo#1gh:example/repo#1", "gh:example/repo#1"]);
+	test("accepts a word that is only placeholders, in any position after the first", () => {
+		expect(run("w {ref}{ref} {ref}")).toEqual(["w", "gh:example/repo#1gh:example/repo#1", "gh:example/repo#1"]);
 	});
 
 	test.each([
