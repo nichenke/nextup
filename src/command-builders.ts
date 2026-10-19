@@ -438,8 +438,8 @@ function quote(word: string, first: boolean): string {
 
 /**
  * Whether `formatCommand` leaves `word` unquoted, as the line's first word or as a later one. A word this rule
- * leaves bare reaches the program as written in sh, bash and zsh, except for the words those shells rewrite
- * whatever their characters, which this does not check. ADR-0044 lists the ones known.
+ * leaves bare reaches the program as written, except for words a shell treats specially although every
+ * character is allowed, which this does not check. ADR-0044 lists the ones known.
  *
  * An allowed character is still syntax in three positions. A first word holding `=` is read as an assignment
  * and runs whatever follows instead. A word starting with `=` is expanded to a command's path by zsh's default

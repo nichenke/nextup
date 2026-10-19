@@ -10,8 +10,9 @@ named path, with `--force`, and with `--print-command`.
 
 Without a base, Ensure cuts a new branch from the primary checkout's HEAD. `worktreeAddCommand` passes git
 no start point, so the branch inherits whatever the primary has checked out, and the default branch plays no
-part in where it starts, which `driftWarnings` warns about. A stacked phase needs its branch cut from its
-parent phase's branch instead, and with `--base` Ensure passes the base to git as the start point.
+part in where it starts. `driftWarnings` has why a primary off the default branch is warned about. A
+stacked phase needs its branch cut from its parent phase's branch instead, and with `--base` Ensure passes
+the base to git as the start point.
 
 The workaround was to pre-create the branch outside nextup and let Ensure attach to it. That was rejected
 because it copies `branchName` into another process. Any disagreement between the two copies, such as a
@@ -118,7 +119,7 @@ branch's own line instead, as in this example:
 
 A branch that does not contain the base gets a line a caller can find with `grep '^warning: --base '`, as in
 this example. A bare `^warning: ` also matches the drift warning, which every route but a new branch cut at
-the base still prints, so it does not mean the base was not applied.
+the base can print, so it does not mean the base was not applied.
 
 ```
 warning: --base <given> was not applied: <branch> already existed, so it was left where it was
@@ -177,11 +178,13 @@ The guarantee that a word reaches the program as written covers the characters `
 stops there. Shells rewrite some words made only of those characters, and `isBareWord` does not look for
 them. These are the ones review found, which is not a proof that there are no others:
 
-- a reserved word as the first word, such as `if`, a syntax error in sh, bash, zsh and dash even
-  non-interactively, measured; `time` and `select` are reserved in bash and zsh but not in dash;
-- a later word holding `==` after zsh's reserved `export` or `typeset`, which zsh expands as `=cmd`, so
-  `export A==ls` sets `A` to `/bin/ls`, measured non-interactively with `zsh -f`;
-- `-` as the first word, a zsh precommand modifier, inferred and not run;
+- a reserved word as the first word. `if` is a syntax error in sh, bash, zsh and dash, measured. Others
+  exit 0 having run something other than the program. bash's `time echo X` runs `echo` under a timer, and
+  zsh's `select echo X` prints nothing, both measured non-interactively. dash reserves neither;
+- a later word holding `==` after a zsh reserved word such as `export` or `typeset`, which zsh expands as
+  `=cmd`, so `export A==ls` sets `A` to `/bin/ls`, measured non-interactively with `zsh -f`;
+- `-` as the first word, a zsh precommand modifier that runs the next word, so `- w {ref}` runs `w`, which
+  review measured with `zsh -c 'true; - echo X'`, while sh, bash and dash report `-: command not found`;
 - an alias, including a zsh global alias on any word, in the interactive shell the workspace host types the
   line into.
 

@@ -129,9 +129,10 @@ line naming the branch says so; where it does not, a "warning: --base" line says
 whitespace into words, and every {ref} is replaced by the ticket's reference, even inside a longer word. The
 template is not shell. Apart from {ref}, a word may hold only letters, digits and _@%+=:,./- and no word may
 start with =, nor the first word with % or hold = or {ref}. A word with {ref} is quoted whole. A word without
-it reaches the program as written, except for words a shell rewrites whatever their characters, such as if as
-the first word or an alias in your shell, which ADR-0044 lists and nothing here checks. Anything needing a
-shell, or certainty, belongs in a script the template runs. A template with no {ref} is refused, since the session would not know its ticket.
+it reaches the program as written, except for words a shell treats specially although every character is
+allowed, such as if as the first word or an alias in your shell, which ADR-0044 lists and nothing here
+checks. Anything needing a shell, or certainty, belongs in a script the template runs. A template with no
+{ref} is refused, since the session would not know its ticket.
 The session binary is not checked for a template, whose program is something else. --command is refused
 beside --slash-command, which only the default command reads.
 
