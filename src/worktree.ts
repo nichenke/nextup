@@ -333,19 +333,16 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 	if (create) {
 		return { kind: "created", path, branch, command, primary, warnings, base: base === null ? NO_BASE : { kind: "applied", base } };
 	}
-	// Asked after the add, of the local branch it made, because a fetch can move a remote ref between a question
-	// asked before and the add's own reading of it.
 	const existing = onExistingBranch(input.runner, primary, branch, base, path);
 	return { kind: "checked-out", path, branch, command, primary, warnings, base: existing };
 }
 
-/** @param made the worktree this run made on `branch`, which a failure has to name, or `null` for one it found. */
-function onExistingBranch(runner: Runner, primary: string, branch: string, base: Base | null, made: string | null): OntoExistingBranch {
+function onExistingBranch(runner: Runner, primary: string, branch: string, base: Base | null, worktreeThisRunMade: string | null): OntoExistingBranch {
 	if (base === null) return NO_BASE;
 	const result = runner([...isAncestorCommand(primary, base.commit, `${REF_HEADS}${branch}`)]);
 	if (result.code === 0) return { kind: "already-on-base", base };
 	if (result.code === 1) return { kind: "not-applied", base };
-	const recovery = made === null ? "" : `. ${made} is in place on ${branch}, so running this again attaches to it and asks again`;
+	const recovery = worktreeThisRunMade === null ? "" : `. ${worktreeThisRunMade} is in place on ${branch}, so running this again attaches to it and asks again`;
 	throw new WorktreeError(
 		`${primary} could not be asked whether ${branch} already contains --base ${base.given}: ${gitFailure(result.stderr, result.code)}${recovery}`,
 		"git",
