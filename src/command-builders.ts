@@ -259,7 +259,7 @@ export function resolveCommitCommand(directory: string, ref: string): Argv {
 	return ["git", "-C", directory, "rev-parse", "--verify", "--quiet", "--end-of-options", `${ref}^{commit}`];
 }
 
-/** An object id as git prints one in full: SHA-1, or SHA-256 in a repository using it. */
+/** An object id as git prints one in full, SHA-1 or SHA-256 in a repository using it. */
 export const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 /**
@@ -279,7 +279,7 @@ export function isAncestorCommand(repo: string, ancestor: string, ref: string): 
  * A new branch starts at `startPoint` where one is given, and at `repo`'s HEAD where it is not.
  *
  * @throws CommandBuilderError for a `startPoint` without `create`. An existing branch is checked out where
- * it is, never moved, and git has no such form anyway: `git worktree add <path> <branch> <commit>` exits
+ * it is, never moved, and git has no such form anyway. `git worktree add <path> <branch> <commit>` exits
  * 129 with its usage text, measured on git 2.56.
  *
  * @throws CommandBuilderError for a `startPoint` that is not a full object id. git reads anything else as a

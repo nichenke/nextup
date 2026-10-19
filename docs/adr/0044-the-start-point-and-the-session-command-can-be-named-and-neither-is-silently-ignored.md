@@ -30,6 +30,9 @@ because the output names it. The rendered line says `from <given> at <commit>`, 
 commit it was pinned to, so the branch's parent is in the run's own report rather than left to be inferred
 from where the command ran. Without `--base`, the start point stays the primary's HEAD, as 0013 has it.
 
+Resolution needs a git whose `rev-parse` accepts `--end-of-options`. The development machine runs git 2.56,
+and no older release has been measured.
+
 **It is pinned to a full commit id before anything is written.** `resolveBase` runs
 `git rev-parse --verify --quiet --end-of-options '<ref>^{commit}'` and keeps the ref as typed beside the
 commit it named. `run()` resolves it once, right after the line is parsed and a named ticket's reference is
@@ -97,8 +100,9 @@ git 2.56:
 - exit 1 is `not-applied`;
 - any other exit, 128 for an object git does not have among them, is `WorktreeError` kind `git`.
 
-The checkout route asks after `git worktree add`, because a branch adopted from origin has no local ref until
-the add makes one.
+The checkout route asks before `git worktree add`, so that nothing can fail once a worktree exists. A branch
+adopted from origin has no local ref yet, so the question names its remote ref exactly as git listed it,
+which is the tip the add will cut the local branch at.
 
 `already-on-base` exists for the ordinary recovery. A failed claim is recovered by running the command again,
 per [0016](./0016-the-worktree-is-created-before-the-claim.md), and that re-run attaches to the branch the
@@ -161,6 +165,12 @@ the same reason: `$HOME` or `~/bin/w` would still reach the program as text nobo
 refusal beats running something other than what was written. The cost is that a template cannot pass an
 argument containing a space or expand a variable. Anything needing the shell belongs in the script the
 template runs.
+
+The guarantee that a word reaches the program as written holds for a shell with no aliases, measured
+non-interactively. The workspace host types the line into the user's interactive shell, where an alias
+(including a zsh global alias on any word), a reserved word in first position such as `if`, `time` or
+`select`, or zsh's assignment-style `A==cmd` expansion after `export` or `typeset` can still rewrite a word.
+These are out of scope, and a template that needs certainty should name a script.
 
 **`{ref}` is required.** The session's whole task is the reference. A template without it would start a
 session that does not know its ticket, in a worktree made for that ticket, with the ticket claimed.
