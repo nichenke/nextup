@@ -229,7 +229,7 @@ function startSequence(
 		if (argv.includes("show-ref")) return { code: argv.includes("refs/remotes/origin/main") ? 0 : 1, stdout: "", stderr: "" };
 		if (argv.includes("for-each-ref")) return { code: 0, stdout: "", stderr: "" };
 		if (argv.includes("add")) return { code: 0, stdout: "", stderr: "" };
-		// Not an ancestor, unless a test says otherwise: a branch that already existed is off the base.
+		// Not an ancestor unless a test says otherwise, so a branch that already existed is off the base.
 		if (argv.includes("--is-ancestor")) return { code: 1, stdout: "", stderr: "" };
 		throw new Error(`nothing answers ${argv.join(" ")}`);
 	};
@@ -1473,7 +1473,7 @@ describe("--base and --command", () => {
 				...started,
 				worktree: { ...facts, kind: "created", command: ["git"], base: { kind: "applied", base: plain } },
 			};
-			// @ts-expect-error the JSON keeps the outcome type's rule: an attach cannot have applied a base
+			// @ts-expect-error the JSON keeps the outcome type's rule that an attach cannot have applied a base
 			const attachedApplied: StartOutcomeJson = { ...started, worktree: { ...facts, kind: "attached", base: { kind: "applied", base: plain } } };
 
 			const document = JSON.parse(run([...LIMIT, "--base", BASE, "--print-command", "--json"], deps(startSequence(answeringBase()).runner)).stdout);
