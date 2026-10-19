@@ -1199,7 +1199,7 @@ describe("ensure against real git", () => {
 		// `remoteBranchesCommand` records is accepted, since which one depends on the git running the suite.
 		const guessed = defaultRunner(["git", "-C", repo, "worktree", "add", join(outer, "guess"), READER_BRANCH]);
 		expect(guessed.code).not.toBe(0);
-		expect(guessed.stderr).toMatch(/^fatal: .*(invalid reference|matched multiple \(2\) remote tracking branches)/m);
+		expect(guessed.stderr).toMatch(/^fatal: .*(invalid reference|matched multiple \(\d+\) remote tracking branches)/m);
 		expect(kindOf(() => ensure({ runner: defaultRunner, repo, ticket: READER }))).toBe("unsupported-repository");
 	});
 

@@ -123,8 +123,8 @@ the host alone and asks the glab CLI about anything else.
 --base names the ref a new branch is cut from. It is resolved in the directory you typed the command in and
 pinned to the commit it names before anything is asked or written, so a ref naming no commit is refused with
 nothing done, and --print-command refuses it too. A branch or worktree that already exists is checked out or
-attached where it is and never moved. Where that branch already contains the base, the line naming it says
-so; where it does not, a "warning: " line says the base was not applied.
+attached where it is and never moved. Where that branch already contains the base, the line naming the branch
+says so; where it does not, a "warning: " line says the base was not applied.
 
 --command runs a template in the workspace instead of claude and a slash command. The template is split on
 whitespace into words, and every {ref} is replaced by the ticket's reference, even inside a longer word. The
@@ -644,8 +644,8 @@ function renderStart(start: StartOutcome): string {
 }
 
 /**
- * `StartOutcome` with every reference in the short form `CandidateJson` uses, and every base as the two fields
- * `JSON.stringify` writes, since a parsed document holds no `Base` and the class has a field no plain object has.
+ * `StartOutcome` with every reference in the short form `CandidateJson` uses, and every base as the `BaseJson` a
+ * parsed document holds rather than the `Base` class.
  */
 export type StartOutcomeJson =
 	| Extract<StartOutcome, { readonly kind: "nothing-to-start" }>
@@ -817,8 +817,7 @@ function parse(argv: readonly string[]): ParsedLine {
 				named = flag;
 		}
 	}
-	// Refused rather than letting one win, because the slash command is read only inside the default command, so
-	// beside a template it would be dropped with nothing saying so. ADR-0044.
+	// ADR-0044 has why neither wins.
 	if (given.has("--command") && given.has("--slash-command")) {
 		throw new CliError("--command and --slash-command both say what the session runs, so give one of them");
 	}

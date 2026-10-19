@@ -140,8 +140,8 @@ let pin: (given: string, commit: string) => Base;
  * A ref a new branch is to start from, pinned to the commit it named when it was resolved, so the branch
  * starts there however the ref moves before `git worktree add` runs. ADR-0044.
  *
- * Made only by `resolveBase`. A class with a `#` field, for the reason `CommandTemplate` gives: a symbol brand
- * survives a spread, so `{ ...base, commit }` would pass for a base carrying a commit git never named.
+ * Made only by `resolveBase`. A class with a `#` field, so a copy made by spreading one fails the type check, for
+ * the reason `CommandTemplate` gives.
  */
 export class Base {
 	static {

@@ -189,7 +189,8 @@ export function refExistsCommand(repo: string, ref: string): readonly string[] {
  * The whole list rather than `show-ref` on `origin` alone, because the count is the other half of the
  * answer. `git worktree add <path> <branch>` resolves a remote-only branch by guessing, and it refuses to
  * guess when more than one remote offers the name, failing with a fatal rather than making a worktree:
- * `invalid reference` from older git, `matched multiple (2) remote tracking branches` from git 2.56.
+ * `invalid reference` from older git, and a message that the name `matched multiple` remote tracking branches,
+ * measured on git 2.56.
  * Asking this way costs no extra command and tells us both whether `origin` has it and whether anything
  * else does.
  */

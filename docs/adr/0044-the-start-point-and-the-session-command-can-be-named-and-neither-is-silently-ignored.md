@@ -10,9 +10,9 @@ named path, with `--force`, and with `--print-command`.
 
 Without a base, Ensure cuts a new branch from the primary checkout's HEAD. `worktreeAddCommand` passes git
 no start point, so the branch inherits whatever the primary has checked out, and the default branch plays no
-part in where it starts. That inheritance is the only reason `driftWarnings` exists. It reports a primary that has drifted off the default
-branch, because a branch cut there carries the drift. A stacked phase needs its branch cut from its parent
-phase's branch instead, and with `--base` Ensure passes the base to git as the start point.
+part in where it starts. That inheritance is why `driftWarnings` reports a primary that has drifted off the
+default branch, because a branch cut there carries the drift. A stacked phase needs its branch cut from its
+parent phase's branch instead, and with `--base` Ensure passes the base to git as the start point.
 
 The workaround was to pre-create the branch outside nextup and let Ensure attach to it. That was rejected
 because it copies `branchName` into another process. Any disagreement between the two copies, such as a
@@ -23,16 +23,27 @@ created, and it silently cuts a fresh branch from the primary's HEAD.
 Ensure runs git against. A ref on a command line means what it means where it was typed, and `HEAD` in a
 linked worktree is that worktree's HEAD rather than the primary's.
 
+[0013](./0013-worktrees-go-under-the-primary-checkout.md) cuts a branch from the primary checkout rather than
+from whichever worktree invoked the tool, because a branch based on the invoking worktree would be based on
+something the output never names. A base resolved in a linked worktree does not reopen that objection,
+because the output names it. The rendered line says `from <given> at <commit>`, the ref as typed and the
+commit it was pinned to, so the branch's parent is in the run's own report rather than left to be inferred
+from where the command ran. Without `--base`, the start point stays the primary's HEAD, as 0013 has it.
+
 **It is pinned to a full commit id before anything is written.** `resolveBase` runs
 `git rev-parse --verify --quiet --end-of-options '<ref>^{commit}'` and keeps the ref as typed beside the
-commit it named. It runs before the host ping, the confirmation gate, Ensure and the claim, so a base that
-does not resolve is a refusal that has written nothing, for the reason
+commit it named. `run()` resolves it once, right after the line is parsed and a named ticket's reference is
+resolved, and before either path reads a tracker. Everything after that is handed the resolved `Base` or
+`null`, never the ref as typed. So a base that does not resolve is refused with exit 2 on every path,
+including a ranked run with nothing to pick, a named ticket the checks would refuse, and `--print-command`.
+The refusal has written nothing, for the reason
 [0035](./0035-a-workspace-host-that-is-not-running-is-refused-before-anything-is-written.md) gives, and
-nobody is asked to approve a start that cannot happen. It runs on the `--print-command` path too, so a
-preview refuses what a start would. Pinning also means that:
+nobody is asked to approve a start that cannot happen. Pinning also means that:
 
 - the commit git cuts from is the one resolved, even if the ref moves before `git worktree add` runs;
-- the start point git receives is an object id, which no spelling of the ref can turn into an option;
+- the start point git receives is an object id, which no spelling of the ref can turn into an option, and
+  `worktreeAddCommand` refuses any start point that is not a full object id, so no caller can hand git a ref
+  in that position;
 - the new branch gets no upstream, measured on git 2.56.
 
 The refusal is typed like every other Ensure refusal, as `WorktreeError` kind `unresolvable-base`. That kind
@@ -50,20 +61,26 @@ because there the repository failed rather than answered. The split goes by what
 by whose fault it was, so it misfiles one case. A reflog entry past the log's end, such as `main@{99}`, exits
 128 under `--quiet` and is reported as `git`, though the ref is what is wrong.
 
+**An ambiguous ref resolves by git's precedence, and nothing says so.** This is a known limit, deferred to a
+follow-up. `--quiet` hides git's `refname 'x' is ambiguous` warning, and where a tag and a branch share a
+name, git resolves the tag, measured on git 2.56. The rendered `from <given> at <commit>` line is then the
+only sign of which one was taken.
+
 **With a base applied, the drift warning is dropped.** The new branch did not inherit the primary's HEAD, so
-a warning about what that HEAD is on describes a risk the run did not take. Without `--base`, the start point
-and the warning are both unchanged. In place of the warning, the rendering names the base and the commit it
-was pinned to, as in this line:
+a warning about what that HEAD is on describes a risk the run did not take. That holds on the create route
+alone. A run onto a branch that already existed raises the warning with a base or without one, as it did
+before this flag. Without `--base`, the start point and the warning are both unchanged. In place of the
+warning, the rendering names the base and the commit it was pinned to, as in this line:
 
 ```
   on <branch>, a new branch from <given> at <7-char commit>
 ```
 
-## A base that cannot apply is reported as not applied
+## A base that cannot apply is reported, and so is one already there
 
 A base means something only when Ensure creates the branch. When the branch already exists, locally or on
-origin, or a worktree for it is already registered, Ensure attaches or checks it out as before and leaves
-the branch where it is. Two other answers were available, and both were rejected.
+origin, or a worktree for it is already registered at the expected path, Ensure checks it out or attaches to
+it as before and leaves the branch where it is. Two other answers were available, and both were rejected.
 
 - **Ignoring the base silently** is how a stack ends up on the wrong parent. The orchestrator asked for phase
   N+1 on top of phase N, a branch left from an earlier attempt sits on something else, and a run that says
@@ -72,22 +89,46 @@ the branch where it is. Two other answers were available, and both were rejected
   tool has no basis to take. The orchestrator owns stack topology, and rebasing or retargeting an existing
   branch is out of scope here.
 
-So the run attaches and says so. The human rendering adds a line a caller can find with `grep '^warning: '`,
-as in this example:
+So the run leaves the branch alone and asks git whether it already contains the base's commit, with
+`git merge-base --is-ancestor <commit> refs/heads/<branch>`. Its exit status is the whole answer, measured on
+git 2.56:
+
+- exit 0 is `already-on-base`, the branch carrying the base's commit at its tip or anywhere behind it;
+- exit 1 is `not-applied`;
+- any other exit, 128 for an object git does not have among them, is `WorktreeError` kind `git`.
+
+The checkout route asks after `git worktree add`, because a branch adopted from origin has no local ref until
+the add makes one.
+
+`already-on-base` exists for the ordinary recovery. A failed claim is recovered by running the command again,
+per [0016](./0016-the-worktree-is-created-before-the-claim.md), and that re-run attaches to the branch the
+first run cut at the base. Reporting that branch as not applied would tell the orchestrator its own branch
+sits on the wrong parent. So `already-on-base` raises no warning, and the rendering names the base on the
+branch's own line instead, as in this example:
+
+```
+  on <branch>, where it already was, and already contains <given> at <7-char commit>
+```
+
+A branch that does not contain the base gets a line a caller can find with `grep '^warning: '`, as in this
+example:
 
 ```
 warning: --base <given> was not applied: <branch> already existed, so it was left where it was
 ```
 
-`--json` carries the same fact as `start.worktree.base` with `kind: "not-applied"`, so the orchestrator can
-stop on a field rather than on a string match.
+A start that fails after the worktree was made, at the claim or at the session, carries the worktree's warning
+lines on stderr ahead of its recovery, so a base that was not applied is not dropped by the failure.
+
+`--json` carries the same facts as `start.worktree.base`, with `kind: "already-on-base"` or
+`kind: "not-applied"`, so the orchestrator can stop on a field rather than on a string match.
 
 The outcome type makes the wrong report unrepresentable rather than tested. `BaseOutcome` is `none`,
-`applied` or `not-applied`. The `created` arm carries only `none` or `applied`, and the `attached` and
-`checked-out` arms carry only `none` or `not-applied`, so an applied base on a branch that already existed
-does not typecheck, and neither does a base not applied to a branch just created.
-[0039](./0039-enterprise-is-out-of-scope-and-out-of-scope-means-unrepresentable.md) is the precedent for
-putting such a rule in the type.
+`applied`, `not-applied` or `already-on-base`. The `created` arm carries only `none` or `applied`, and the
+`attached` and `checked-out` arms carry only `none`, `not-applied` or `already-on-base`, so an applied base on
+a branch that already existed does not typecheck, and neither does any other base outcome on a branch just
+created. [0039](./0039-enterprise-is-out-of-scope-and-out-of-scope-means-unrepresentable.md) is the precedent
+for putting such a rule in the type.
 
 ## What the workspace runs
 
@@ -95,19 +136,31 @@ putting such a rule in the type.
 it replaced by the ticket's reference. The orchestrator's phase worker is a wrapper script run inside tmux,
 which no slash command can name.
 
-**The template is split on whitespace and each word quoted through `formatCommand`**, the path the default
-command takes. The workspace host takes a line rather than argv and types it into a shell, so since
-[0035](./0035-a-workspace-host-that-is-not-running-is-refused-before-anything-is-written.md) that quoting is
-what stands between a word and shell syntax. Quoting each word keeps the guarantee for a template. `$` and
-`;` reach the program as themselves, and a reference substituted into a word stays inside it. Accepting the
+**The template is split on whitespace, and every word reaches the shell as written.** The workspace host
+takes a line rather than argv and types it into a shell, so since
+[0035](./0035-a-workspace-host-that-is-not-running-is-refused-before-anything-is-written.md) the quoting
+`formatCommand` applies is what stands between a word and shell syntax. A template takes the path the
+default command takes. Each word, with every `{ref}` taken out, must be one `formatCommand` leaves bare,
+which means letters, digits and `_@%+=:,./-`, with no `=` in the first word, where a shell reads an
+assignment. A word that is only `{ref}` passes. The line the host types is then the template exactly as
+written, with only the substituted reference quoted, so a reference substituted into a word stays inside it.
+The rule is `formatCommand`'s own predicate, `isBareWord`, so the two cannot drift apart. Accepting the
 template verbatim as a shell string was rejected, because it would splice the reference into shell code and
 hand the host a line nothing here had quoted.
 
-**A word carrying `'`, `"` or `\` is refused.** Each signals quoting the author expected a shell to remove,
-and under per-word quoting it would arrive literal instead, so `run 'a b' {ref}` would pass `'a` and `b'` as
-two words. A refusal beats running something other than what was written. The cost is that a template cannot
-pass an argument containing a space or expand a variable, since `$HOME` arrives as `$HOME`. Anything needing
-the shell belongs in the script the template runs.
+**Any other character is refused, because the template is not shell.** That covers quotes, a backslash, `$`,
+`~`, `;`, `|`, `>`, `&`, `#`, a glob, a backtick and a leading assignment such as `FOO=1 w`. Each is syntax its
+author expected a shell to act on, and quoted per word it would arrive as literal text instead, as in these
+examples:
+
+- `$HOME` would arrive as `$HOME`, and `~/bin/w` as a program named `~/bin/w`;
+- `run 'a b' {ref}` would pass the two words `'a` and `b'`.
+
+Refusing only quotes and the backslash, and passing every other character through quoted, was rejected for
+the same reason: `$HOME` or `~/bin/w` would still reach the program as text nobody meant it to receive. A
+refusal beats running something other than what was written. The cost is that a template cannot pass an
+argument containing a space or expand a variable. Anything needing the shell belongs in the script the
+template runs.
 
 **`{ref}` is required.** The session's whole task is the reference. A template without it would start a
 session that does not know its ticket, in a worktree made for that ticket, with the ticket claimed.
@@ -133,10 +186,12 @@ cannot tell.
 ## Consequences
 
 `--json` carries `start.command` as the templated argv and `start.worktree.base` as the `BaseOutcome`. A
-`Base` and `CommandTemplate` are classes with a private constructor and a `#` field, so only
-`resolveBase` and `parseCommandTemplate` make them. A symbol brand, the pattern `CheckoutIdentity` uses, was
-rejected for both, because a spread copies it, so `{ ...base, commit }` would pass for a base carrying a commit
-git never named. JSON shows a base as `{ given, commit }`.
+`--print-command` run's `start` carries `base` too, the resolved base or `null`, so a preview shows what a
+start would cut from, while the human output stays the command line alone. A `Base` and `CommandTemplate` are
+classes with a private constructor and a `#` field, so only `resolveBase` and `parseCommandTemplate` make
+them. A symbol brand, the pattern `CheckoutIdentity` uses, was rejected for both, because a spread copies it,
+so `{ ...base, commit }` would pass for a base carrying a commit git never named. JSON shows a base as
+`{ given, commit }`, and `StartOutcomeJson` types it that way, since a parsed document holds no `Base`.
 
 `--print-command` with a named ticket runs one local git command when `--base` is given.
 [0037](./0037-naming-a-ticket-skips-the-ranking-and-nothing-else.md)'s sandbox-safe property holds, since

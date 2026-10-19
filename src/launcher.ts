@@ -79,8 +79,7 @@ function requireAlive(runner: Runner, argv: Argv): void {
  * Asked before the worktree and the claim, for the same reason as the host. Why it exists at all is a different
  * reason, and ADR-0036 has it.
  *
- * Runs nothing for a template session, because its program is not the session binary and `--version` is no
- * contract an arbitrary program honours. ADR-0044 records the decision.
+ * Runs nothing for a template session; ADR-0044 has why.
  *
  * @throws LaunchError when the binary does not run.
  */
