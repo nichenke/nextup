@@ -1495,6 +1495,19 @@ describe("--base and --command", () => {
 			}
 		});
 
+		test("refuses --command beside --slash-command spelling the default, which is still two answers", () => {
+			for (const flags of [
+				["--command", TEMPLATE, "--slash-command", DEFAULT_SLASH_COMMAND],
+				["--slash-command", DEFAULT_SLASH_COMMAND, "--command", TEMPLATE],
+			]) {
+				for (const argv of onEveryPath(flags)) {
+					const result = run(argv, deps());
+					expect(result.code).toBe(2);
+					expect(result.stderr).toContain("--command and --slash-command");
+				}
+			}
+		});
+
 		test("refuses a template it would not run as written", () => {
 			const templates = ["", "   ", "phase-worker", "sh -c 'x {ref}'", 'w "{ref}"', "w \\{ref}", "w $HOME {ref}", "FOO=1 w {ref}", "w {ref} > log"];
 			for (const template of templates) {
