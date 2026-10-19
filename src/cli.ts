@@ -222,6 +222,15 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 		return usageError(cause);
 	}
 
+	// Compiled on both paths, though only the ranked one reads it, so a pattern the grammar refuses is a usage error
+	// before the base asks git anything. A named run's filter is the defaults alone, which always compile.
+	let filter: LabelFilter;
+	try {
+		filter = compileLabelFilter(line.filter);
+	} catch (cause) {
+		return usageError(cause);
+	}
+
 	const checkout = checkoutResolver(deps);
 
 	let named: TicketRef | null;
@@ -243,13 +252,6 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 		return failedStart(cause);
 	}
 	if (named !== null) return runNamed(named, options, deps, checkout);
-
-	let filter: LabelFilter;
-	try {
-		filter = compileLabelFilter(options.filter);
-	} catch (cause) {
-		return usageError(cause);
-	}
 
 	// Resolved before the read rather than left to the adapter's own fallback, so that the set this ranks and the
 	// claim it ends with are provably about one repository: both take this value. ADR-0040.

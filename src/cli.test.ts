@@ -666,6 +666,13 @@ describe("the command line itself", () => {
 		expect(result.code).toBe(2);
 		expect(result.stderr).toContain("way*er");
 	});
+
+	test("refuses a bad pattern as a usage error before a base is asked about", () => {
+		const result = run(["--exclude", "way*er", "--base", "side"], deps());
+		expect(result.code).toBe(2);
+		expect(result.stderr).toContain("way*er");
+		expect(result.stderr).toContain("usage: nextup");
+	});
 });
 
 describe("starting a ticket named on the command line", () => {
