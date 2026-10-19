@@ -100,9 +100,12 @@ git 2.56:
 - exit 1 is `not-applied`;
 - any other exit, 128 for an object git does not have among them, is `WorktreeError` kind `git`.
 
-The checkout route asks before `git worktree add`, so that nothing can fail once a worktree exists. A branch
-adopted from origin has no local ref yet, so the question names its remote ref exactly as git listed it,
-which is the tip the add will cut the local branch at.
+The checkout route asks after `git worktree add`, of the local branch the add checked out. Asking before it
+was rejected. A branch adopted from origin has no local ref until the add, so an earlier question has to name
+the remote ref, and a fetch that moves that ref before the add reads it again would make the answer describe a
+commit the worktree is not on. A question that fails after the add names the worktree it made, and a re-run
+attaches to that worktree and asks again, the recovery [0016](./0016-the-worktree-is-created-before-the-claim.md)
+already relies on.
 
 `already-on-base` exists for the ordinary recovery. A failed claim is recovered by running the command again,
 per [0016](./0016-the-worktree-is-created-before-the-claim.md), and that re-run attaches to the branch the

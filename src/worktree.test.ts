@@ -932,36 +932,41 @@ describe("ensure", () => {
 		}
 	});
 
-	test("asks whether an adopted branch contains the base before the add, so nothing can fail after it", () => {
+	test("asks about the local branch the add made, after the add, for a branch adopted from any-cased origin", () => {
 		const { repo, state } = primaryOn();
-		const git = stubGit({ ...state, remoteBranches: [READER_BRANCH], isAncestor: 0 });
-		const outcome = ensure({ runner: git.runner, repo, ticket: READER, base: STUB_BASE });
+		for (const originName of ["origin", "Origin"]) {
+			const git = stubGit({ ...state, remoteBranches: [READER_BRANCH], originName, isAncestor: 0 });
+			const outcome = ensure({ runner: git.runner, repo, ticket: READER, base: STUB_BASE });
 
-		expect(outcome.kind).toBe("checked-out");
-		expect(outcome.base.kind).toBe("already-on-base");
-		const asked = git.issued.findIndex((argv) => argv.includes("merge-base"));
-		const added = git.issued.findIndex((argv) => argv.includes("worktree") && argv.includes("add"));
-		expect(asked).toBeGreaterThanOrEqual(0);
-		expect(added).toBeGreaterThan(asked);
+			expect(outcome.kind).toBe("checked-out");
+			expect(outcome.base.kind).toBe("already-on-base");
+			const asked = git.issued.findIndex((argv) => argv.includes("merge-base"));
+			const added = git.issued.findIndex((argv) => argv.includes("worktree") && argv.includes("add"));
+			expect(added).toBeGreaterThanOrEqual(0);
+			expect(asked).toBeGreaterThan(added);
+			expect(git.issued[asked]).toEqual(["git", "-C", repo, "merge-base", "--is-ancestor", STUB_COMMIT, `refs/heads/${READER_BRANCH}`]);
+		}
 	});
 
-	test("asks about the remote ref as it was found for an adopted branch, whatever the remote is called", () => {
+	test("names the worktree it made when the question fails after the add, so a re-run knows to attach", () => {
 		const { repo, state } = primaryOn();
-		const git = stubGit({ ...state, remoteBranches: [READER_BRANCH], originName: "Origin", isAncestor: 1 });
-		const outcome = ensure({ runner: git.runner, repo, ticket: READER, base: STUB_BASE });
-
-		expect(outcome.base.kind).toBe("not-applied");
-		expect(git.issued).toContainEqual(["git", "-C", repo, "merge-base", "--is-ancestor", STUB_COMMIT, `refs/remotes/Origin/${READER_BRANCH}`]);
-		expect(git.issued.some((argv) => argv.includes("merge-base") && argv.includes(`refs/heads/${READER_BRANCH}`))).toBe(false);
-	});
-
-	test("runs no worktree add when the question about an existing branch fails, on the checkout route", () => {
-		const { repo, state } = primaryOn();
+		const path = join(repo, DEFAULT_WORKTREE_ROOT, READER_LEAF);
 		for (const onto of [{ ...state, branches: [READER_BRANCH] }, { ...state, remoteBranches: [READER_BRANCH] }]) {
 			const git = stubGit({ ...onto, isAncestor: 128 });
-			expect(kindOf(() => ensure({ runner: git.runner, repo, ticket: READER, base: STUB_BASE }))).toBe("git");
-			expect(git.issued.some((argv) => argv.includes("worktree") && argv.includes("add"))).toBe(false);
+			const failure = caught(() => ensure({ runner: git.runner, repo, ticket: READER, base: STUB_BASE }));
+
+			expect(failure.kind).toBe("git");
+			expect(failure.message).toContain(`${path} is in place on ${READER_BRANCH}, so running this again attaches to it`);
 		}
+	});
+
+	test("names no worktree when the question fails on the attach route, where the run made none", () => {
+		const { repo, state } = primaryOn();
+		const git = stubGit({ ...attachable(state, repo), isAncestor: 128 });
+		const failure = caught(() => ensure({ runner: git.runner, repo, ticket: READER, base: STUB_BASE }));
+
+		expect(failure.kind).toBe("git");
+		expect(failure.message).not.toContain("is in place");
 	});
 
 	test("refuses as git's failure any answer about containing the base but yes or no, on both routes", () => {
@@ -1578,6 +1583,21 @@ describe("ensure against real git", () => {
 		expect(git("rev-parse", `refs/heads/${READER_BRANCH}`)).toBe(side);
 	});
 
+	test("judges an adopted branch by what the add checked out, where a fetch moves origin's ref first", () => {
+		const { repo, main, side, git } = divergedRepo();
+		git("update-ref", `refs/remotes/origin/${READER_BRANCH}`, side);
+		const base = resolveBase(defaultRunner, repo, "side");
+		const fetchedUnderneath: Runner = (argv) => {
+			if (argv.includes("worktree") && argv.includes("add")) git("update-ref", `refs/remotes/origin/${READER_BRANCH}`, main);
+			return defaultRunner(argv);
+		};
+		const outcome = ensure({ runner: fetchedUnderneath, repo, ticket: READER, base });
+
+		expect(outcome.kind).toBe("checked-out");
+		expect(git("rev-parse", `refs/heads/${READER_BRANCH}`)).toBe(main);
+		expect(outcome.base.kind).toBe("not-applied");
+	});
+
 	test("still warns about drift with a base given, on the checkout and the attach routes", () => {
 		const { repo, git } = divergedRepo();
 		git("checkout", "--quiet", "-b", "wip");
@@ -1633,10 +1653,14 @@ describe("resolveBase against real git", () => {
 });
 
 function kindOf(work: () => unknown): string {
+	return caught(work).kind;
+}
+
+function caught(work: () => unknown): WorktreeError {
 	try {
 		work();
 	} catch (cause) {
-		if (cause instanceof WorktreeError) return cause.kind;
+		if (cause instanceof WorktreeError) return cause;
 		throw cause;
 	}
 	throw new Error("expected a WorktreeError, and nothing was thrown");

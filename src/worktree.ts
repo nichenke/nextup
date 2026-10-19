@@ -281,8 +281,8 @@ export interface Registration {
  * @throws WorktreeError — `"branch-elsewhere"` where the branch is checked out at another path,
  * `"stale-directory"` where the expected path holds anything else, `"unnameable-ticket"` from `branchName`,
  * `"unsupported-repository"` where the repository keeps its git directory somewhere this cannot work,
- * `"git"` where a command failed, including the question whether an existing branch contains the base,
- * which is asked before the worktree is made, so a failure there leaves nothing behind.
+ * `"git"` where a command failed, including the question whether an existing branch contains the base. On the
+ * checkout route that is asked once the worktree is made, so its failure names the worktree a re-run attaches to.
  */
 export function ensure(input: EnsureInput): WorktreeOutcome {
 	const branch = branchName(input.ticket);
@@ -311,7 +311,7 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 		// Asked only on the routes that return, since it spawns a process whose answer every refusal above
 		// would discard — and re-running onto an existing worktree is the ordinary path here, not the rare one.
 		const warnings = driftWarnings(input.runner, primary, main.head);
-		return { kind: "attached", path, branch, command: null, primary, warnings, base: onExistingBranch(input.runner, primary, `${REF_HEADS}${branch}`, base) };
+		return { kind: "attached", path, branch, command: null, primary, warnings, base: onExistingBranch(input.runner, primary, branch, base, null) };
 	}
 
 	refuseIfOccupied(path);
@@ -319,11 +319,9 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 	// A registered worktree at the path is the case above, so a branch that exists at this point is one
 	// checked out nowhere. The remotes are asked too, for the reason `remoteBranchesCommand` gives.
 	const local = branchExists(input.runner, primary, branch);
-	const adopted = local ? null : originRefToAdopt(input.runner, primary, branch);
-	const create = !local && adopted === null;
+	const create = !local && !adoptableFromOrigin(input.runner, primary, branch);
 	const cutFromBase = create && base !== null;
 	const warnings = cutFromBase ? [] : driftWarnings(input.runner, primary, main.head);
-	const existing = create ? NO_BASE : onExistingBranch(input.runner, primary, adopted ?? `${REF_HEADS}${branch}`, base);
 	// primary, not input.repo — see `driftWarnings`.
 	const command = create
 		? worktreeAddCommand(primary, path, branch, true, base?.commit)
@@ -335,16 +333,21 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 	if (create) {
 		return { kind: "created", path, branch, command, primary, warnings, base: base === null ? NO_BASE : { kind: "applied", base } };
 	}
+	// Asked after the add, of the local branch it made, because a fetch can move a remote ref between a question
+	// asked before and the add's own reading of it.
+	const existing = onExistingBranch(input.runner, primary, branch, base, path);
 	return { kind: "checked-out", path, branch, command, primary, warnings, base: existing };
 }
 
-function onExistingBranch(runner: Runner, primary: string, ref: string, base: Base | null): OntoExistingBranch {
+/** @param made the worktree this run made on `branch`, which a failure has to name, or `null` for one it found. */
+function onExistingBranch(runner: Runner, primary: string, branch: string, base: Base | null, made: string | null): OntoExistingBranch {
 	if (base === null) return NO_BASE;
-	const result = runner([...isAncestorCommand(primary, base.commit, ref)]);
+	const result = runner([...isAncestorCommand(primary, base.commit, `${REF_HEADS}${branch}`)]);
 	if (result.code === 0) return { kind: "already-on-base", base };
 	if (result.code === 1) return { kind: "not-applied", base };
+	const recovery = made === null ? "" : `. ${made} is in place on ${branch}, so running this again attaches to it and asks again`;
 	throw new WorktreeError(
-		`${primary} could not be asked whether ${ref} already contains --base ${base.given}: ${gitFailure(result.stderr, result.code)}`,
+		`${primary} could not be asked whether ${branch} already contains --base ${base.given}: ${gitFailure(result.stderr, result.code)}${recovery}`,
 		"git",
 	);
 }
@@ -469,7 +472,7 @@ function resolveContainer(primary: string, root: string | null | undefined, gitD
  * A path or path component lowered for comparison. A bare helper rather than a comparison claiming a
  * policy, because folding is safe in opposite directions at its two kinds of use: `resolveContainer` folds
  * to refuse *more*, and the only thing it newly rejects is a genuinely distinct `.GIT` directory on a
- * case-sensitive filesystem; `originRefToAdopt` folds a remote's name to *accept* a differently-cased
+ * case-sensitive filesystem; `adoptableFromOrigin` folds a remote's name to *accept* a differently-cased
  * `Origin`, which is the same remote by intent.
  *
  * The path matching in `ensure` is deliberately not folded. It decides which worktree to attach to, so on
@@ -631,7 +634,7 @@ function branchExists(runner: Runner, repo: string, branch: string): boolean {
  *
  * @throws WorktreeError `"git"` where the repository could not answer.
  */
-function originRefToAdopt(runner: Runner, repo: string, branch: string): string | null {
+function adoptableFromOrigin(runner: Runner, repo: string, branch: string): boolean {
 	const result = runner([...remoteBranchesCommand(repo, branch)]);
 	if (result.code !== 0) {
 		throw new WorktreeError(
@@ -647,13 +650,13 @@ function originRefToAdopt(runner: Runner, repo: string, branch: string): string 
 		);
 	}
 	const only = refs[0]?.trim() ?? "";
-	if (!only.startsWith(REMOTES)) return null;
+	if (!only.startsWith(REMOTES)) return false;
 	const rest = only.slice(REMOTES.length);
 	const slash = rest.indexOf("/");
 	// The remote's name is whatever it is called on disk and git records it verbatim, so a remote named
 	// `Origin` is still the one meant; the branch is compared exactly, because git branch names are
 	// case-sensitive.
-	return slash !== -1 && folded(rest.slice(0, slash)) === "origin" && rest.slice(slash + 1) === branch ? only : null;
+	return slash !== -1 && folded(rest.slice(0, slash)) === "origin" && rest.slice(slash + 1) === branch;
 }
 
 /**
