@@ -1357,6 +1357,61 @@ describe("--base and --command", () => {
 		});
 	});
 
+	describe("a start that fails after the worktree was made", () => {
+		const FAILED_CLAIM = (argv: string[]): CommandResult | null =>
+			argv[1] === "issue" && argv[2] === "edit" ? { code: 1, stdout: "", stderr: "HTTP 403: Resource not accessible" } : null;
+		const either = (...overs: ((argv: string[]) => CommandResult | null)[]) => (argv: string[]): CommandResult | null => {
+			for (const over of overs) {
+				const answered = over(argv);
+				if (answered !== null) return answered;
+			}
+			return null;
+		};
+		const failures = [
+			["a claim that would not land", FAILED_CLAIM, /running this again continues from there\.$/],
+			["a session that would not start", WORKSPACE_FAILS, /^ {2}cd .* && claude '\/implement [^']+'$/],
+		] as const;
+		const paths = [
+			[[...LIMIT], "ticket-set"],
+			[[namedTicket()], "ticket-view"],
+		] as const;
+
+		test("still says the base was not applied, before the recovery it offers", () => {
+			for (const [, failure, recovery] of failures) {
+				for (const [argv, recording] of paths) {
+					const { runner } = startSequence(answeringBase(either(failure, branchAlreadyThere)), recording);
+					const result = run([...argv, "--base", BASE, "--yes"], deps(runner));
+
+					expect(result.code).toBe(2);
+					expect(result.stderr).toMatch(new RegExp(`^warning: --base ${BASE} was not applied: `, "m"));
+					expect(result.stderr.trimEnd().split("\n").at(-1)).toMatch(recovery);
+				}
+			}
+		});
+
+		test("still carries the drift warning, with no base given", () => {
+			const drifted = (argv: string[]): CommandResult | null =>
+				argv[0] === "git" && argv.includes("list") ? { code: 0, stdout: `worktree ${PRIMARY}\0branch refs/heads/wip\0\0`, stderr: "" } : null;
+			for (const [, failure] of failures) {
+				for (const [argv, recording] of paths) {
+					const { runner } = startSequence(either(failure, drifted), recording);
+					const result = run([...argv, "--yes"], deps(runner));
+
+					expect(result.code).toBe(2);
+					expect(result.stderr).toContain(`\nwarning: the primary checkout ${PRIMARY} is on wip, not on main\n`);
+				}
+			}
+		});
+
+		test("adds no warning line where the worktree raised none", () => {
+			for (const [, failure] of failures) {
+				const result = run([...LIMIT, "--base", BASE, "--yes"], deps(startSequence(answeringBase(failure)).runner));
+				expect(result.code).toBe(2);
+				expect(result.stderr).not.toContain("warning: ");
+			}
+		});
+	});
+
 	describe("resolved once, before either path reads a tracker", () => {
 		const nothingToPick = (argv: string[]): CommandResult | null =>
 			argv[0] === "gh" && argv[2] === "list" ? { code: 0, stdout: "[]\n", stderr: "" } : null;

@@ -27,14 +27,22 @@ const SHORT_COMMIT = 7;
  * and still succeeded. A branch already on the base gets none, since the run did what was asked. ADR-0044.
  */
 export function renderWorktree(outcome: WorktreeOutcome): string {
-	const lines = [`${DID[outcome.kind]} ${outcome.path}`, `  on ${branchPhrase(outcome)}`];
+	return `${DID[outcome.kind]} ${outcome.path}\n  on ${branchPhrase(outcome)}\n${renderWorktreeWarnings(outcome)}`;
+}
+
+/**
+ * The warning lines alone, each ending in a newline, or `""` where there are none. Exported for a failure that
+ * reports the worktree it left in place, which has to carry these on the way out just as a success does.
+ */
+export function renderWorktreeWarnings(outcome: WorktreeOutcome): string {
+	const lines: string[] = [];
 	if (outcome.base.kind === "not-applied") {
 		lines.push(
 			`${WARNING_PREFIX}--base ${outcome.base.base.given} was not applied: ${outcome.branch} already existed, so it was left where it was`,
 		);
 	}
 	for (const warning of outcome.warnings) lines.push(`${WARNING_PREFIX}${warning}`);
-	return `${lines.join("\n")}\n`;
+	return lines.map((line) => `${line}\n`).join("");
 }
 
 function branchPhrase(outcome: WorktreeOutcome): string {

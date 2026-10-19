@@ -34,7 +34,7 @@ import { SelectionError, select } from "./selector";
 import type { Claim, Ticket } from "./ticket";
 import { type GitHubTicketRef, type TicketRef, TicketRefError, formatTicketRef, githubTicketTarget, resolveTicketRef } from "./ticket-ref";
 import { type Base, type BaseOutcome, WorktreeError, type WorktreeOutcome, ensure, resolveBase } from "./worktree";
-import { renderWorktree } from "./worktree-output";
+import { renderWorktree, renderWorktreeWarnings } from "./worktree-output";
 
 /**
  * Prints `question` itself and reports the answer, because `run` returns its output rather than
@@ -572,6 +572,9 @@ class StartError extends Error {}
  * recovery would.
  */
 function startedNothing(cause: unknown, pick: StartPick, worktree: WorktreeOutcome, command: Argv): unknown {
+	// Carried by both failures, because once the run fails a base not applied and a drifted primary are reported
+	// nowhere else. Placed before the recovery, so the line to act on stays last.
+	const warned = renderWorktreeWarnings(worktree);
 	if (cause instanceof GitHubClaimError) {
 		// What the tracker holds, not what a ranked pick would have held: a forced start overruled a claim that is
 		// still there, and telling the operator the ticket is unclaimed would be plainly false.
@@ -588,7 +591,7 @@ function startedNothing(cause: unknown, pick: StartPick, worktree: WorktreeOutco
 				? "the ticket is still unclaimed"
 				: `the ticket is still claimed${pick.claim.by === null ? "" : `, with ${pick.claim.by} among its assignees`}`;
 		return new StartError(
-			`${cause.message}\n${worktree.path} is in place on ${worktree.branch} and ${standing}, so running this again continues from there.`,
+			`${cause.message}\n${warned}${worktree.path} is in place on ${worktree.branch} and ${standing}, so running this again continues from there.`,
 		);
 	}
 	if (cause instanceof LaunchError) {
@@ -603,7 +606,7 @@ function startedNothing(cause: unknown, pick: StartPick, worktree: WorktreeOutco
 		return new StartError(
 			// The `cd` goes through `formatCommand` too: this line is the only recovery offered for an already-claimed
 			// ticket, so it has to survive a checkout path holding a space, which is ordinary rather than exotic.
-			`${cause.message}\nThe ticket is claimed and ${worktree.path} is in place on ${worktree.branch}. ${rerun}Start this session yourself instead:\n  ${formatCommand(["cd", worktree.path])} && ${formatCommand(command)}`,
+			`${cause.message}\n${warned}The ticket is claimed and ${worktree.path} is in place on ${worktree.branch}. ${rerun}Start this session yourself instead:\n  ${formatCommand(["cd", worktree.path])} && ${formatCommand(command)}`,
 		);
 	}
 	return cause;

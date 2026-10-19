@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Runner } from "./runner";
-import { WARNING_PREFIX, renderWorktree } from "./worktree-output";
+import { WARNING_PREFIX, renderWorktree, renderWorktreeWarnings } from "./worktree-output";
 import { type Base, type WorktreeOutcome, resolveBase } from "./worktree";
 
 const COMMON = { path: "/repo/.worktrees/reader-8", branch: "feature/reader-8", primary: "/repo", warnings: [] } as const;
@@ -90,6 +90,17 @@ describe("renderWorktree", () => {
 			`${WARNING_PREFIX}the primary checkout /repo is on wip, not on main`,
 			`${WARNING_PREFIX}and another`,
 		]);
+	});
+
+	test("renders the warning lines alone as the rendering's own tail, and nothing where there are none", () => {
+		const outcome: WorktreeOutcome = { ...ATTACHED, warnings: ["drifted"], base: { kind: "not-applied", base: SIDE } };
+
+		expect(renderWorktreeWarnings(outcome)).toBe(
+			`${WARNING_PREFIX}--base side was not applied: feature/reader-8 already existed, so it was left where it was\n${WARNING_PREFIX}drifted\n`,
+		);
+		expect(renderWorktree(outcome).endsWith(renderWorktreeWarnings(outcome))).toBe(true);
+		expect(renderWorktreeWarnings(FROM_SIDE)).toBe("");
+		expect(renderWorktreeWarnings({ ...ATTACHED, base: { kind: "already-on-base", base: SIDE } })).toBe("");
 	});
 
 	test("emits no warning line when there is nothing to warn about", () => {
