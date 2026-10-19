@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
+	CommandBuilderError,
 	DEFAULT_SLASH_COMMAND,
 	GITHUB_TICKET_FIELDS,
 	authStatusCommand,
@@ -12,9 +13,12 @@ import {
 	githubClaimCommand,
 	githubIssueListCommand,
 	githubIssueViewCommand,
+	isAncestorCommand,
+	isBareWord,
 	jiraIdentityCommand,
 	originRemoteCommand,
 	remoteBranchesCommand,
+	resolveCommitCommand,
 	sessionBinaryAliveCommand,
 	sessionCommand,
 	workspaceCommand,
@@ -25,6 +29,7 @@ import {
 	worktreeListCommand,
 	withoutBlockingField,
 } from "./command-builders";
+import { parseCommandTemplate, templatedCommand } from "./command-template";
 import type { TicketRef } from "./ticket-ref";
 
 const GOLDENS = join(dirname(import.meta.dir), "fixtures", "commands");
@@ -47,6 +52,9 @@ const BRANCH = "feature/reader-8";
 const WORKTREE_PATH = "/repo/.worktrees/reader-8";
 const SESSION = sessionCommand({ ref: github, slashCommand: DEFAULT_SLASH_COMMAND });
 const TICKET_TITLE = "The reader drops a row it cannot parse";
+const BASE_COMMIT = "0123456789abcdef0123456789abcdef01234567";
+const TEMPLATE = "phase-worker --ticket {ref} --log=run-{ref}.log";
+const TEMPLATED = templatedCommand(parseCommandTemplate(TEMPLATE), github);
 
 const CASES: readonly Case[] = [
 	{
@@ -140,6 +148,24 @@ const CASES: readonly Case[] = [
 		build: () => worktreeAddCommand("/repo", WORKTREE_PATH, BRANCH, false),
 	},
 	{
+		name: "resolve-commit",
+		description: "The commit a --base ref names where it was typed, peeled so a tag answers with its commit and a tree is refused.",
+		input: { directory: "/repo", ref: "feature/phase-1" },
+		build: () => resolveCommitCommand("/repo", "feature/phase-1"),
+	},
+	{
+		name: "worktree-add-new-branch-from-a-base",
+		description: "A worktree for a branch that does not exist yet, cut from the commit a --base resolved to rather than from the primary checkout's HEAD.",
+		input: { repo: "/repo", path: WORKTREE_PATH, branch: BRANCH, create: true, startPoint: BASE_COMMIT },
+		build: () => worktreeAddCommand("/repo", WORKTREE_PATH, BRANCH, true, BASE_COMMIT),
+	},
+	{
+		name: "is-ancestor",
+		description: "Whether a branch that already existed already contains the commit a --base resolved to, answered by the exit status.",
+		input: { repo: "/repo", ancestor: BASE_COMMIT, ref: `refs/heads/${BRANCH}` },
+		build: () => isAncestorCommand("/repo", BASE_COMMIT, `refs/heads/${BRANCH}`),
+	},
+	{
 		name: "github-issue-list",
 		description: "One read of a GitHub ticket set, asking for one row more than the adapter's limit.",
 		input: { repo: "example/repo", rows: 31 },
@@ -174,6 +200,13 @@ const CASES: readonly Case[] = [
 		description: "The workspace that runs one session in one worktree, its session argv rendered as a shell line.",
 		input: { name: "repo#1", description: TICKET_TITLE, cwd: WORKTREE_PATH, command: SESSION },
 		build: () => workspaceCommand({ name: "repo#1", description: TICKET_TITLE, cwd: WORKTREE_PATH, command: SESSION }),
+	},
+	{
+		name: "workspace-on-a-command-template",
+		description:
+			"The workspace running a --command template in place of the session binary, the reference substituted at {ref} and each word quoted on its own.",
+		input: { name: "repo#1", description: TICKET_TITLE, cwd: WORKTREE_PATH, template: TEMPLATE, ref: github, command: TEMPLATED },
+		build: () => workspaceCommand({ name: "repo#1", description: TICKET_TITLE, cwd: WORKTREE_PATH, command: TEMPLATED }),
 	},
 ];
 
@@ -211,6 +244,50 @@ describe("sessionCommand", () => {
 
 	test("refuses a slash command carrying a space, which would make the reference a separate word", () => {
 		expect(() => sessionCommand({ ref: github, slashCommand: "/implement now" })).toThrow(/slash command/);
+	});
+});
+
+describe("worktreeAddCommand", () => {
+	test("puts the start point after the new branch, where git reads it as where the branch begins", () => {
+		const argv = worktreeAddCommand("/repo", WORKTREE_PATH, BRANCH, true, BASE_COMMIT);
+		expect(argv.slice(argv.indexOf("-b"))).toEqual(["-b", BRANCH, BASE_COMMIT]);
+	});
+
+	test("refuses a start point for a branch that already exists, which a checkout would not move", () => {
+		expect(() => worktreeAddCommand("/repo", WORKTREE_PATH, BRANCH, false, BASE_COMMIT)).toThrow(CommandBuilderError);
+	});
+
+	test("takes a full SHA-1 or SHA-256 object id as the start point", () => {
+		for (const id of [BASE_COMMIT, "a".repeat(64)]) {
+			expect(worktreeAddCommand("/repo", WORKTREE_PATH, BRANCH, true, id).at(-1)).toBe(id);
+		}
+	});
+
+	test("refuses a start point that is not a full object id, which git would read as a ref", () => {
+		const notIds = [
+			"",
+			"main",
+			"-x",
+			BASE_COMMIT.slice(0, 7),
+			BASE_COMMIT.slice(0, 39),
+			`${BASE_COMMIT}0`,
+			BASE_COMMIT.toUpperCase(),
+			`^${BASE_COMMIT}`,
+			`${BASE_COMMIT}\n`,
+			"g".repeat(40),
+			"a".repeat(63),
+			"a".repeat(65),
+		];
+		for (const startPoint of notIds) {
+			expect(() => worktreeAddCommand("/repo", WORKTREE_PATH, BRANCH, true, startPoint)).toThrow(CommandBuilderError);
+		}
+	});
+});
+
+describe("resolveCommitCommand", () => {
+	test("ends options before the ref, so a ref spelled like an option is still read as a ref", () => {
+		const argv = resolveCommitCommand("/repo", "-x");
+		expect(argv.slice(argv.indexOf("--end-of-options"))).toEqual(["--end-of-options", "-x^{commit}"]);
 	});
 });
 
@@ -348,6 +425,24 @@ describe("formatCommand", () => {
 
 	test("quotes a leading word a shell would read as an assignment rather than a command", () => {
 		expect(formatCommand(["a=b", "--flag=value"])).toBe("'a=b' --flag=value");
+	});
+
+	test("quotes a word starting with = and a first word starting with %, which a shell expands", () => {
+		expect(formatCommand(["w", "=ls"])).toBe("w '=ls'");
+		expect(formatCommand(["%1", "x"])).toBe("'%1' x");
+		expect(formatCommand(["w", "%1"])).toBe("w %1");
+	});
+
+	test("leaves = and % bare inside a word", () => {
+		expect(formatCommand(["w", "--x=y", "a%b"])).toBe("w --x=y a%b");
+	});
+
+	test("leaves bare exactly the words isBareWord accepts, in first position and after it", () => {
+		const words = ["w", "a=b", "--x=y", "=ls", "%1", "a%b", "", "~", "$HOME", "a b", "#", "{ref}", "café", "A-z_0.9/@%+:,"];
+		for (const word of words) {
+			expect([word, formatCommand([word]) === word]).toEqual([word, isBareWord(word, true)]);
+			expect([word, formatCommand(["w", word]) === `w ${word}`]).toEqual([word, isBareWord(word, false)]);
+		}
 	});
 
 	/**

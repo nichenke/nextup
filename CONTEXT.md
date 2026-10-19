@@ -135,8 +135,11 @@ and the guard's own test harness, which needs a working directory this seam does
 _Avoid_: shell, executor, spawner
 
 **Ensure**:
-Bringing a worktree into the required state — creating it, or attaching to an existing one at the
-expected path. Idempotent, so re-running after a partial failure heals rather than errors.
+Bringing a worktree into the required state, by creating it or by attaching to an existing one at the
+expected path. A branch it creates starts at the primary checkout's HEAD, or at the resolved base when
+`--base` names one. A branch that already exists is left where it is, and a base given for it is reported
+as already on it where the branch contains the base's commit, and as not applied where it does not
+(ADR-0044). Idempotent, so re-running after a partial failure heals rather than errors.
 _Avoid_: create, setup, init
 
 **Workspace**:

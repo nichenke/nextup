@@ -188,7 +188,9 @@ export function refExistsCommand(repo: string, ref: string): readonly string[] {
  *
  * The whole list rather than `show-ref` on `origin` alone, because the count is the other half of the
  * answer. `git worktree add <path> <branch>` resolves a remote-only branch by guessing, and it refuses to
- * guess when more than one remote offers the name — `fatal: invalid reference` rather than a worktree.
+ * guess when more than one remote offers the name, failing with a fatal rather than making a worktree:
+ * a message that the name `matched multiple` remote tracking branches where more than one configured remote
+ * has it, and `invalid reference` where its refs sit under no configured remote, measured on git 2.56.
  * Asking this way costs no extra command and tells us both whether `origin` has it and whether anything
  * else does.
  */
@@ -245,13 +247,55 @@ export function defaultBranchCommand(repo: string): readonly string[] {
 }
 
 /**
- * The worktree for one branch, at one path. `create` picks between cutting a new branch from `repo`'s
- * HEAD and checking out one that already exists; `-b` against an existing branch is a fatal error
- * rather than an attach, so the two cannot share an invocation.
+ * The commit a ref names where it was typed, as a full object id.
+ *
+ * `--end-of-options` so a ref spelled like an option is read as a ref, and `^{commit}` so a ref naming a tag
+ * peels to its commit while one naming a tree or a blob is refused rather than answered. `--verify --quiet`
+ * makes a ref that names no commit exit 1 rather than 128, which is what separates a mistyped ref from the
+ * repository failing. Measured on git 2.56, where `nosuch`, `-x`, `""`, `main:`, `main..side` and a tree
+ * all exit 1, and a directory outside any repository exits 128.
  */
-export function worktreeAddCommand(repo: string, path: string, branch: string, create: boolean): Argv {
+export function resolveCommitCommand(directory: string, ref: string): Argv {
+	return ["git", "-C", directory, "rev-parse", "--verify", "--quiet", "--end-of-options", `${ref}^{commit}`];
+}
+
+export const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
+/**
+ * Whether `ref` already contains `ancestor`, the commit itself included, answered by the exit status alone.
+ * Measured on git 2.56, it exits 0 for yes and 1 for no, and 128 where either side names no object, so a caller
+ * reads any status but those two as git failing to answer.
+ */
+export function isAncestorCommand(repo: string, ancestor: string, ref: string): Argv {
+	return ["git", "-C", repo, "merge-base", "--is-ancestor", ancestor, ref];
+}
+
+/**
+ * The worktree for one branch, at one path. `create` picks between cutting a new branch and checking out
+ * one that already exists; `-b` against an existing branch is a fatal error rather than an attach, so the
+ * two cannot share an invocation.
+ *
+ * A new branch starts at `startPoint` where one is given, and at `repo`'s HEAD where it is not.
+ *
+ * @throws CommandBuilderError for a `startPoint` without `create`, a form git does not have.
+ * `git worktree add <path> <branch> <commit>` exits 129 with its usage text, measured on git 2.56.
+ *
+ * @throws CommandBuilderError for a `startPoint` that is not a full object id. git reads anything else as a
+ * ref, which can name another commit by the time this runs, or be spelled as an option.
+ */
+export function worktreeAddCommand(repo: string, path: string, branch: string, create: boolean, startPoint?: string): Argv {
 	const add = ["git", "-C", repo, "worktree", "add", path] as const;
-	return create ? [...add, "-b", branch] : [...add, branch];
+	if (!create) {
+		if (startPoint !== undefined) {
+			throw new CommandBuilderError(`${branch} already exists, so it takes no start point (${startPoint} was given)`);
+		}
+		return [...add, branch];
+	}
+	if (startPoint === undefined) return [...add, "-b", branch];
+	if (!OBJECT_ID.test(startPoint)) {
+		throw new CommandBuilderError(`${startPoint} is not a full object id, so ${branch} cannot be cut at it`);
+	}
+	return [...add, "-b", branch, startPoint];
 }
 
 /**
@@ -388,9 +432,22 @@ export function formatCommand(argv: readonly string[]): string {
 // not: an escape list has to stay complete as shells add syntax, and an allowlist that falls behind
 // only over-quotes.
 function quote(word: string, first: boolean): string {
-	// `=` is safe in every word but the first, where a shell reads `name=value` as an assignment and
-	// runs whatever follows instead.
-	const safe = /^[A-Za-z0-9_@%+=:,./-]+$/.test(word) && !(first && word.includes("="));
-	if (word !== "" && safe) return word;
+	if (isBareWord(word, first)) return word;
 	return `'${word.replaceAll("'", `'\\''`)}'`;
+}
+
+/**
+ * Whether `formatCommand` leaves `word` unquoted, as the line's first word or as a later one. A word this rule
+ * leaves bare reaches the program as written, except for words a shell treats specially although every
+ * character is allowed, which this does not check. ADR-0044 lists the ones known.
+ *
+ * An allowed character is still syntax in three positions. A first word holding `=` is read as an assignment
+ * and runs whatever follows instead. A word starting with `=` is expanded to a command's path by zsh's default
+ * EQUALS option, so `=ls` becomes `/bin/ls`. A first word starting with `%` is a job spec to bash and zsh.
+ * Inside a word, `=` and `%` stay literal.
+ */
+export function isBareWord(word: string, first: boolean): boolean {
+	if (!/^[A-Za-z0-9_@%+=:,./-]+$/.test(word)) return false;
+	if (word.startsWith("=")) return false;
+	return !(first && (word.includes("=") || word.startsWith("%")));
 }

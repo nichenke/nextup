@@ -53,6 +53,8 @@ bun bin/nextup.ts --slash-command /triage   # start a triage session rather than
 bun bin/nextup.ts --print-command       # print the session command, starting nothing
 bun bin/nextup.ts gh:12                 # start this ticket instead, skipping the ranking
 bun bin/nextup.ts gh:12 --force         # start it past the blocked and claimed checks, loudly
+bun bin/nextup.ts gh:12 --base feature/phase-1     # cut its new branch from another branch
+bun bin/nextup.ts gh:12 --command 'phase-worker {ref}'   # run this in the workspace instead of claude
 bun bin/nextup.ts --help                # every flag
 ```
 
@@ -74,6 +76,11 @@ not reach a closed ticket: that is the tracker saying the work is done, so the r
 [ADR-0037](./docs/adr/0037-naming-a-ticket-skips-the-ranking-and-nothing-else.md) has all of it, including why
 the named ticket is read by its own single-issue call rather than looked up inside the set read, and why
 `--print-command` on a named ticket reads no tracker at all.
+
+`--base <ref>` names where a new branch starts, and `--command <template>` what the workspace runs in place of
+`claude`, with `{ref}` replaced by the ticket's reference. `--help` has the rules for both, and
+[ADR-0044](./docs/adr/0044-the-start-point-and-the-session-command-can-be-named-and-neither-is-silently-ignored.md)
+has the reasoning.
 
 A ticket whose blocking state the tracker could not report is not blocked and needs no flag. The line under the
 pick says which of the three it is, sharing its wording with the ranking path — which has only two of the three

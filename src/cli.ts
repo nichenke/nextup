@@ -12,11 +12,11 @@ import {
 	DEFAULT_LABEL_FILTER,
 	type LabelFilter,
 	LabelFilterError,
-	type LabelFilterSpec,
 	compileLabelFilter,
 } from "./label-filter";
 import { type CheckoutIdentity, type RefuseCheckout, resolveCheckoutIdentity } from "./checkout-identity";
-import { LaunchError, launch, planLaunch, requireSessionBinary, requireWorkspaceHost } from "./launcher";
+import { type CommandTemplate, CommandTemplateError, parseCommandTemplate } from "./command-template";
+import { LaunchError, type SessionSpec, launch, planLaunch, requireSessionBinary, requireWorkspaceHost } from "./launcher";
 import { decideOverride } from "./override";
 import { type OverrideAnswer, forcedCaveats, overrideJson, renderForced, renderOverride, renderRefusal } from "./override-output";
 import type { Runner } from "./runner";
@@ -32,8 +32,8 @@ import {
 import { SelectionError, select } from "./selector";
 import type { Claim, Ticket } from "./ticket";
 import { type GitHubTicketRef, type TicketRef, TicketRefError, formatTicketRef, githubTicketTarget, resolveTicketRef } from "./ticket-ref";
-import { WorktreeError, type WorktreeOutcome, ensure } from "./worktree";
-import { renderWorktree } from "./worktree-output";
+import { type Base, type BaseOutcome, WorktreeError, type WorktreeOutcome, ensure, resolveBase } from "./worktree";
+import { renderWorktree, renderWorktreeWarnings } from "./worktree-output";
 
 /**
  * Prints `question` itself and reports the answer, because `run` returns its output rather than
@@ -78,9 +78,10 @@ A run reads the GitHub repository the working directory's origin points at, rank
 shows you the pick. Once you agree, it makes the ticket's worktree, claims the ticket, and asks the workspace
 host to run a session in that worktree. Name a ticket instead and it starts that one.
 
-usage: nextup [--include <label>]... [--exclude <label>]... [--limit <n>] [--slash-command </verb>]
+usage: nextup [--include <label>]... [--exclude <label>]... [--limit <n>] [--base <ref>]
+              [--slash-command </verb> | --command <template>] [--yes] [--json] [--print-command]
+       nextup <ticket> [--force] [--base <ref>] [--slash-command </verb> | --command <template>]
               [--yes] [--json] [--print-command]
-       nextup <ticket> [--force] [--slash-command </verb>] [--yes] [--json] [--print-command]
 
   <ticket>                 start this ticket rather than the ranking's pick: a short form like gh:12 or
                            gh:<owner>/<name>#12, or an issue URL pasted from a browser
@@ -90,6 +91,9 @@ usage: nextup [--include <label>]... [--exclude <label>]... [--limit <n>] [--sla
   --limit <n>              how many open tickets to consider; ${DEFAULT_LIMIT} by default
   --slash-command </verb>  what the started session runs; ${DEFAULT_SLASH_COMMAND} by default, so the same
                            command can start an implementation, a triage, or a research session
+  --command <template>     what the started session runs instead of claude and a slash command, with
+                           every {ref} in it replaced by the ticket's reference
+  --base <ref>             where a new branch starts, in place of the primary checkout's HEAD
   --yes                    start the pick without asking first
   --print-command          print the session command, and start, claim and create nothing
   --json                   emit the answer as JSON rather than the human rendering
@@ -112,6 +116,25 @@ rather than ignored, since no set is read. --force is refused without a named ti
 With a named ticket, --print-command reads no ticket, so it cannot tell you that one is blocked. It does
 still resolve the reference — which reads this checkout's git remote, and for a pasted URL decides GitHub by
 the host alone and asks the glab CLI about anything else.
+
+--base and --command apply to a ranked pick and a named ticket alike, with --force, and with --print-command.
+
+--base names the ref a new branch is cut from. It is resolved in the directory you typed the command in and
+pinned to the commit it names before any tracker is read or anything is written, so a ref naming no commit
+is refused with nothing done, and --print-command refuses it too. A branch or worktree that already exists
+is checked out or attached where it is and never moved. Where that branch already contains the base, the
+line naming the branch says so; where it does not, a "warning: --base" line says the base was not applied.
+
+--command runs a template in the workspace instead of claude and a slash command. The template is split on
+whitespace into words, and every {ref} is replaced by the ticket's reference, even inside a longer word. The
+template is not shell. Apart from {ref}, a word may hold only letters, digits and _@%+=:,./- and no word may
+start with =, nor the first word with % or hold = or {ref}. A word with {ref} is quoted whole. A word without
+it reaches the program as written, except for words a shell treats specially although every character is
+allowed, such as if as the first word or an alias in your shell, which ADR-0044 lists and nothing here
+checks. Anything needing a shell, or certainty, belongs in a script the template runs. A template with no
+{ref} is refused, since the session would not know its ticket.
+The session binary is not checked for a template, whose program is something else. --command is refused
+beside --slash-command, which only the default command reads.
 
 A label may end in "*" to match a prefix. These exclusions always apply and --exclude adds to them
 rather than replacing them: 'wayfinder:*', so the planning and delivery tracks cannot compete for
@@ -152,10 +175,10 @@ to retry rather than to change anything.
 
 Exit status: 0 the command did what was asked — a session requested, a command printed, or a pick you were
 shown and declined; 1 nothing to recommend; 2 something needing a person — a repository that cannot be
-resolved, a read that is itself wrong, a bad invocation, no way to confirm and no --yes, a workspace host that
-is not running, a worktree that cannot be made, a claim that would not land, or a session that could not be
-started. A tracker that could not be reached is reported as a degraded answer with nothing to recommend,
-which is 1.
+resolved, a read that is itself wrong, a bad invocation, no way to confirm and no --yes, a --base naming no
+commit, a workspace host that is not running, a worktree that cannot be made, a claim that would not land, or
+a session that could not be started. A tracker that could not be reached is reported as a degraded answer with
+nothing to recommend, which is 1.
 
 A named ticket is never 1: there was no recommendation to be absent. One that a check refused is 2, and so is
 one that could not be read — including a tracker that could not be reached, because the one ticket was the
@@ -194,9 +217,9 @@ function checkoutResolver(deps: CliDeps): Checkout {
 export function run(argv: readonly string[], deps: CliDeps): CliResult {
 	if (asksForHelp(argv)) return { code: 0, stdout: USAGE, stderr: "" };
 
-	let options: Options;
+	let line: ParsedLine;
 	try {
-		options = parse(argv);
+		line = parse(argv);
 	} catch (cause) {
 		return usageError(cause);
 	}
@@ -207,18 +230,18 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 	try {
 		// Resolved here rather than in `parse`, which is handed no runner: a bare `gh:12` is resolved against this
 		// checkout's remote, and a pasted URL against the tracker CLIs' authenticated hosts.
-		named = options.named === null ? null : resolveTicketRef(options.named, { runner: deps.runner, directory: deps.cwd, checkout });
+		named = line.named === null ? null : resolveTicketRef(line.named, { runner: deps.runner, directory: deps.cwd, checkout });
 	} catch (cause) {
 		return usageError(cause);
+	}
+
+	let options: Options;
+	try {
+		options = { ...line, base: line.base === null ? null : resolveBase(deps.runner, deps.cwd, line.base) };
+	} catch (cause) {
+		return failedStart(cause);
 	}
 	if (named !== null) return runNamed(named, options, deps, checkout);
-
-	let filter: LabelFilter;
-	try {
-		filter = compileLabelFilter(options.filter);
-	} catch (cause) {
-		return usageError(cause);
-	}
 
 	// Resolved before the read rather than left to the adapter's own fallback, so that the set this ranks and the
 	// claim it ends with are provably about one repository: both take this value. ADR-0040.
@@ -237,7 +260,7 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 			graph: read.graph,
 			truncated: read.truncated,
 			openOnly: read.openOnly,
-			filter,
+			filter: line.filter,
 		});
 		answer = { selection, readDegraded: read.degraded };
 	} catch (cause) {
@@ -283,7 +306,8 @@ function runNamed(ref: TicketRef, options: Options, deps: CliDeps, checkout: Che
 		// key needs no check here, having been refused where the reference was built.
 		const target = githubTicketTarget(ref);
 		if (target.kind === "refused") return usageError(new CliError(target.reason));
-		return namedResult({ kind: "printed", command: planLaunch({ ref, slashCommand: options.slashCommand }).command }, null, options);
+		const { command } = planLaunch({ ref, session: options.session });
+		return namedResult({ kind: "printed", command, base: options.base }, null, options);
 	}
 
 	let answer: OverrideAnswer;
@@ -374,7 +398,11 @@ function forced(start: StartedSomething | null, answer: OverrideAnswer | null): 
  */
 export type StartOutcome =
 	| { readonly kind: "nothing-to-start" }
-	| { readonly kind: "printed"; readonly command: Argv }
+	| {
+			readonly kind: "printed";
+			readonly command: Argv;
+			readonly base: Base | null;
+	  }
 	| { readonly kind: "declined"; readonly ref: TicketRef }
 	| {
 			/**
@@ -399,8 +427,8 @@ export type StartOutcome =
  *
  * @throws StartError where there is nobody to confirm with, and where the claim or the session failed —
  * carrying the worktree, and saying which recovery the failure actually leaves open.
- * @throws WorktreeError from the worktree step, and LaunchError from the host check. Not from the session
- * itself: `startedNothing` has why that one arrives as a `StartError` instead.
+ * @throws WorktreeError from the worktree step, and LaunchError from the host check.
+ * Not from the session itself, which `startedNothing` turns into a `StartError` for the reason it gives.
  * @throws CommandBuilderError unwrapped, from `--slash-command` naming something `sessionCommand` will not
  * build — which parsing already refused and this backstops, before anything is written. The claim's own
  * canonical-key assertion raises `TicketRefError` and is unreachable: `githubTicketRef` refuses a padded key at
@@ -442,9 +470,8 @@ interface StartPick {
 /** The refusals, the gate, and then the three writes. `startWork`'s own comment is the contract for all of it. */
 function startPick(pick: StartPick, options: Options, deps: CliDeps, checkout: Checkout): StartedSomething {
 	const ref = pick.ticket.ref;
-	// Built first, so the one input that can fail without touching anything fails while that is still true.
-	const { command } = planLaunch({ ref, slashCommand: options.slashCommand });
-	if (options.printCommand) return { kind: "printed", command };
+	const { command } = planLaunch({ ref, session: options.session });
+	if (options.printCommand) return { kind: "printed", command, base: options.base };
 
 	// Narrowed here rather than at the claim, so that a tracker with no adapter is refused before the worktree
 	// exists rather than after it. Neither path can currently deliver one — the ranked pick comes from the GitHub
@@ -462,10 +489,10 @@ function startPick(pick: StartPick, options: Options, deps: CliDeps, checkout: C
 	requireInThisCheckout(target.ref, here);
 
 	requireWorkspaceHost(deps.runner);
-	requireSessionBinary(deps.runner);
+	requireSessionBinary(deps.runner, options.session);
 	if (!approved(pick, options, deps)) return { kind: "declined", ref };
 
-	const worktree = ensure({ runner: deps.runner, repo: deps.cwd, ticket: pick.ticket });
+	const worktree = ensure({ runner: deps.runner, repo: deps.cwd, ticket: pick.ticket, base: options.base });
 	try {
 		claimGitHubTicket({ runner: deps.runner, ref: target.ref, checkout: here });
 		launch({ runner: deps.runner, ticket: pick.ticket, command, worktree: worktree.path });
@@ -534,6 +561,7 @@ class StartError extends Error {}
  * recovery would.
  */
 function startedNothing(cause: unknown, pick: StartPick, worktree: WorktreeOutcome, command: Argv): unknown {
+	const warned = renderWorktreeWarnings(worktree);
 	if (cause instanceof GitHubClaimError) {
 		// What the tracker holds, not what a ranked pick would have held: a forced start overruled a claim that is
 		// still there, and telling the operator the ticket is unclaimed would be plainly false.
@@ -550,7 +578,7 @@ function startedNothing(cause: unknown, pick: StartPick, worktree: WorktreeOutco
 				? "the ticket is still unclaimed"
 				: `the ticket is still claimed${pick.claim.by === null ? "" : `, with ${pick.claim.by} among its assignees`}`;
 		return new StartError(
-			`${cause.message}\n${worktree.path} is in place on ${worktree.branch} and ${standing}, so running this again continues from there.`,
+			`${cause.message}\n${warned}${worktree.path} is in place on ${worktree.branch} and ${standing}, so running this again continues from there.`,
 		);
 	}
 	if (cause instanceof LaunchError) {
@@ -565,7 +593,7 @@ function startedNothing(cause: unknown, pick: StartPick, worktree: WorktreeOutco
 		return new StartError(
 			// The `cd` goes through `formatCommand` too: this line is the only recovery offered for an already-claimed
 			// ticket, so it has to survive a checkout path holding a space, which is ordinary rather than exotic.
-			`${cause.message}\nThe ticket is claimed and ${worktree.path} is in place on ${worktree.branch}. ${rerun}Start this session yourself instead:\n  ${formatCommand(["cd", worktree.path])} && ${formatCommand(command)}`,
+			`${cause.message}\n${warned}The ticket is claimed and ${worktree.path} is in place on ${worktree.branch}. ${rerun}Start this session yourself instead:\n  ${formatCommand(["cd", worktree.path])} && ${formatCommand(command)}`,
 		);
 	}
 	return cause;
@@ -602,11 +630,14 @@ function renderStart(start: StartOutcome): string {
 	}
 }
 
-/** `StartOutcome` with every reference in the short form `CandidateJson` uses. */
+/**
+ * `StartOutcome` with every reference in the short form `CandidateJson` uses.
+ */
 export type StartOutcomeJson =
-	| Extract<StartOutcome, { readonly kind: "nothing-to-start" | "printed" }>
+	| Extract<StartOutcome, { readonly kind: "nothing-to-start" }>
+	| (Omit<Extract<StartOutcome, { readonly kind: "printed" }>, "base"> & { readonly base: BaseJson | null })
 	| ShortRef<"declined">
-	| ShortRef<"requested">;
+	| (Omit<ShortRef<"requested">, "worktree"> & { readonly worktree: WorktreeOutcomeJson<WorktreeOutcome> });
 
 /**
  * One arm with its reference as the short form, its own other fields carried over so a field added to that arm
@@ -615,6 +646,14 @@ export type StartOutcomeJson =
 type ShortRef<K extends StartOutcome["kind"]> = Omit<Extract<StartOutcome, { readonly kind: K }>, "ref"> & {
 	readonly ref: string;
 };
+
+type BaseJson = { readonly given: string; readonly commit: string };
+
+type WorktreeOutcomeJson<T extends WorktreeOutcome> = T extends unknown
+	? Omit<T, "base"> & { readonly base: BaseOutcomeJson<T["base"]> }
+	: never;
+
+type BaseOutcomeJson<T extends BaseOutcome> = T extends { readonly base: Base } ? Omit<T, "base"> & { readonly base: BaseJson } : T;
 
 function startJson(start: StartOutcome): StartOutcomeJson {
 	switch (start.kind) {
@@ -642,14 +681,17 @@ function failedAnswer(cause: unknown): CliResult {
 
 class CliError extends Error {}
 
-interface Options {
+type Options = Omit<ParsedLine, "base" | "named" | "filter"> & { readonly base: Base | null };
+
+interface ParsedLine {
 	readonly json: boolean;
 	readonly yes: boolean;
 	readonly printCommand: boolean;
 	readonly force: boolean;
 	readonly limit: number;
-	readonly slashCommand: string;
-	readonly filter: LabelFilterSpec;
+	readonly session: SessionSpec;
+	readonly base: string | null;
+	readonly filter: LabelFilter;
 	/**
 	 * The ticket named on the command line, as written — unresolved, because resolving one reads a git remote or
 	 * a CLI's authenticated hosts and `parse` is handed nothing to read with.
@@ -667,6 +709,8 @@ const VALUE_FLAGS: ReadonlyMap<string, (word: string) => boolean> = new Map([
 	["--exclude", canBeValue],
 	["--limit", isTicketCount],
 	["--slash-command", isSlashCommand],
+	["--base", canBeValue],
+	["--command", canBeValue],
 ]);
 
 /**
@@ -700,13 +744,15 @@ function isTicketCount(word: string): boolean {
 	return /^[0-9]+$/.test(word);
 }
 
-function parse(argv: readonly string[]): Options {
+function parse(argv: readonly string[]): ParsedLine {
 	let json = false;
 	let yes = false;
 	let printCommand = false;
 	let force = false;
 	let limit = DEFAULT_LIMIT;
 	let slashCommand = DEFAULT_SLASH_COMMAND;
+	let template: CommandTemplate | null = null;
+	let base: string | null = null;
 	let named: string | null = null;
 	const include: string[] = [];
 	const exclude: string[] = [];
@@ -734,6 +780,14 @@ function parse(argv: readonly string[]): Options {
 			case "--slash-command":
 				slashCommand = verb(value(argv, ++i, flag), flag);
 				break;
+			case "--command":
+				if (template !== null) throw new CliError(`${flag} was given twice, and a session runs one command`);
+				template = parseCommandTemplate(value(argv, ++i, flag));
+				break;
+			case "--base":
+				if (base !== null) throw new CliError(`${flag} was given twice, and a new branch starts at one commit`);
+				base = nonBlankRef(value(argv, ++i, flag), flag);
+				break;
 			case "--include":
 				include.push(value(argv, ++i, flag));
 				break;
@@ -746,6 +800,9 @@ function parse(argv: readonly string[]): Options {
 				named = flag;
 		}
 	}
+	if (given.has("--command") && given.has("--slash-command")) {
+		throw new CliError("--command and --slash-command both say what the session runs, so give one of them");
+	}
 	requireFlagsThatApply(named, given);
 
 	// Prepended rather than replaced, so the defaults are a floor a filter flag cannot lift; ADR-0031 has why.
@@ -755,9 +812,10 @@ function parse(argv: readonly string[]): Options {
 		printCommand,
 		force,
 		limit,
-		slashCommand,
+		session: template === null ? { kind: "slash-command", slashCommand } : { kind: "template", template },
+		base,
 		named,
-		filter: { include, exclude: [...DEFAULT_LABEL_FILTER.exclude, ...exclude] },
+		filter: compileLabelFilter({ include, exclude: [...DEFAULT_LABEL_FILTER.exclude, ...exclude] }),
 	};
 }
 
@@ -836,6 +894,11 @@ function requireFlagsThatApply(named: string | null, given: ReadonlySet<string>)
 	}
 }
 
+function nonBlankRef(given: string, flag: string): string {
+	if (given.trim() === "") throw new CliError(`${flag} was given a blank ref, which names no commit`);
+	return given;
+}
+
 /** @throws CliError where the value is not a slash command a session could be given. */
 function verb(given: string, flag: string): string {
 	if (!isSlashCommand(given)) {
@@ -871,7 +934,12 @@ function value(argv: readonly string[], index: number, flag: string): string {
 function usageError(cause: unknown): CliResult {
 	// A reference that will not resolve is among them: what the command line said cannot be used, which is the
 	// same thing a bad flag is, and the usage beside it is where the accepted forms are written down.
-	if (cause instanceof CliError || cause instanceof LabelFilterError || cause instanceof TicketRefError) {
+	if (
+		cause instanceof CliError ||
+		cause instanceof LabelFilterError ||
+		cause instanceof TicketRefError ||
+		cause instanceof CommandTemplateError
+	) {
 		return { code: 2, stdout: "", stderr: `${cause.message}\n\n${USAGE}` };
 	}
 	throw cause;

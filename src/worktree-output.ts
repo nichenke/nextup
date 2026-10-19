@@ -1,4 +1,4 @@
-import type { WorktreeOutcome } from "./worktree";
+import type { Base, WorktreeOutcome } from "./worktree";
 
 /**
  * The prefix every warning line carries, so a caller can find them with `grep '^warning: '` rather than
@@ -13,6 +13,8 @@ const DID: Record<WorktreeOutcome["kind"], string> = {
 	attached: "attached to",
 };
 
+const SHORT_COMMIT = 7;
+
 /**
  * What ensuring the worktree did, as a person reads it.
  *
@@ -22,13 +24,33 @@ const DID: Record<WorktreeOutcome["kind"], string> = {
  * the same sentence.
  */
 export function renderWorktree(outcome: WorktreeOutcome): string {
-	const lines = [`${DID[outcome.kind]} ${outcome.path}`, `  on ${branchPhrase(outcome)}`];
+	return `${DID[outcome.kind]} ${outcome.path}\n  on ${branchPhrase(outcome)}\n${renderWorktreeWarnings(outcome)}`;
+}
+
+/**
+ * The warning lines alone, each ending in a newline, or `""` where there are none.
+ */
+export function renderWorktreeWarnings(outcome: WorktreeOutcome): string {
+	const lines: string[] = [];
+	if (outcome.base.kind === "not-applied") {
+		lines.push(
+			`${WARNING_PREFIX}--base ${outcome.base.base.given} was not applied: ${outcome.branch} already existed, so it was left where it was`,
+		);
+	}
 	for (const warning of outcome.warnings) lines.push(`${WARNING_PREFIX}${warning}`);
-	return `${lines.join("\n")}\n`;
+	return lines.map((line) => `${line}\n`).join("");
 }
 
 function branchPhrase(outcome: WorktreeOutcome): string {
-	if (outcome.kind === "created") return `${outcome.branch}, a new branch`;
-	if (outcome.kind === "checked-out") return `${outcome.branch}, which already existed`;
-	return `${outcome.branch}, where it already was`;
+	if (outcome.kind === "created") {
+		if (outcome.base.kind === "none") return `${outcome.branch}, a new branch`;
+		return `${outcome.branch}, a new branch from ${pinned(outcome.base.base)}`;
+	}
+	const contains = outcome.base.kind === "already-on-base" ? `, and already contains ${pinned(outcome.base.base)}` : "";
+	if (outcome.kind === "checked-out") return `${outcome.branch}, which already existed${contains}`;
+	return `${outcome.branch}, where it already was${contains}`;
+}
+
+function pinned(base: Base): string {
+	return `${base.given} at ${base.commit.slice(0, SHORT_COMMIT)}`;
 }
