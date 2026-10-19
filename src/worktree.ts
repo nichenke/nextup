@@ -162,7 +162,7 @@ export class Base {
 
 /**
  * `given` pinned to the commit it names in `directory`, which is the checkout the command was invoked in,
- * because a ref means what it means where it was typed: `HEAD` in a linked worktree is that worktree's HEAD.
+ * because a ref means what it means where it was typed. `HEAD` in a linked worktree is that worktree's HEAD.
  * ADR-0044.
  *
  * Blankness is tested by trimming and git is then asked about `given` untrimmed, as `resolveContainer`
@@ -170,7 +170,7 @@ export class Base {
  *
  * @throws WorktreeError `"unresolvable-base"` for a blank `given`; for exit 1, which is git saying the ref
  * names no commit (`resolveCommitCommand` has the shapes measured); and for an exit 0 whose answer is not
- * one object id, which `^side` produces: git reads it as an exclusion and prints `^<id>`.
+ * one object id, which `^side` produces. git reads it as an exclusion and prints `^<id>`.
  *
  * @throws WorktreeError `"git"` for any other exit and for an exit 0 that printed nothing, the repository
  * failing rather than answering. A reflog entry past the log's end, such as `main@{99}`, also exits 128
@@ -290,7 +290,7 @@ export interface Registration {
  * `"stale-directory"` where the expected path holds anything else, `"unnameable-ticket"` from `branchName`,
  * `"unsupported-repository"` where the repository keeps its git directory somewhere this cannot work,
  * `"git"` where a command failed, including the question whether an existing branch contains the base,
- * which on the checkout route is asked after the worktree was made.
+ * which is asked before the worktree is made, so a failure there leaves nothing behind.
  */
 export function ensure(input: EnsureInput): WorktreeOutcome {
 	const branch = branchName(input.ticket);
@@ -319,18 +319,22 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 		// Asked only on the routes that return, since it spawns a process whose answer every refusal above
 		// would discard — and re-running onto an existing worktree is the ordinary path here, not the rare one.
 		const warnings = driftWarnings(input.runner, primary, main.head);
-		return { kind: "attached", path, branch, command: null, primary, warnings, base: onExistingBranch(input.runner, primary, branch, base) };
+		return { kind: "attached", path, branch, command: null, primary, warnings, base: onExistingBranch(input.runner, primary, `${REF_HEADS}${branch}`, base) };
 	}
 
 	refuseIfOccupied(path);
 
 	// A registered worktree at the path is the case above, so a branch that exists at this point is one
 	// checked out nowhere. The remotes are asked too, for the reason `remoteBranchesCommand` gives.
-	const create =
-		!branchExists(input.runner, primary, branch) && !adoptableFromOrigin(input.runner, primary, branch);
-	// Not asked where a base is applied: the warning is about a new branch inheriting the primary's HEAD,
+	const local = branchExists(input.runner, primary, branch);
+	const adopted = local ? null : adoptableFromOrigin(input.runner, primary, branch);
+	const create = !local && adopted === null;
+	// Not asked where a base is applied. The warning is about a new branch inheriting the primary's HEAD,
 	// and a base is what stops it inheriting anything. ADR-0044.
 	const warnings = create && base !== null ? [] : driftWarnings(input.runner, primary, main.head);
+	// Asked before the add, so nothing below can fail once a worktree exists. A branch adopted from origin is
+	// asked about by its remote ref, which the add will cut the local branch at exactly.
+	const existing = create ? NO_BASE : onExistingBranch(input.runner, primary, adopted ?? `${REF_HEADS}${branch}`, base);
 	// primary, not input.repo — see `driftWarnings`.
 	const command = create
 		? worktreeAddCommand(primary, path, branch, true, base?.commit)
@@ -342,23 +346,23 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 	if (create) {
 		return { kind: "created", path, branch, command, primary, warnings, base: base === null ? NO_BASE : { kind: "applied", base } };
 	}
-	// Asked after the add, because a branch adopted from origin has no local ref until the add makes one.
-	return { kind: "checked-out", path, branch, command, primary, warnings, base: onExistingBranch(input.runner, primary, branch, base) };
+	return { kind: "checked-out", path, branch, command, primary, warnings, base: existing };
 }
 
 /**
  * What a base given for a branch that already existed amounts to. Nothing moved the branch either way, so this
- * says only whether it already contains the base's commit.
+ * says only whether `ref` already contains the base's commit. `ref` is the local branch, or for one adopted
+ * from origin the remote ref the add will cut it at, so the answer is the same and can be had before the add.
  *
  * @throws WorktreeError `"git"` for any answer but yes or no, for the reason `isAncestorCommand` gives.
  */
-function onExistingBranch(runner: Runner, primary: string, branch: string, base: Base | null): OntoExistingBranch {
+function onExistingBranch(runner: Runner, primary: string, ref: string, base: Base | null): OntoExistingBranch {
 	if (base === null) return NO_BASE;
-	const result = runner([...isAncestorCommand(primary, base.commit, `${REF_HEADS}${branch}`)]);
+	const result = runner([...isAncestorCommand(primary, base.commit, ref)]);
 	if (result.code === 0) return { kind: "already-on-base", base };
 	if (result.code === 1) return { kind: "not-applied", base };
 	throw new WorktreeError(
-		`${primary} could not be asked whether ${branch} already contains --base ${base.given}: ${gitFailure(result.stderr, result.code)}`,
+		`${primary} could not be asked whether ${ref} already contains --base ${base.given}: ${gitFailure(result.stderr, result.code)}`,
 		"git",
 	);
 }
@@ -636,7 +640,8 @@ function branchExists(runner: Runner, repo: string, branch: string): boolean {
 }
 
 /**
- * Whether `origin` has a branch this can adopt by checking it out rather than cutting a new one.
+ * The remote ref, spelled as git lists it, of a branch on `origin` that this can adopt by checking it out
+ * rather than cutting a new one, or `null` where there is none.
  *
  * @throws WorktreeError `"unsupported-repository"` where more than one remote offers the name. Adopting a
  * remote-only branch leaves git to resolve the name, and git refuses to resolve an ambiguous one — so the
@@ -647,7 +652,7 @@ function branchExists(runner: Runner, repo: string, branch: string): boolean {
  *
  * @throws WorktreeError `"git"` where the repository could not answer.
  */
-function adoptableFromOrigin(runner: Runner, repo: string, branch: string): boolean {
+function adoptableFromOrigin(runner: Runner, repo: string, branch: string): string | null {
 	const result = runner([...remoteBranchesCommand(repo, branch)]);
 	if (result.code !== 0) {
 		throw new WorktreeError(
@@ -663,13 +668,13 @@ function adoptableFromOrigin(runner: Runner, repo: string, branch: string): bool
 		);
 	}
 	const only = refs[0]?.trim() ?? "";
-	if (!only.startsWith(REMOTES)) return false;
+	if (!only.startsWith(REMOTES)) return null;
 	const rest = only.slice(REMOTES.length);
 	const slash = rest.indexOf("/");
 	// The remote's name is whatever it is called on disk and git records it verbatim, so a remote named
 	// `Origin` is still the one meant; the branch is compared exactly, because git branch names are
 	// case-sensitive.
-	return slash !== -1 && folded(rest.slice(0, slash)) === "origin" && rest.slice(slash + 1) === branch;
+	return slash !== -1 && folded(rest.slice(0, slash)) === "origin" && rest.slice(slash + 1) === branch ? only : null;
 }
 
 /**

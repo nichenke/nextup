@@ -934,7 +934,7 @@ describe("ensure", () => {
 		}
 	});
 
-	test("asks whether an adopted branch contains the base only once the add has made its local ref", () => {
+	test("asks whether an adopted branch contains the base before the add, so nothing can fail after it", () => {
 		const { repo, state } = primaryOn();
 		const git = stubGit({ ...state, remoteBranches: [READER_BRANCH], isAncestor: 0 });
 		const outcome = ensure({ runner: git.runner, repo, ticket: READER, base: STUB_BASE });
@@ -943,8 +943,27 @@ describe("ensure", () => {
 		expect(outcome.base.kind).toBe("already-on-base");
 		const asked = git.issued.findIndex((argv) => argv.includes("merge-base"));
 		const added = git.issued.findIndex((argv) => argv.includes("worktree") && argv.includes("add"));
-		expect(added).toBeGreaterThanOrEqual(0);
-		expect(asked).toBeGreaterThan(added);
+		expect(asked).toBeGreaterThanOrEqual(0);
+		expect(added).toBeGreaterThan(asked);
+	});
+
+	test("asks about the remote ref as it was found for an adopted branch, whatever the remote is called", () => {
+		const { repo, state } = primaryOn();
+		const git = stubGit({ ...state, remoteBranches: [READER_BRANCH], originName: "Origin", isAncestor: 1 });
+		const outcome = ensure({ runner: git.runner, repo, ticket: READER, base: STUB_BASE });
+
+		expect(outcome.base.kind).toBe("not-applied");
+		expect(git.issued).toContainEqual(["git", "-C", repo, "merge-base", "--is-ancestor", STUB_COMMIT, `refs/remotes/Origin/${READER_BRANCH}`]);
+		expect(git.issued.some((argv) => argv.includes("merge-base") && argv.includes(`refs/heads/${READER_BRANCH}`))).toBe(false);
+	});
+
+	test("runs no worktree add when the question about an existing branch fails, on the checkout route", () => {
+		const { repo, state } = primaryOn();
+		for (const onto of [{ ...state, branches: [READER_BRANCH] }, { ...state, remoteBranches: [READER_BRANCH] }]) {
+			const git = stubGit({ ...onto, isAncestor: 128 });
+			expect(kindOf(() => ensure({ runner: git.runner, repo, ticket: READER, base: STUB_BASE }))).toBe("git");
+			expect(git.issued.some((argv) => argv.includes("worktree") && argv.includes("add"))).toBe(false);
+		}
 	});
 
 	test("refuses as git's failure any answer about containing the base but yes or no, on both routes", () => {
