@@ -136,15 +136,15 @@ for putting such a rule in the type.
 it replaced by the ticket's reference. The orchestrator's phase worker is a wrapper script run inside tmux,
 which no slash command can name.
 
-**The template is split on whitespace, and every word reaches the shell as written.** The workspace host
+**The template is split on whitespace, and every word without the reference reaches the program as written.** The workspace host
 takes a line rather than argv and types it into a shell, so since
 [0035](./0035-a-workspace-host-that-is-not-running-is-refused-before-anything-is-written.md) the quoting
 `formatCommand` applies is what stands between a word and shell syntax. A template takes the path the
-default command takes. Each word, with every `{ref}` taken out, must be one `formatCommand` leaves bare,
-which means letters, digits and `_@%+=:,./-`, with no `=` in the first word, where a shell reads an
-assignment. A word that is only `{ref}` passes. The line the host types is then the template exactly as
-written, with only the substituted reference quoted, so a reference substituted into a word stays inside it.
-The rule is `formatCommand`'s own predicate, `isBareWord`, so the two cannot drift apart. Accepting the
+default command takes. Each word, with every `{ref}` taken out, must be one `formatCommand` leaves bare, and
+`isBareWord` holds that rule and the positions where an allowed character is still shell syntax. A word that is
+only `{ref}` passes. A word without the reference then reaches the program as written, measured in sh, bash and
+zsh, and a word carrying it is quoted whole, so a reference substituted into a word stays inside it.
+The rule is `formatCommand`'s own predicate, so the two cannot drift apart. Accepting the
 template verbatim as a shell string was rejected, because it would splice the reference into shell code and
 hand the host a line nothing here had quoted.
 

@@ -128,8 +128,9 @@ says so; where it does not, a "warning: " line says the base was not applied.
 
 --command runs a template in the workspace instead of claude and a slash command. The template is split on
 whitespace into words, and every {ref} is replaced by the ticket's reference, even inside a longer word. The
-template is not shell. Apart from {ref}, a word may hold only letters, digits and _@%+=:,./- and the first
-word no =, so the line the workspace types is the template as written; anything needing a shell belongs in a
+template is not shell. Apart from {ref}, a word may hold only letters, digits and _@%+=:,./- and no word may
+start with =, nor the first word with % or hold =. A word without {ref} then reaches the program as written
+(measured in sh, bash and zsh) and a word with it is quoted whole; anything needing a shell belongs in a
 script the template runs. A template with no {ref} is refused, since the session would not know its ticket.
 The session binary is not checked for a template, whose program is something else. --command is refused
 beside --slash-command, which only the default command reads.
@@ -243,8 +244,7 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 	}
 
 	// Resolved once, before either path reads a tracker or asks anyone, so every path refuses a base naming no
-	// commit alike, with exit 2 and nothing written: a ranked run with nothing to pick, a named ticket the checks
-	// refuse, and --print-command. ADR-0044.
+	// commit alike, with exit 2 and nothing written. ADR-0044.
 	let options: Options;
 	try {
 		options = { ...line, base: line.base === null ? null : resolveBase(deps.runner, deps.cwd, line.base) };
@@ -698,8 +698,11 @@ function failedAnswer(cause: unknown): CliResult {
 
 class CliError extends Error {}
 
-/** The line with its base resolved, which is all `run` hands on, so nothing past it reads the ref as typed. */
-type Options = Omit<ParsedLine, "base"> & { readonly base: Base | null };
+/**
+ * The line's options with the base resolved, so nothing past `run` reads the ref as typed. The named ticket and
+ * the filter are left off, because `run` resolves and compiles those itself and hands them on separately.
+ */
+type Options = Omit<ParsedLine, "base" | "named" | "filter"> & { readonly base: Base | null };
 
 interface ParsedLine {
 	readonly json: boolean;

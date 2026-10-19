@@ -31,8 +31,7 @@ export function renderWorktree(outcome: WorktreeOutcome): string {
 }
 
 /**
- * The warning lines alone, each ending in a newline, or `""` where there are none. Exported for a failure that
- * reports the worktree it left in place, which has to carry these on the way out just as a success does.
+ * The warning lines alone, each ending in a newline, or `""` where there are none.
  */
 export function renderWorktreeWarnings(outcome: WorktreeOutcome): string {
 	const lines: string[] = [];

@@ -36,8 +36,9 @@ export class CommandTemplate {
  *
  * Split on runs of whitespace and nothing more, because the words are argv, each passed through `formatCommand` on
  * its way to the workspace host's shell. Every word must be one `formatCommand` leaves bare once its
- * `REF_PLACEHOLDER`s are taken out, so the line the host types is the template exactly as written, with only the
- * substituted reference quoted. ADR-0044 has why a template is argv rather than a shell line.
+ * `REF_PLACEHOLDER`s are taken out, so a word without the reference reaches the program as written, measured in
+ * sh, bash and zsh, and a word carrying it is quoted whole. ADR-0044 has why a template is argv rather than a
+ * shell line.
  *
  * @throws CommandTemplateError when `text` is blank; when a word without its placeholders is not one
  * `isBareWord` accepts in that position, since `formatCommand` would quote it and the program would receive
@@ -55,7 +56,7 @@ export function parseCommandTemplate(text: string): CommandTemplate {
 	});
 	if (unwritten !== undefined) {
 		throw new CommandTemplateError(
-			`the command template word ${unwritten} would not reach the program as written, because the template is not shell. A word may hold only letters, digits, ${REF_PLACEHOLDER} and the characters _@%+=:,./- with no = in the first word, so put anything needing a shell in a script the template runs`,
+			`the command template word ${unwritten} would not reach the program as written, because the template is not shell. Run nextup --help for the characters a word may hold besides ${REF_PLACEHOLDER}, and put anything needing a shell in a script the template runs`,
 		);
 	}
 	if (!words.some((word) => word.includes(REF_PLACEHOLDER))) {

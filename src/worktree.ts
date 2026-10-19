@@ -220,7 +220,7 @@ export type BaseOutcome =
 	/** The existing branch already contains the base's commit, at its tip or anywhere behind it. */
 	| { readonly kind: "already-on-base"; readonly base: Base };
 
-type OntoExistingBranch = Exclude<BaseOutcome, { kind: "applied" }>;
+type OntoExistingBranch = Extract<BaseOutcome, { kind: "none" | "not-applied" | "already-on-base" }>;
 type OntoNewBranch = Extract<BaseOutcome, { kind: "none" | "applied" }>;
 
 const NO_BASE = { kind: "none" } as const;
