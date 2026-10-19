@@ -13,6 +13,7 @@ import {
 	githubClaimCommand,
 	githubIssueListCommand,
 	githubIssueViewCommand,
+	isAncestorCommand,
 	isBareWord,
 	jiraIdentityCommand,
 	originRemoteCommand,
@@ -157,6 +158,12 @@ const CASES: readonly Case[] = [
 		description: "A worktree for a branch that does not exist yet, cut from the commit a --base resolved to rather than from the primary checkout's HEAD.",
 		input: { repo: "/repo", path: WORKTREE_PATH, branch: BRANCH, create: true, startPoint: BASE_COMMIT },
 		build: () => worktreeAddCommand("/repo", WORKTREE_PATH, BRANCH, true, BASE_COMMIT),
+	},
+	{
+		name: "is-ancestor",
+		description: "Whether a branch that already existed already contains the commit a --base resolved to, answered by the exit status.",
+		input: { repo: "/repo", ancestor: BASE_COMMIT, ref: `refs/heads/${BRANCH}` },
+		build: () => isAncestorCommand("/repo", BASE_COMMIT, `refs/heads/${BRANCH}`),
 	},
 	{
 		name: "github-issue-list",

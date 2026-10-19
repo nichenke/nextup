@@ -1,0 +1,17 @@
+{
+	"description": "Whether a branch that already existed already contains the commit a --base resolved to, answered by the exit status.",
+	"input": {
+		"repo": "/repo",
+		"ancestor": "0123456789abcdef0123456789abcdef01234567",
+		"ref": "refs/heads/feature/reader-8"
+	},
+	"argv": [
+		"git",
+		"-C",
+		"/repo",
+		"merge-base",
+		"--is-ancestor",
+		"0123456789abcdef0123456789abcdef01234567",
+		"refs/heads/feature/reader-8"
+	]
+}

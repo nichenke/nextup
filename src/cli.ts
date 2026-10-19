@@ -122,9 +122,9 @@ the host alone and asks the glab CLI about anything else.
 
 --base names the ref a new branch is cut from. It is resolved in the directory you typed the command in and
 pinned to the commit it names before anything is asked or written, so a ref naming no commit is refused with
-nothing done, and --print-command refuses it too. A branch or worktree that already exists is attached to
-where it is and never moved, and a "warning: " line says the base was not applied, because a base dropped
-without a word is how a branch ends up on the wrong parent.
+nothing done, and --print-command refuses it too. A branch or worktree that already exists is checked out or
+attached where it is and never moved. Where that branch already contains the base, the line naming it says
+so; where it does not, a "warning: " line says the base was not applied.
 
 --command runs a template in the workspace instead of claude and a slash command. The template is split on
 whitespace into words, and every {ref} is replaced by the ticket's reference, even inside a longer word. The

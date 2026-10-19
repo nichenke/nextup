@@ -6,6 +6,7 @@ import {
 	refExistsCommand,
 	defaultBranchCommand,
 	gitCommonDirCommand,
+	isAncestorCommand,
 	remoteBranchesCommand,
 	resolveCommitCommand,
 	worktreeAddCommand,
@@ -208,19 +209,19 @@ export interface EnsureInput {
 }
 
 /**
- * What became of a base, on every outcome, so one that changed nothing is reported rather than dropped.
- *
- * Only cutting a new branch can apply one, so `created` carries `none` or `applied` and the two routes onto
- * an existing branch carry `none` or `not-applied`: an outcome claiming a base moved a branch that was already
- * there cannot be built. ADR-0044 has why a base that was not applied is reported rather than ignored.
+ * Only cutting a new branch can apply a base, so `created` carries `none` or `applied`, the two routes onto an
+ * existing branch carry `none`, `not-applied` or `already-on-base`, and an outcome claiming a base moved a branch
+ * that was already there cannot be built. ADR-0044.
  */
 export type BaseOutcome =
 	| { readonly kind: "none" }
 	| { readonly kind: "applied"; readonly base: Base }
-	| { readonly kind: "not-applied"; readonly base: Base };
+	| { readonly kind: "not-applied"; readonly base: Base }
+	/** The existing branch already contains the base's commit, at its tip or anywhere behind it. */
+	| { readonly kind: "already-on-base"; readonly base: Base };
 
 type OntoExistingBranch = Exclude<BaseOutcome, { kind: "applied" }>;
-type OntoNewBranch = Exclude<BaseOutcome, { kind: "not-applied" }>;
+type OntoNewBranch = Extract<BaseOutcome, { kind: "none" | "applied" }>;
 
 const NO_BASE = { kind: "none" } as const;
 
@@ -282,13 +283,14 @@ export interface Registration {
  * any failure attaches to whatever is already there and carries on, so recovery is the ordinary path.
  * ADR-0016 has why nothing here needs unwinding.
  *
- * A `base` is where a new branch starts. A branch that already exists is attached to or checked out where it
- * is, and the outcome says the base was not applied, so a re-run with a base moves nothing.
+ * A `base` is where a new branch starts. A branch that already exists is checked out or attached where it is,
+ * so a re-run with a base moves nothing, and the outcome says whether that branch already contains the base.
  *
  * @throws WorktreeError — `"branch-elsewhere"` where the branch is checked out at another path,
  * `"stale-directory"` where the expected path holds anything else, `"unnameable-ticket"` from `branchName`,
  * `"unsupported-repository"` where the repository keeps its git directory somewhere this cannot work,
- * `"git"` where a command failed.
+ * `"git"` where a command failed, including the question whether an existing branch contains the base,
+ * which on the checkout route is asked after the worktree was made.
  */
 export function ensure(input: EnsureInput): WorktreeOutcome {
 	const branch = branchName(input.ticket);
@@ -317,7 +319,7 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 		// Asked only on the routes that return, since it spawns a process whose answer every refusal above
 		// would discard — and re-running onto an existing worktree is the ordinary path here, not the rare one.
 		const warnings = driftWarnings(input.runner, primary, main.head);
-		return { kind: "attached", path, branch, command: null, primary, warnings, base: notApplied(base) };
+		return { kind: "attached", path, branch, command: null, primary, warnings, base: onExistingBranch(input.runner, primary, branch, base) };
 	}
 
 	refuseIfOccupied(path);
@@ -340,11 +342,25 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 	if (create) {
 		return { kind: "created", path, branch, command, primary, warnings, base: base === null ? NO_BASE : { kind: "applied", base } };
 	}
-	return { kind: "checked-out", path, branch, command, primary, warnings, base: notApplied(base) };
+	// Asked after the add, because a branch adopted from origin has no local ref until the add makes one.
+	return { kind: "checked-out", path, branch, command, primary, warnings, base: onExistingBranch(input.runner, primary, branch, base) };
 }
 
-function notApplied(base: Base | null): OntoExistingBranch {
-	return base === null ? NO_BASE : { kind: "not-applied", base };
+/**
+ * What a base given for a branch that already existed amounts to: nothing moved it either way, and this says
+ * whether it already contains the base's commit.
+ *
+ * @throws WorktreeError `"git"` for any answer but yes or no, for the reason `isAncestorCommand` gives.
+ */
+function onExistingBranch(runner: Runner, primary: string, branch: string, base: Base | null): OntoExistingBranch {
+	if (base === null) return NO_BASE;
+	const result = runner([...isAncestorCommand(primary, base.commit, `${REF_HEADS}${branch}`)]);
+	if (result.code === 0) return { kind: "already-on-base", base };
+	if (result.code === 1) return { kind: "not-applied", base };
+	throw new WorktreeError(
+		`${primary} could not be asked whether ${branch} already contains --base ${base.given}: ${gitFailure(result.stderr, result.code)}`,
+		"git",
+	);
 }
 
 /**

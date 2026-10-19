@@ -229,6 +229,8 @@ function startSequence(
 		if (argv.includes("show-ref")) return { code: argv.includes("refs/remotes/origin/main") ? 0 : 1, stdout: "", stderr: "" };
 		if (argv.includes("for-each-ref")) return { code: 0, stdout: "", stderr: "" };
 		if (argv.includes("add")) return { code: 0, stdout: "", stderr: "" };
+		// Not an ancestor, unless a test says otherwise: a branch that already existed is off the base.
+		if (argv.includes("--is-ancestor")) return { code: 1, stdout: "", stderr: "" };
 		throw new Error(`nothing answers ${argv.join(" ")}`);
 	};
 	const of = (...words: string[]) => calls.filter((argv) => words.every((word) => argv.includes(word)));
@@ -1212,6 +1214,21 @@ describe("--base and --command", () => {
 			);
 			expect(document.start.worktree.kind).toBe("checked-out");
 			expect(document.start.worktree.base).toEqual({ kind: "not-applied", base: { given: BASE, commit: BASE_COMMIT } });
+		});
+
+		test("says a branch that already exists and already contains the base is on it, with no warning", () => {
+			const containsBase = (argv: string[]): CommandResult | null =>
+				argv.includes("--is-ancestor") ? { code: 0, stdout: "", stderr: "" } : branchAlreadyThere(argv);
+			const human = run([...LIMIT, "--base", BASE, "--yes"], deps(startSequence(answeringBase(containsBase)).runner));
+
+			expect(human.code).toBe(0);
+			expect(human.stdout).not.toContain("warning: ");
+			expect(human.stdout).toContain(`already contains ${BASE} at ${BASE_COMMIT.slice(0, 7)}`);
+
+			const document = JSON.parse(
+				run([...LIMIT, "--base", BASE, "--yes", "--json"], deps(startSequence(answeringBase(containsBase)).runner)).stdout,
+			);
+			expect(document.start.worktree.base).toEqual({ kind: "already-on-base", base: { given: BASE, commit: BASE_COMMIT } });
 		});
 
 		test("runs the template in the workspace, and probes no session binary for it", () => {

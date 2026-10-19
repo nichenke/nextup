@@ -57,6 +57,17 @@ describe("renderWorktree", () => {
 		}
 	});
 
+	test("names the base an existing branch already contains in its own line, and warns about nothing", () => {
+		const onBase = { kind: "already-on-base", base: SIDE } as const;
+
+		expect(renderWorktree({ ...CHECKED_OUT, kind: "checked-out", base: onBase })).toBe(
+			"checked out /repo/.worktrees/reader-8\n  on feature/reader-8, which already existed, and already contains side at e4477a4\n",
+		);
+		expect(renderWorktree({ ...ATTACHED, kind: "attached", base: onBase })).toBe(
+			"attached to /repo/.worktrees/reader-8\n  on feature/reader-8, where it already was, and already contains side at e4477a4\n",
+		);
+	});
+
 	test("keeps the not-applied warning beside any other, each on its own prefixed line", () => {
 		const outcome: WorktreeOutcome = { ...ATTACHED, warnings: ["drifted"], base: { kind: "not-applied", base: SIDE } };
 		const warnings = renderWorktree(outcome).trimEnd().split("\n").filter((line) => line.startsWith(WARNING_PREFIX));
@@ -95,12 +106,14 @@ describe("renderWorktree", () => {
 		const checkedOutApplied: WorktreeOutcome = { ...CHECKED_OUT, kind: "checked-out", base: applied };
 		// @ts-expect-error a new branch was cut, so the base given to it was applied
 		const createdNotApplied: WorktreeOutcome = { ...CREATED, kind: "created", base: notApplied };
+		// @ts-expect-error nor was it already there to contain the base
+		const createdOnBase: WorktreeOutcome = { ...CREATED, kind: "created", base: { kind: "already-on-base", base: SIDE } };
 		// @ts-expect-error only resolveBase makes a Base, so its commit is one git named
 		const forged: Base = { given: "side", commit: SIDE_COMMIT };
 		// @ts-expect-error nor does a spread of one that was resolved, which would keep the ref and swap the commit
 		const respelled: Base = { ...SIDE, commit: "0".repeat(40) };
 
-		expect([attachedApplied, checkedOutApplied, createdNotApplied, forged, respelled]).toHaveLength(5);
+		expect([attachedApplied, checkedOutApplied, createdNotApplied, createdOnBase, forged, respelled]).toHaveLength(6);
 		expect(JSON.parse(JSON.stringify(SIDE))).toEqual({ given: "side", commit: SIDE_COMMIT });
 	});
 

@@ -262,6 +262,15 @@ export function resolveCommitCommand(directory: string, ref: string): Argv {
 export const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 /**
+ * Whether `ref` already contains `ancestor`, the commit itself included, answered by the exit status alone.
+ * Measured on git 2.56, it exits 0 for yes and 1 for no, and 128 where either side names no object, so a caller
+ * reads any status but those two as git failing to answer.
+ */
+export function isAncestorCommand(repo: string, ancestor: string, ref: string): Argv {
+	return ["git", "-C", repo, "merge-base", "--is-ancestor", ancestor, ref];
+}
+
+/**
  * The worktree for one branch, at one path. `create` picks between cutting a new branch and checking out
  * one that already exists; `-b` against an existing branch is a fatal error rather than an attach, so the
  * two cannot share an invocation.
