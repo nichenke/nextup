@@ -440,8 +440,8 @@ function quote(word: string, first: boolean): string {
 
 /**
  * Whether `formatCommand` leaves `word` unquoted, as the line's first word or as a later one. Exported so that
- * `parseCommandTemplate` refuses by this rule rather than by a copy of it: a template word this rule leaves
- * bare reaches the shell exactly as written, and a copy that drifted would let one reach it as syntax.
+ * `parseCommandTemplate` refuses by this rule rather than by a copy of it. A template word this rule leaves bare
+ * reaches the shell exactly as written, and a copy that drifted would let one reach it as syntax.
  */
 export function isBareWord(word: string, first: boolean): boolean {
 	// `=` is safe in every word but the first, where a shell reads `name=value` as an assignment and

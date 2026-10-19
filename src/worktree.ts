@@ -347,8 +347,8 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 }
 
 /**
- * What a base given for a branch that already existed amounts to: nothing moved it either way, and this says
- * whether it already contains the base's commit.
+ * What a base given for a branch that already existed amounts to. Nothing moved the branch either way, so this
+ * says only whether it already contains the base's commit.
  *
  * @throws WorktreeError `"git"` for any answer but yes or no, for the reason `isAncestorCommand` gives.
  */

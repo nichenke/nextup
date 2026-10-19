@@ -34,10 +34,10 @@ export class CommandTemplate {
 /**
  * The template `text` spells, or a refusal.
  *
- * Split on runs of whitespace, and nothing more: the words are argv, each passed through `formatCommand` on its way
- * to the workspace host's shell. Every word must be one `formatCommand` leaves bare once its `REF_PLACEHOLDER`s are
- * taken out, so the line the host types is the template exactly as written, with only the substituted reference
- * quoted. ADR-0044 has why a template is argv rather than a shell line.
+ * Split on runs of whitespace and nothing more, because the words are argv, each passed through `formatCommand` on
+ * its way to the workspace host's shell. Every word must be one `formatCommand` leaves bare once its
+ * `REF_PLACEHOLDER`s are taken out, so the line the host types is the template exactly as written, with only the
+ * substituted reference quoted. ADR-0044 has why a template is argv rather than a shell line.
  *
  * @throws CommandTemplateError when `text` is blank; when a word without its placeholders is not one
  * `isBareWord` accepts in that position, since `formatCommand` would quote it and the program would receive
