@@ -12,7 +12,6 @@ import {
 	DEFAULT_LABEL_FILTER,
 	type LabelFilter,
 	LabelFilterError,
-	type LabelFilterSpec,
 	compileLabelFilter,
 } from "./label-filter";
 import { type CheckoutIdentity, type RefuseCheckout, resolveCheckoutIdentity } from "./checkout-identity";
@@ -223,15 +222,6 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 		return usageError(cause);
 	}
 
-	// Compiled on both paths, though only the ranked one reads it, so a pattern the grammar refuses is a usage error
-	// before the base asks git anything. A named run's filter is the defaults alone, which always compile.
-	let filter: LabelFilter;
-	try {
-		filter = compileLabelFilter(line.filter);
-	} catch (cause) {
-		return usageError(cause);
-	}
-
 	const checkout = checkoutResolver(deps);
 
 	let named: TicketRef | null;
@@ -243,8 +233,6 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 		return usageError(cause);
 	}
 
-	// Resolved once, before either path reads a tracker or asks anyone, so every path refuses a base naming no
-	// commit alike, with exit 2 and nothing written. ADR-0044.
 	let options: Options;
 	try {
 		options = { ...line, base: line.base === null ? null : resolveBase(deps.runner, deps.cwd, line.base) };
@@ -270,7 +258,7 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 			graph: read.graph,
 			truncated: read.truncated,
 			openOnly: read.openOnly,
-			filter,
+			filter: line.filter,
 		});
 		answer = { selection, readDegraded: read.degraded };
 	} catch (cause) {
@@ -411,7 +399,6 @@ export type StartOutcome =
 	| {
 			readonly kind: "printed";
 			readonly command: Argv;
-			/** The base a start would cut a new branch from, resolved as a start resolves it. */
 			readonly base: Base | null;
 	  }
 	| { readonly kind: "declined"; readonly ref: TicketRef }
@@ -481,8 +468,6 @@ interface StartPick {
 /** The refusals, the gate, and then the three writes. `startWork`'s own comment is the contract for all of it. */
 function startPick(pick: StartPick, options: Options, deps: CliDeps, checkout: Checkout): StartedSomething {
 	const ref = pick.ticket.ref;
-	// Built before the host, the gate and the writes, so a session command that will not build fails with nobody
-	// asked and nothing written.
 	const { command } = planLaunch({ ref, session: options.session });
 	if (options.printCommand) return { kind: "printed", command, base: options.base };
 
@@ -574,8 +559,6 @@ class StartError extends Error {}
  * recovery would.
  */
 function startedNothing(cause: unknown, pick: StartPick, worktree: WorktreeOutcome, command: Argv): unknown {
-	// Carried by both failures, because once the run fails a base not applied and a drifted primary are reported
-	// nowhere else. Placed before the recovery, so the line to act on stays last.
 	const warned = renderWorktreeWarnings(worktree);
 	if (cause instanceof GitHubClaimError) {
 		// What the tracker holds, not what a ranked pick would have held: a forced start overruled a claim that is
@@ -665,7 +648,6 @@ type ShortRef<K extends StartOutcome["kind"]> = Omit<Extract<StartOutcome, { rea
 
 type BaseJson = { readonly given: string; readonly commit: string };
 
-/** Each arm with its base respelled as `BaseJson`, the way `ShortRef` respells a reference, so no arm widens. */
 type WorktreeOutcomeJson<T extends WorktreeOutcome> = T extends unknown
 	? Omit<T, "base"> & { readonly base: BaseOutcomeJson<T["base"]> }
 	: never;
@@ -698,10 +680,6 @@ function failedAnswer(cause: unknown): CliResult {
 
 class CliError extends Error {}
 
-/**
- * The line's options with the base resolved, so nothing past `run` reads the ref as typed. The named ticket and
- * the filter are left off, because `run` resolves and compiles those itself and hands them on separately.
- */
 type Options = Omit<ParsedLine, "base" | "named" | "filter"> & { readonly base: Base | null };
 
 interface ParsedLine {
@@ -711,9 +689,8 @@ interface ParsedLine {
 	readonly force: boolean;
 	readonly limit: number;
 	readonly session: SessionSpec;
-	/** As typed, because resolving it asks git and `parse` is handed nothing to ask with. */
 	readonly base: string | null;
-	readonly filter: LabelFilterSpec;
+	readonly filter: LabelFilter;
 	/**
 	 * The ticket named on the command line, as written — unresolved, because resolving one reads a git remote or
 	 * a CLI's authenticated hosts and `parse` is handed nothing to read with.
@@ -822,7 +799,6 @@ function parse(argv: readonly string[]): ParsedLine {
 				named = flag;
 		}
 	}
-	// ADR-0044 has why neither wins.
 	if (given.has("--command") && given.has("--slash-command")) {
 		throw new CliError("--command and --slash-command both say what the session runs, so give one of them");
 	}
@@ -838,7 +814,7 @@ function parse(argv: readonly string[]): ParsedLine {
 		session: template === null ? { kind: "slash-command", slashCommand } : { kind: "template", template },
 		base,
 		named,
-		filter: { include, exclude: [...DEFAULT_LABEL_FILTER.exclude, ...exclude] },
+		filter: compileLabelFilter({ include, exclude: [...DEFAULT_LABEL_FILTER.exclude, ...exclude] }),
 	};
 }
 

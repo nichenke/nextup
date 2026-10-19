@@ -156,10 +156,6 @@ describe("a templated command through formatCommand", () => {
 		expect(formatCommand(run(text))).toBe("bin/w '--log=run-gh:example/repo#1.log' x,y:z@1 --ticket 'gh:example/repo#1'");
 	});
 
-	/**
-	 * Against a real shell, because the host types the line into one. Each word the shell parsed comes back on its
-	 * own line from the function the line is handed to, so the comparison is against what a shell produced.
-	 */
 	test.each(["sh", "bash", "zsh"])("reaches %s as the very words the template and the reference make", (name) => {
 		if (Bun.which(name) === null) return;
 		const ref: TicketRef = { tracker: "jira", host: null, key: "it's $HOME =ls" };

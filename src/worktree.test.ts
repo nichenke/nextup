@@ -145,7 +145,6 @@ interface GitState {
 	readonly commonDir?: string;
 	/** What git says a worktree is — its root and its ref — for the cases where it disagrees with us. */
 	readonly identity?: (path: string) => readonly [string, string];
-	/** The exit `merge-base --is-ancestor` answers with; 1, not an ancestor, where unset. */
 	readonly isAncestor?: number;
 }
 
@@ -912,7 +911,6 @@ describe("ensure", () => {
 		expect(existing.issued.some((argv) => argv.includes("merge-base"))).toBe(false);
 	});
 
-	/** The attach route, with a worktree for the ticket's branch already registered at the expected path. */
 	function attachable(state: GitState, repo: string): GitState {
 		const path = join(repo, DEFAULT_WORKTREE_ROOT, READER_LEAF);
 		mkdirSync(path, { recursive: true });
@@ -1213,9 +1211,6 @@ describe("ensure against real git", () => {
 		git("branch", "-D", READER_BRANCH);
 		git("fetch", "--quiet", "--all");
 
-		// git resolves a remote-only branch by guessing and will not guess between two remotes: the argv this
-		// would otherwise issue dies on a fatal. Asserted, so the refusal is not theoretical. Either wording
-		// `remoteBranchesCommand` records is accepted, since which one depends on the git running the suite.
 		const guessed = defaultRunner(["git", "-C", repo, "worktree", "add", join(outer, "guess"), READER_BRANCH]);
 		expect(guessed.code).not.toBe(0);
 		expect(guessed.stderr).toMatch(/^fatal: .*(invalid reference|matched multiple \(\d+\) remote tracking branches)/m);

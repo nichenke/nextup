@@ -139,16 +139,13 @@ let pin: (given: string, commit: string) => Base;
 /**
  * A ref a new branch is to start from, pinned to the commit it named when it was resolved, so the branch
  * starts there however the ref moves before `git worktree add` runs. ADR-0044.
- *
- * Made only by `resolveBase`. A class with a `#` field, so a copy made by spreading one fails the type check, for
- * the reason `CommandTemplate` gives.
  */
 export class Base {
 	static {
 		pin = (given, commit) => new Base(given, commit);
 	}
 
-	readonly #resolved = true;
+	readonly #nominal = true;
 	/** The ref as typed, which is what a report of the base names. */
 	readonly given: string;
 	/** The full object id `given` named. */
@@ -208,11 +205,6 @@ export interface EnsureInput {
 	readonly base?: Base | null;
 }
 
-/**
- * Only cutting a new branch can apply a base, so `created` carries `none` or `applied`, the two routes onto an
- * existing branch carry `none`, `not-applied` or `already-on-base`, and an outcome claiming a base moved a branch
- * that was already there cannot be built. ADR-0044.
- */
 export type BaseOutcome =
 	| { readonly kind: "none" }
 	| { readonly kind: "applied"; readonly base: Base }
@@ -327,13 +319,10 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 	// A registered worktree at the path is the case above, so a branch that exists at this point is one
 	// checked out nowhere. The remotes are asked too, for the reason `remoteBranchesCommand` gives.
 	const local = branchExists(input.runner, primary, branch);
-	const adopted = local ? null : adoptableFromOrigin(input.runner, primary, branch);
+	const adopted = local ? null : originRefToAdopt(input.runner, primary, branch);
 	const create = !local && adopted === null;
-	// Not asked where a base is applied. The warning is about a new branch inheriting the primary's HEAD,
-	// and a base is what stops it inheriting anything. ADR-0044.
-	const warnings = create && base !== null ? [] : driftWarnings(input.runner, primary, main.head);
-	// Asked before the add, so nothing below can fail once a worktree exists. A branch adopted from origin is
-	// asked about by its remote ref, which the add will cut the local branch at exactly.
+	const cutFromBase = create && base !== null;
+	const warnings = cutFromBase ? [] : driftWarnings(input.runner, primary, main.head);
 	const existing = create ? NO_BASE : onExistingBranch(input.runner, primary, adopted ?? `${REF_HEADS}${branch}`, base);
 	// primary, not input.repo — see `driftWarnings`.
 	const command = create
@@ -349,13 +338,6 @@ export function ensure(input: EnsureInput): WorktreeOutcome {
 	return { kind: "checked-out", path, branch, command, primary, warnings, base: existing };
 }
 
-/**
- * What a base given for a branch that already existed amounts to. Nothing moved the branch either way, so this
- * says only whether `ref` already contains the base's commit. `ref` is the local branch, or for one adopted
- * from origin the remote ref the add will cut it at, so the answer is the same and can be had before the add.
- *
- * @throws WorktreeError `"git"` for any answer but yes or no, for the reason `isAncestorCommand` gives.
- */
 function onExistingBranch(runner: Runner, primary: string, ref: string, base: Base | null): OntoExistingBranch {
 	if (base === null) return NO_BASE;
 	const result = runner([...isAncestorCommand(primary, base.commit, ref)]);
@@ -487,7 +469,7 @@ function resolveContainer(primary: string, root: string | null | undefined, gitD
  * A path or path component lowered for comparison. A bare helper rather than a comparison claiming a
  * policy, because folding is safe in opposite directions at its two kinds of use: `resolveContainer` folds
  * to refuse *more*, and the only thing it newly rejects is a genuinely distinct `.GIT` directory on a
- * case-sensitive filesystem; `adoptableFromOrigin` folds a remote's name to *accept* a differently-cased
+ * case-sensitive filesystem; `originRefToAdopt` folds a remote's name to *accept* a differently-cased
  * `Origin`, which is the same remote by intent.
  *
  * The path matching in `ensure` is deliberately not folded. It decides which worktree to attach to, so on
@@ -640,9 +622,6 @@ function branchExists(runner: Runner, repo: string, branch: string): boolean {
 }
 
 /**
- * The remote ref, spelled as git lists it, of a branch on `origin` that this can adopt by checking it out
- * rather than cutting a new one, or `null` where there is none.
- *
  * @throws WorktreeError `"unsupported-repository"` where more than one remote offers the name. Adopting a
  * remote-only branch leaves git to resolve the name, and git refuses to resolve an ambiguous one — so the
  * argv would fail with a fatal after the guards had passed, in either wording `remoteBranchesCommand`
@@ -652,7 +631,7 @@ function branchExists(runner: Runner, repo: string, branch: string): boolean {
  *
  * @throws WorktreeError `"git"` where the repository could not answer.
  */
-function adoptableFromOrigin(runner: Runner, repo: string, branch: string): string | null {
+function originRefToAdopt(runner: Runner, repo: string, branch: string): string | null {
 	const result = runner([...remoteBranchesCommand(repo, branch)]);
 	if (result.code !== 0) {
 		throw new WorktreeError(
@@ -743,9 +722,6 @@ function resolvedIfThere(path: string): string | undefined {
 }
 
 /**
- * Whether the primary checkout has drifted off the default branch, which is worth saying because a new
- * branch given no base is cut from that checkout's HEAD, so a worktree stacked on drift inherits it.
- *
  * A default branch that cannot be determined is itself reported. Saying nothing would drop the check
  * silently in exactly the repositories that have no `origin/HEAD` to read, and a caller would have no
  * way to tell that from a checkout sitting on the default branch.

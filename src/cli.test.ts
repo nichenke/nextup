@@ -229,7 +229,6 @@ function startSequence(
 		if (argv.includes("show-ref")) return { code: argv.includes("refs/remotes/origin/main") ? 0 : 1, stdout: "", stderr: "" };
 		if (argv.includes("for-each-ref")) return { code: 0, stdout: "", stderr: "" };
 		if (argv.includes("add")) return { code: 0, stdout: "", stderr: "" };
-		// Not an ancestor unless a test says otherwise, so a branch that already existed is off the base.
 		if (argv.includes("--is-ancestor")) return { code: 1, stdout: "", stderr: "" };
 		throw new Error(`nothing answers ${argv.join(" ")}`);
 	};

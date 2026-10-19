@@ -22,9 +22,6 @@ const SHORT_COMMIT = 7;
  * `checked-out` both made a worktree at a path that was not there, and only the branch tells them apart
  * — so a run that cut a new branch and one that adopted a branch somebody else pushed must not print
  * the same sentence.
- *
- * A base that was not applied is a warning line, because the run did something other than what was asked
- * and still succeeded. A branch already on the base gets none, since the run did what was asked. ADR-0044.
  */
 export function renderWorktree(outcome: WorktreeOutcome): string {
 	return `${DID[outcome.kind]} ${outcome.path}\n  on ${branchPhrase(outcome)}\n${renderWorktreeWarnings(outcome)}`;

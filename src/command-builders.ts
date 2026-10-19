@@ -432,17 +432,15 @@ export function formatCommand(argv: readonly string[]): string {
 // Single quotes, which a POSIX shell leaves entirely literal, so only the closing quote itself needs
 // handling. Deciding a word is safe by an allowlist rather than by escaping the characters that are
 // not: an escape list has to stay complete as shells add syntax, and an allowlist that falls behind
-// only over-quotes. `isBareWord` has the positions where an allowed character is still syntax.
+// only over-quotes.
 function quote(word: string, first: boolean): string {
 	if (isBareWord(word, first)) return word;
 	return `'${word.replaceAll("'", `'\\''`)}'`;
 }
 
 /**
- * Whether `formatCommand` leaves `word` unquoted, as the line's first word or as a later one. Exported so that
- * `parseCommandTemplate` refuses by this rule rather than by a copy of it. A word this rule leaves bare reaches
- * the program as written, measured in sh, bash and zsh, and a copy that drifted would let one reach a shell as
- * syntax.
+ * Whether `formatCommand` leaves `word` unquoted, as the line's first word or as a later one. A word this rule
+ * leaves bare reaches the program as written, measured in sh, bash and zsh.
  *
  * An allowed character is still syntax in three positions. A first word holding `=` is read as an assignment
  * and runs whatever follows instead. A word starting with `=` is expanded to a command's path by zsh's default

@@ -16,10 +16,6 @@ import { type TicketRef, formatTicketRef } from "./ticket-ref";
 /** Why no session was started. One class rather than an outage-and-defect pair — ADR-0035. */
 export class LaunchError extends Error {}
 
-/**
- * What the session runs: the session binary with a slash command, or a template the operator wrote, which names
- * its own program.
- */
 export type SessionSpec =
 	| { readonly kind: "slash-command"; readonly slashCommand: string }
 	| { readonly kind: "template"; readonly template: CommandTemplate };
