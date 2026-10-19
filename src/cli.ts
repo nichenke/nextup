@@ -33,7 +33,7 @@ import {
 import { SelectionError, select } from "./selector";
 import type { Claim, Ticket } from "./ticket";
 import { type GitHubTicketRef, type TicketRef, TicketRefError, formatTicketRef, githubTicketTarget, resolveTicketRef } from "./ticket-ref";
-import { type Base, WorktreeError, type WorktreeOutcome, ensure, resolveBase } from "./worktree";
+import { type Base, type BaseOutcome, WorktreeError, type WorktreeOutcome, ensure, resolveBase } from "./worktree";
 import { renderWorktree } from "./worktree-output";
 
 /**
@@ -215,9 +215,9 @@ function checkoutResolver(deps: CliDeps): Checkout {
 export function run(argv: readonly string[], deps: CliDeps): CliResult {
 	if (asksForHelp(argv)) return { code: 0, stdout: USAGE, stderr: "" };
 
-	let options: Options;
+	let line: ParsedLine;
 	try {
-		options = parse(argv);
+		line = parse(argv);
 	} catch (cause) {
 		return usageError(cause);
 	}
@@ -228,9 +228,19 @@ export function run(argv: readonly string[], deps: CliDeps): CliResult {
 	try {
 		// Resolved here rather than in `parse`, which is handed no runner: a bare `gh:12` is resolved against this
 		// checkout's remote, and a pasted URL against the tracker CLIs' authenticated hosts.
-		named = options.named === null ? null : resolveTicketRef(options.named, { runner: deps.runner, directory: deps.cwd, checkout });
+		named = line.named === null ? null : resolveTicketRef(line.named, { runner: deps.runner, directory: deps.cwd, checkout });
 	} catch (cause) {
 		return usageError(cause);
+	}
+
+	// Resolved once, before either path reads a tracker or asks anyone, so every path refuses a base naming no
+	// commit alike, with exit 2 and nothing written: a ranked run with nothing to pick, a named ticket the checks
+	// refuse, and --print-command. ADR-0044.
+	let options: Options;
+	try {
+		options = { ...line, base: line.base === null ? null : resolveBase(deps.runner, deps.cwd, line.base) };
+	} catch (cause) {
+		return failedStart(cause);
 	}
 	if (named !== null) return runNamed(named, options, deps, checkout);
 
@@ -305,12 +315,7 @@ function runNamed(ref: TicketRef, options: Options, deps: CliDeps, checkout: Che
 		const target = githubTicketTarget(ref);
 		if (target.kind === "refused") return usageError(new CliError(target.reason));
 		const { command } = planLaunch({ ref, session: options.session });
-		try {
-			givenBase(options, deps);
-		} catch (cause) {
-			return failedStart(cause);
-		}
-		return namedResult({ kind: "printed", command }, null, options);
+		return namedResult({ kind: "printed", command, base: options.base }, null, options);
 	}
 
 	let answer: OverrideAnswer;
@@ -401,7 +406,12 @@ function forced(start: StartedSomething | null, answer: OverrideAnswer | null): 
  */
 export type StartOutcome =
 	| { readonly kind: "nothing-to-start" }
-	| { readonly kind: "printed"; readonly command: Argv }
+	| {
+			readonly kind: "printed";
+			readonly command: Argv;
+			/** The base a start would cut a new branch from, resolved as a start resolves it. */
+			readonly base: Base | null;
+	  }
 	| { readonly kind: "declined"; readonly ref: TicketRef }
 	| {
 			/**
@@ -426,7 +436,7 @@ export type StartOutcome =
  *
  * @throws StartError where there is nobody to confirm with, and where the claim or the session failed —
  * carrying the worktree, and saying which recovery the failure actually leaves open.
- * @throws WorktreeError from resolving `--base` and from the worktree step, and LaunchError from the host check.
+ * @throws WorktreeError from the worktree step, and LaunchError from the host check.
  * Not from the session itself: `startedNothing` has why that one arrives as a `StartError` instead.
  * @throws CommandBuilderError unwrapped, from `--slash-command` naming something `sessionCommand` will not
  * build — which parsing already refused and this backstops, before anything is written. The claim's own
@@ -469,12 +479,10 @@ interface StartPick {
 /** The refusals, the gate, and then the three writes. `startWork`'s own comment is the contract for all of it. */
 function startPick(pick: StartPick, options: Options, deps: CliDeps, checkout: Checkout): StartedSomething {
 	const ref = pick.ticket.ref;
-	// Built first, so the one input that can fail without touching anything fails while that is still true.
+	// Built before the host, the gate and the writes, so a session command that will not build fails with nobody
+	// asked and nothing written.
 	const { command } = planLaunch({ ref, session: options.session });
-	// Before the print return, so a preview refuses a base the start would refuse, and before the host, the gate
-	// and the writes, so a base naming no commit has asked nobody and written nothing. ADR-0044.
-	const base = givenBase(options, deps);
-	if (options.printCommand) return { kind: "printed", command };
+	if (options.printCommand) return { kind: "printed", command, base: options.base };
 
 	// Narrowed here rather than at the claim, so that a tracker with no adapter is refused before the worktree
 	// exists rather than after it. Neither path can currently deliver one — the ranked pick comes from the GitHub
@@ -495,7 +503,7 @@ function startPick(pick: StartPick, options: Options, deps: CliDeps, checkout: C
 	requireSessionBinary(deps.runner, options.session);
 	if (!approved(pick, options, deps)) return { kind: "declined", ref };
 
-	const worktree = ensure({ runner: deps.runner, repo: deps.cwd, ticket: pick.ticket, base });
+	const worktree = ensure({ runner: deps.runner, repo: deps.cwd, ticket: pick.ticket, base: options.base });
 	try {
 		claimGitHubTicket({ runner: deps.runner, ref: target.ref, checkout: here });
 		launch({ runner: deps.runner, ticket: pick.ticket, command, worktree: worktree.path });
@@ -503,10 +511,6 @@ function startPick(pick: StartPick, options: Options, deps: CliDeps, checkout: C
 	} catch (cause) {
 		throw startedNothing(cause, pick, worktree, command);
 	}
-}
-
-function givenBase(options: Options, deps: CliDeps): Base | null {
-	return options.base === null ? null : resolveBase(deps.runner, deps.cwd, options.base);
 }
 
 /**
@@ -636,11 +640,15 @@ function renderStart(start: StartOutcome): string {
 	}
 }
 
-/** `StartOutcome` with every reference in the short form `CandidateJson` uses. */
+/**
+ * `StartOutcome` with every reference in the short form `CandidateJson` uses, and every base as the two fields
+ * `JSON.stringify` writes, since a parsed document holds no `Base` and the class has a field no plain object has.
+ */
 export type StartOutcomeJson =
-	| Extract<StartOutcome, { readonly kind: "nothing-to-start" | "printed" }>
+	| Extract<StartOutcome, { readonly kind: "nothing-to-start" }>
+	| (Omit<Extract<StartOutcome, { readonly kind: "printed" }>, "base"> & { readonly base: BaseJson | null })
 	| ShortRef<"declined">
-	| ShortRef<"requested">;
+	| (Omit<ShortRef<"requested">, "worktree"> & { readonly worktree: WorktreeOutcomeJson<WorktreeOutcome> });
 
 /**
  * One arm with its reference as the short form, its own other fields carried over so a field added to that arm
@@ -649,6 +657,15 @@ export type StartOutcomeJson =
 type ShortRef<K extends StartOutcome["kind"]> = Omit<Extract<StartOutcome, { readonly kind: K }>, "ref"> & {
 	readonly ref: string;
 };
+
+type BaseJson = { readonly given: string; readonly commit: string };
+
+/** Each arm with its base respelled as `BaseJson`, the way `ShortRef` respells a reference, so no arm widens. */
+type WorktreeOutcomeJson<T extends WorktreeOutcome> = T extends unknown
+	? Omit<T, "base"> & { readonly base: BaseOutcomeJson<T["base"]> }
+	: never;
+
+type BaseOutcomeJson<T extends BaseOutcome> = T extends { readonly base: Base } ? Omit<T, "base"> & { readonly base: BaseJson } : T;
 
 function startJson(start: StartOutcome): StartOutcomeJson {
 	switch (start.kind) {
@@ -676,13 +693,17 @@ function failedAnswer(cause: unknown): CliResult {
 
 class CliError extends Error {}
 
-interface Options {
+/** The line with its base resolved, which is all `run` hands on, so nothing past it reads the ref as typed. */
+type Options = Omit<ParsedLine, "base"> & { readonly base: Base | null };
+
+interface ParsedLine {
 	readonly json: boolean;
 	readonly yes: boolean;
 	readonly printCommand: boolean;
 	readonly force: boolean;
 	readonly limit: number;
 	readonly session: SessionSpec;
+	/** As typed, because resolving it asks git and `parse` is handed nothing to ask with. */
 	readonly base: string | null;
 	readonly filter: LabelFilterSpec;
 	/**
@@ -737,7 +758,7 @@ function isTicketCount(word: string): boolean {
 	return /^[0-9]+$/.test(word);
 }
 
-function parse(argv: readonly string[]): Options {
+function parse(argv: readonly string[]): ParsedLine {
 	let json = false;
 	let yes = false;
 	let printCommand = false;

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type CliDeps, DEFAULT_LIMIT, run } from "./cli";
+import { type CliDeps, DEFAULT_LIMIT, type StartOutcomeJson, run } from "./cli";
 import { DEFAULT_SLASH_COMMAND } from "./command-builders";
 import { DEFAULT_LABEL_FILTER, compileLabelFilter } from "./label-filter";
 import type { CommandResult, Runner } from "./runner";
@@ -350,7 +350,7 @@ describe("starting work on the pick", () => {
 
 	test("names the other outcomes under --json too, so a script can tell them apart", () => {
 		const printed = JSON.parse(run([...LIMIT, "--print-command", "--json"], deps(startSequence().runner)).stdout);
-		expect(printed.start).toEqual({ kind: "printed", command: ["claude", printed.start.command[1]] });
+		expect(printed.start).toEqual({ kind: "printed", command: ["claude", printed.start.command[1]], base: null });
 
 		const declined = JSON.parse(
 			run([...LIMIT, "--json"], { runner: startSequence().runner, confirm: terminal(false).confirm, cwd: PRIMARY }).stdout,
@@ -1334,9 +1334,13 @@ describe("--base and --command", () => {
 
 		test("carries the templated argv as start.command when it prints under --json", () => {
 			const document = JSON.parse(run([namedTicket(), "--command", "w {ref}", "--print-command", "--json"], deps(onlyOriginAndBase)).stdout);
-			expect(document.start).toEqual({ kind: "printed", command: ["w", namedTicket()] });
+			expect(document.start).toEqual({ kind: "printed", command: ["w", namedTicket()], base: null });
 		});
 
+		test("carries the resolved base beside the command when it prints under --json", () => {
+			const document = JSON.parse(run([namedTicket(), "--base", BASE, "--print-command", "--json"], deps(onlyOriginAndBase)).stdout);
+			expect(document.start.base).toEqual({ given: BASE, commit: BASE_COMMIT });
+		});
 		test("refuses under --print-command the base a start would refuse", () => {
 			const result = run([namedTicket(), "--base", "nosuch", "--print-command"], deps(onlyOriginAndBase));
 			expect(result.code).toBe(2);
@@ -1350,6 +1354,69 @@ describe("--base and --command", () => {
 			const result = run([namedTicket(), "--command", "w {ref}", "--yes"], deps(runner));
 			expect(result.code).toBe(2);
 			expect(result.stderr).toContain(`&& w '${namedTicket()}'`);
+		});
+	});
+
+	describe("resolved once, before either path reads a tracker", () => {
+		const nothingToPick = (argv: string[]): CommandResult | null =>
+			argv[0] === "gh" && argv[2] === "list" ? { code: 0, stdout: "[]\n", stderr: "" } : null;
+
+		test("refuses a base naming no commit on a ranked run with nothing to pick, rather than exiting 1", () => {
+			const { runner, of } = startSequence(answeringBase(nothingToPick));
+			const result = run(["--base", "nosuch", "--yes"], deps(runner));
+
+			expect(result.code).toBe(2);
+			expect(result.stderr).toContain("--base nosuch names no commit");
+			expect(of("gh")).toEqual([]);
+		});
+
+		test("still exits 1 on a ranked run with nothing to pick when the base resolves", () => {
+			const { runner, indexOf } = startSequence(answeringBase(nothingToPick));
+			const result = run(["--base", BASE, "--yes"], deps(runner));
+
+			expect(result.code).toBe(1);
+			expect(indexOf("rev-parse", "--end-of-options")).toBeLessThan(indexOf("gh", "list"));
+		});
+
+		test("refuses a base naming no commit before a named ticket's checks are read, so a refusal cannot hide it", () => {
+			const { runner, of } = startSequence(answeringBase(), "ticket-view-claimed");
+			const result = run([namedTicket("ticket-view-claimed"), "--base", "nosuch", "--yes", "--json"], deps(runner));
+
+			expect(result.code).toBe(2);
+			expect(result.stdout).toBe("");
+			expect(result.stderr).toContain("--base nosuch names no commit");
+			expect(of("gh")).toEqual([]);
+		});
+
+		test("asks git about the base once per run, on every path", () => {
+			for (const [argv, recording] of [
+				[[...LIMIT, "--base", BASE, "--yes"], "ticket-set"],
+				[[...LIMIT, "--base", BASE, "--print-command"], "ticket-set"],
+				[[namedTicket(), "--base", BASE, "--yes"], "ticket-view"],
+				[[namedTicket(), "--base", BASE, "--print-command"], "ticket-view"],
+			] as const) {
+				const { runner, of } = startSequence(answeringBase(), recording);
+				expect(run(argv, deps(runner)).code).toBe(0);
+				expect(of("rev-parse", "--end-of-options")).toHaveLength(1);
+			}
+		});
+
+		test("types every base under --json as the plain fields a parsed document holds", () => {
+			const plain = { given: BASE, commit: BASE_COMMIT };
+			const printed: StartOutcomeJson = { kind: "printed", command: ["w"], base: plain };
+			const facts = { path: "/p", branch: "b", primary: "/r", warnings: [], command: null } as const;
+			const started = { kind: "requested", ref: "gh:example/repo#1", command: ["w"] } as const;
+			const requested: StartOutcomeJson = { ...started, worktree: { ...facts, kind: "attached", base: { kind: "already-on-base", base: plain } } };
+			const created: StartOutcomeJson = {
+				...started,
+				worktree: { ...facts, kind: "created", command: ["git"], base: { kind: "applied", base: plain } },
+			};
+			// @ts-expect-error the JSON keeps the outcome type's rule: an attach cannot have applied a base
+			const attachedApplied: StartOutcomeJson = { ...started, worktree: { ...facts, kind: "attached", base: { kind: "applied", base: plain } } };
+
+			const document = JSON.parse(run([...LIMIT, "--base", BASE, "--print-command", "--json"], deps(startSequence(answeringBase()).runner)).stdout);
+			expect(document.start).toEqual({ ...printed, command: document.start.command });
+			expect([requested, created, attachedApplied]).toHaveLength(3);
 		});
 	});
 
