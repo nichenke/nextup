@@ -10,8 +10,7 @@ named path, with `--force`, and with `--print-command`.
 
 Without a base, Ensure cuts a new branch from the primary checkout's HEAD. `worktreeAddCommand` passes git
 no start point, so the branch inherits whatever the primary has checked out, and the default branch plays no
-part in where it starts. That inheritance is why `driftWarnings` reports a primary that has drifted off the
-default branch, because a branch cut there carries the drift. A stacked phase needs its branch cut from its
+part in where it starts, which `driftWarnings` warns about. A stacked phase needs its branch cut from its
 parent phase's branch instead, and with `--base` Ensure passes the base to git as the start point.
 
 The workaround was to pre-create the branch outside nextup and let Ensure attach to it. That was rejected
@@ -110,15 +109,16 @@ already relies on.
 `already-on-base` exists for the ordinary recovery. A failed claim is recovered by running the command again,
 per [0016](./0016-the-worktree-is-created-before-the-claim.md), and that re-run attaches to the branch the
 first run cut at the base. Reporting that branch as not applied would tell the orchestrator its own branch
-sits on the wrong parent. So `already-on-base` raises no warning, and the rendering names the base on the
+sits on the wrong parent. So `already-on-base` raises no base warning, and the rendering names the base on the
 branch's own line instead, as in this example:
 
 ```
   on <branch>, where it already was, and already contains <given> at <7-char commit>
 ```
 
-A branch that does not contain the base gets a line a caller can find with `grep '^warning: '`, as in this
-example:
+A branch that does not contain the base gets a line a caller can find with `grep '^warning: --base '`, as in
+this example. A bare `^warning: ` also matches the drift warning, which every route but a new branch cut at
+the base still prints, so it does not mean the base was not applied.
 
 ```
 warning: --base <given> was not applied: <branch> already existed, so it was left where it was
@@ -127,7 +127,7 @@ warning: --base <given> was not applied: <branch> already existed, so it was lef
 A start that fails after the worktree was made, at the claim or at the session, carries the worktree's warning
 lines on stderr ahead of its recovery, so a base that was not applied is not dropped by the failure. A failure
 of the base question itself, after the add, carries no drift warning. Nothing was claimed, and its recovery is
-the re-run that attaches, which prints them.
+the re-run that attaches, which prints the drift warnings.
 
 `--json` carries the same facts as `start.worktree.base`, with `kind: "already-on-base"` or
 `kind: "not-applied"`, so the orchestrator can stop on a field rather than on a string match.
@@ -152,8 +152,9 @@ takes a line rather than argv and types it into a shell, so since
 default command takes. Each word, with every `{ref}` taken out, must be one `formatCommand` leaves bare, and
 `isBareWord` holds that rule and the positions where an allowed character is still shell syntax. A word that is
 only `{ref}` passes anywhere but first. The first word is the program, and a ticket's reference names none, so
-a first word holding `{ref}` is refused rather than claiming the ticket for a session that cannot start. A word without the reference then reaches the program as written, measured in sh, bash and
-zsh, and a word carrying it is quoted whole, so a reference substituted into a word stays inside it.
+a first word holding `{ref}` is refused rather than claiming the ticket for a session that cannot start. A
+word without the reference then reaches the program as written, with the exceptions listed below, and a word
+carrying it is quoted whole, so a reference substituted into a word stays inside it.
 The rule is `formatCommand`'s own predicate, so the two cannot drift apart. Accepting the
 template verbatim as a shell string was rejected, because it would splice the reference into shell code and
 hand the host a line nothing here had quoted.
@@ -172,12 +173,19 @@ refusal beats running something other than what was written. The cost is that a 
 argument containing a space or expand a variable. Anything needing the shell belongs in the script the
 template runs.
 
-The guarantee that a word reaches the program as written holds for a shell with no aliases, measured
-non-interactively, and not for a reserved word in first position such as `if`, `time` or `select`, which sh,
-bash and zsh all parse as syntax even then. The workspace host types the line into the user's interactive
-shell, where an alias (including a zsh global alias on any word) or zsh's assignment-style `A==cmd` expansion
-after `export` or `typeset` can also rewrite a word. These are out of scope, and a template that needs
-certainty should name a script.
+The guarantee that a word reaches the program as written covers the characters `isBareWord` checks and
+stops there. Shells rewrite some words made only of those characters, and `isBareWord` does not look for
+them. These are the ones review found, which is not a proof that there are no others:
+
+- a reserved word as the first word, such as `if`, a syntax error in sh, bash, zsh and dash even
+  non-interactively, measured; `time` and `select` are reserved in bash and zsh but not in dash;
+- a later word holding `==` after zsh's reserved `export` or `typeset`, which zsh expands as `=cmd`, so
+  `export A==ls` sets `A` to `/bin/ls`, measured non-interactively with `zsh -f`;
+- `-` as the first word, a zsh precommand modifier, inferred and not run;
+- an alias, including a zsh global alias on any word, in the interactive shell the workspace host types the
+  line into.
+
+These are out of scope, and a template that needs certainty should name a script.
 
 **`{ref}` is required.** The session's whole task is the reference. A template without it would start a
 session that does not know its ticket, in a worktree made for that ticket, with the ticket claimed.

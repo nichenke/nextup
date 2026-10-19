@@ -122,16 +122,16 @@ the host alone and asks the glab CLI about anything else.
 --base names the ref a new branch is cut from. It is resolved in the directory you typed the command in and
 pinned to the commit it names before any tracker is read or anything is written, so a ref naming no commit
 is refused with nothing done, and --print-command refuses it too. A branch or worktree that already exists
-is checked out or attached where it is and never moved. Where that branch already contains the base, the line naming the branch
-says so; where it does not, a "warning: " line says the base was not applied.
+is checked out or attached where it is and never moved. Where that branch already contains the base, the
+line naming the branch says so; where it does not, a "warning: --base" line says the base was not applied.
 
 --command runs a template in the workspace instead of claude and a slash command. The template is split on
 whitespace into words, and every {ref} is replaced by the ticket's reference, even inside a longer word. The
 template is not shell. Apart from {ref}, a word may hold only letters, digits and _@%+=:,./- and no word may
-start with =, nor the first word with % or hold = or {ref}. A word without {ref} then reaches the program as
-written in sh, bash and zsh, unless it is a reserved word such as if or time in first place or an alias in
-your interactive shell, and a word with it is quoted whole; anything needing a shell belongs in a script the
-template runs. A template with no {ref} is refused, since the session would not know its ticket.
+start with =, nor the first word with % or hold = or {ref}. A word with {ref} is quoted whole. A word without
+it reaches the program as written, except for words a shell rewrites whatever their characters, such as if as
+the first word or an alias in your shell, which ADR-0044 lists and nothing here checks. Anything needing a
+shell, or certainty, belongs in a script the template runs. A template with no {ref} is refused, since the session would not know its ticket.
 The session binary is not checked for a template, whose program is something else. --command is refused
 beside --slash-command, which only the default command reads.
 

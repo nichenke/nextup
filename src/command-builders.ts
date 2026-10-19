@@ -189,8 +189,8 @@ export function refExistsCommand(repo: string, ref: string): readonly string[] {
  * The whole list rather than `show-ref` on `origin` alone, because the count is the other half of the
  * answer. `git worktree add <path> <branch>` resolves a remote-only branch by guessing, and it refuses to
  * guess when more than one remote offers the name, failing with a fatal rather than making a worktree:
- * `invalid reference`, or a message that the name `matched multiple` remote tracking branches. git 2.56 gives
- * the second where the remotes are configured and the first where only their refs are, measured.
+ * a message that the name `matched multiple` remote tracking branches where more than one configured remote
+ * has it, and `invalid reference` where its refs sit under no configured remote, measured on git 2.56.
  * Asking this way costs no extra command and tells us both whether `origin` has it and whether anything
  * else does.
  */
@@ -438,9 +438,8 @@ function quote(word: string, first: boolean): string {
 
 /**
  * Whether `formatCommand` leaves `word` unquoted, as the line's first word or as a later one. A word this rule
- * leaves bare reaches the program as written, measured in sh, bash and zsh, with two exceptions this does not
- * check: a reserved word such as `if` as the first word, which all three parse as syntax, and an alias in an
- * interactive shell.
+ * leaves bare reaches the program as written in sh, bash and zsh, except for the words those shells rewrite
+ * whatever their characters, which this does not check. ADR-0044 lists the ones known.
  *
  * An allowed character is still syntax in three positions. A first word holding `=` is read as an assignment
  * and runs whatever follows instead. A word starting with `=` is expanded to a command's path by zsh's default
