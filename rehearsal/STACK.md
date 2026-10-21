@@ -2,3 +2,4 @@
 
 Each rehearsal phase appends one line below.
 
+- phase 1 of r20261021-005434 says hello
