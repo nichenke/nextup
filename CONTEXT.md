@@ -193,3 +193,5 @@ remote. About the checkout rather than about a ticket — a **TicketRef** names 
 already uses "identity" for a ticket's graph key. Distinct from **Scope binding**, which records what
 cannot be inferred from a remote; this is what *is* inferred from one.
 _Avoid_: repo identity, origin, current repo, scope binding
+
+The stack orchestrator capture adds this line (nichenke/ai-configs#93).
